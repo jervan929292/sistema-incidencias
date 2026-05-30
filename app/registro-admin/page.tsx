@@ -2,12 +2,10 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import { Camera, ShieldCheck, UserPlus, AlertCircle } from 'lucide-react';
+import { ShieldCheck, UserPlus } from 'lucide-react';
 
 export default function RegistroAdminPage() {
   const [formData, setFormData] = useState({ nombre: '', email: '', telefono: '', password: '', cargo: '', cedula: '' });
-  const [avatar, setAvatar] = useState<File | null>(null);
-  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
@@ -24,35 +22,12 @@ export default function RegistroAdminPage() {
   }, [router]);
   // --- FIN DEL ATAJO SECRETO ---
 
-  // Función para manejar la vista previa de la foto
-  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setAvatar(file);
-      setAvatarPreview(URL.createObjectURL(file));
-    }
-  };
-
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
     try {
-      let avatarUrl = '';
-      
-      // 1. Subida de imagen a Storage
-      if (avatar) {
-        const fileExt = avatar.name.split('.').pop();
-        const fileName = `${Math.random()}.${fileExt}`;
-        const { data: uploadData, error: uploadError } = await supabase.storage.from('fotos-perfil').upload(fileName, avatar);
-        
-        if (uploadError) {
-          throw new Error("Error subiendo foto. Revisa que el bucket 'fotos-perfil' exista y sea público. " + uploadError.message);
-        }
-        avatarUrl = uploadData?.path || '';
-      }
-
-      // 2. Crear usuario en Auth
+      // 1. Crear usuario en Auth
       const { data: auth, error: authError } = await supabase.auth.signUp({ 
         email: formData.email, 
         password: formData.password 
@@ -60,7 +35,7 @@ export default function RegistroAdminPage() {
 
       if (authError) throw new Error("Error de Autenticación: " + authError.message);
 
-      // 3. Guardar datos en la base de datos
+      // 2. Guardar datos en la base de datos (Sin foto)
       const { error: dbError } = await supabase.from('directorio_operativo').insert([{
         id: auth.user?.id, 
         nombre_apellido_jefe: formData.nombre, 
@@ -68,7 +43,6 @@ export default function RegistroAdminPage() {
         telefono_celular_jefe: formData.telefono,
         cedula: formData.cedula,
         grado_jerarquia: formData.cargo,
-        avatar_url: avatarUrl,
         rol: 'admin',
         codigo_situr: formData.password
       }]);
@@ -97,29 +71,17 @@ export default function RegistroAdminPage() {
           <p className="text-xs text-gray-500 font-bold mt-1">Crea una cuenta con acceso total al sistema VEN 911</p>
         </div>
         
-        <form onSubmit={handleRegister} className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <form onSubmit={handleRegister} className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
           
-          {/* Selector de Foto (Con Vista Previa) */}
-          <div className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-gray-300 rounded-2xl relative overflow-hidden group bg-gray-50 hover:bg-gray-100 transition-all cursor-pointer">
-            {avatarPreview && (
-              <img src={avatarPreview} className="absolute inset-0 w-full h-full object-cover opacity-60 group-hover:opacity-30 transition-all" alt="Vista previa" />
-            )}
-            <Camera size={40} className="text-[#00529b] mb-2 z-10 drop-shadow-md" />
-            <span className="text-xs font-black text-gray-700 z-10 text-center mb-2 px-3 py-1 bg-white/90 rounded-lg shadow-sm border">
-              {avatar ? avatar.name : 'Subir Foto de Perfil'}
-            </span>
-            <input required={!avatarPreview} type="file" className="absolute inset-0 opacity-0 cursor-pointer z-20" onChange={handleAvatarChange} accept="image/*" />
-          </div>
-          
-          {/* Datos Personales */}
+          {/* Columna Izquierda: Datos Personales */}
           <div className="space-y-4">
             <div>
               <label className="text-xs font-bold text-gray-500 mb-1 block">Nombre completo</label>
               <input required className="w-full p-3 border rounded-xl bg-white focus:ring-2 focus:ring-[#00529b] outline-none transition-all" placeholder="Ej: Juan Pérez" value={formData.nombre} onChange={e => setFormData({...formData, nombre: e.target.value})} />
             </div>
             <div>
-              <label className="text-xs font-bold text-gray-500 mb-1 block">Cédula</label>
-              <input required className="w-full p-3 border rounded-xl bg-white focus:ring-2 focus:ring-[#00529b] outline-none transition-all" placeholder="Ej: V-12345678" value={formData.cedula} onChange={e => setFormData({...formData, cedula: e.target.value})} />
+              <label className="text-xs font-bold text-gray-500 mb-1 block">Cédula (Solo números)</label>
+              <input required type="text" inputMode="numeric" pattern="[0-9]*" maxLength={10} className="w-full p-3 border rounded-xl bg-white focus:ring-2 focus:ring-[#00529b] outline-none transition-all" placeholder="Ej: 12345678" value={formData.cedula} onChange={e => setFormData({...formData, cedula: e.target.value.replace(/\D/g, '')})} />
             </div>
             <div>
               <label className="text-xs font-bold text-gray-500 mb-1 block">Cargo / Grado</label>
@@ -127,22 +89,23 @@ export default function RegistroAdminPage() {
             </div>
           </div>
 
-          {/* Datos de Contacto y Acceso */}
-          <div>
-            <label className="text-xs font-bold text-gray-500 mb-1 block">Correo Electrónico</label>
-            <input required type="email" className="w-full p-3 border rounded-xl bg-white focus:ring-2 focus:ring-[#00529b] outline-none transition-all" placeholder="admin@cupaz.com" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} />
-          </div>
-          <div>
-            <label className="text-xs font-bold text-gray-500 mb-1 block">Teléfono Celular</label>
-            <input required className="w-full p-3 border rounded-xl bg-white focus:ring-2 focus:ring-[#00529b] outline-none transition-all" placeholder="0412-0000000" value={formData.telefono} onChange={e => setFormData({...formData, telefono: e.target.value})} />
-          </div>
-          
-          <div className="col-span-full">
-            <label className="text-xs font-bold text-[#00529b] mb-1 block">Contraseña Maestra (Min. 6 caracteres)</label>
-            <input required type="password" minLength={6} className="w-full p-3 border-2 border-[#00529b] rounded-xl bg-blue-50 font-bold focus:ring-2 focus:ring-blue-600 outline-none transition-all" placeholder="Ingresa tu clave segura" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} />
+          {/* Columna Derecha: Datos de Contacto y Acceso */}
+          <div className="space-y-4">
+            <div>
+              <label className="text-xs font-bold text-gray-500 mb-1 block">Correo Electrónico</label>
+              <input required type="email" className="w-full p-3 border rounded-xl bg-white focus:ring-2 focus:ring-[#00529b] outline-none transition-all" placeholder="admin@cupaz.com" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} />
+            </div>
+            <div>
+              <label className="text-xs font-bold text-gray-500 mb-1 block">Teléfono Celular (Solo números)</label>
+              <input required type="text" inputMode="numeric" pattern="[0-9]*" maxLength={11} className="w-full p-3 border rounded-xl bg-white focus:ring-2 focus:ring-[#00529b] outline-none transition-all" placeholder="Ej: 04120000000" value={formData.telefono} onChange={e => setFormData({...formData, telefono: e.target.value.replace(/\D/g, '')})} />
+            </div>
+            <div>
+              <label className="text-xs font-bold text-[#00529b] mb-1 block">Contraseña Maestra (Min. 6 caracteres)</label>
+              <input required type="password" minLength={6} className="w-full p-3 border-2 border-[#00529b] rounded-xl bg-blue-50 font-bold focus:ring-2 focus:ring-blue-600 outline-none transition-all" placeholder="Ingresa tu clave segura" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} />
+            </div>
           </div>
 
-          <div className="col-span-full flex flex-col sm:flex-row gap-3 pt-6 border-t mt-2">
+          <div className="col-span-full flex flex-col sm:flex-row gap-3 pt-6 border-t mt-4">
             <button type="button" onClick={() => router.push('/')} className="flex-1 bg-gray-200 text-gray-700 p-4 rounded-xl font-bold hover:bg-gray-300 transition-all text-center">
               Volver al Login
             </button>
