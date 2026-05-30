@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Pencil, SquarePen, Pen, Calendar, Search, FileSpreadsheet, FileText, Filter, ShieldAlert, Activity, ShieldCheck, Siren, Target, BarChart3, Award, TrendingUp, Settings, Plus, Trash2, Edit3, ChevronRight, UserPlus, Camera, User } from 'lucide-react'
+import { Pencil, SquarePen, Pen, Calendar, Search, FileSpreadsheet, FileText, Filter, ShieldAlert, Activity, ShieldCheck, Siren, Target, BarChart3, Award, TrendingUp, Settings, Plus, Trash2, Edit3, ChevronRight, UserPlus, UserMinus, User } from 'lucide-react'
 import * as XLSX from 'xlsx';
 import Link from 'next/link';
 
@@ -24,13 +24,16 @@ export default function AdminDashboardPage() {
   const [filtroMunicipio, setFiltroMunicipio] = useState('');
   const [filtroParroquia, setFiltroParroquia] = useState('');
 
-  // Estados de Admin (MODIFICADO PARA SOPORTAR TODOS LOS DATOS Y FOTO)
+  // Estados de Admin
   const [adminUser, setAdminUser] = useState<any>(null);
   const [mostrarModalAdmin, setMostrarModalAdmin] = useState(false);
   const [formAdmin, setFormAdmin] = useState({ 
     nombre_apellido_jefe: '', telefono_celular_jefe: '', cedula: '', grado_jerarquia: '', email: '', codigo_situr: '' 
   });
-  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  
+  // NUVEO: Estados para Eliminar Administradores
+  const [listaAdmins, setListaAdmins] = useState<any[]>([]);
+  const [mostrarModalEliminarAdmin, setMostrarModalEliminarAdmin] = useState(false);
 
   // Estados Formularios
   const [mostrarFormualioManual, setMostrarFormularioManual] = useState(false);
@@ -90,10 +93,16 @@ export default function AdminDashboardPage() {
         setAdminUser(adminData); 
         setVerificando(false);
         fetchDatos();
+        fetchAdmins(); // Cargamos la lista de admins
       }
     };
     checkAccess();
   }, []);
+
+  const fetchAdmins = async () => {
+    const { data } = await supabase.from('directorio_operativo').select('*').eq('rol', 'admin');
+    if (data) setListaAdmins(data);
+  };
 
   const fetchDatos = async () => {
     const { data: users, error: errU } = await supabase.from('directorio_operativo').select('*').neq('rol', 'admin').limit(10000);
@@ -280,30 +289,42 @@ export default function AdminDashboardPage() {
     } catch (error: any) { alert("Error al eliminar: " + error.message); } finally { setLoading(false); }
   };
 
+  // NUEVA FUNCIÓN: Eliminar Administrador
+  const handleEliminarAdmin = async (idAEliminar: string, nombreAdmin: string) => {
+    if (idAEliminar === adminUser?.id) {
+      alert("No puedes eliminar tu propia cuenta mientras estás conectado.");
+      return;
+    }
+    
+    if (!window.confirm(`⚠️ ADVERTENCIA: ¿Estás completamente seguro de que deseas eliminar al administrador "${nombreAdmin}"? Perderá acceso total al sistema.`)) return;
+
+    setLoading(true);
+    try {
+      const { error } = await supabase.from('directorio_operativo').delete().eq('id', idAEliminar);
+      if (error) throw error;
+
+      alert(`El administrador ${nombreAdmin} fue eliminado correctamente.`);
+      fetchAdmins(); // Recargamos la lista
+    } catch (error: any) {
+      alert("Error al eliminar administrador: " + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleLogout = async () => {
     await supabase.auth.signOut();
     window.location.href = '/login';
   };
 
   // ==========================================
-  // FUNCIÓN MEJORADA: GUARDAR PERFIL ADMIN
+  // FUNCIÓN MEJORADA: GUARDAR PERFIL ADMIN (SIN FOTO)
   // ==========================================
   const guardarPerfilAdmin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     try {
-      let avatarUrl = adminUser.avatar_url; // Mantiene la actual por defecto
-
-      // 1. Subir la imagen si se seleccionó una nueva
-      if (avatarFile) {
-        const fileExt = avatarFile.name.split('.').pop();
-        const fileName = `${Math.random()}.${fileExt}`;
-        const { data: uploadData, error: uploadError } = await supabase.storage.from('fotos-perfil').upload(fileName, avatarFile);
-        if (uploadError) throw uploadError;
-        avatarUrl = uploadData?.path || '';
-      }
-
-      // 2. Si cambió el correo o la clave, actualizar Auth de Supabase
+      // Si cambió el correo o la clave, actualizar Auth de Supabase
       if (formAdmin.email !== adminUser.email || formAdmin.codigo_situr !== adminUser.codigo_situr) {
         const { error: authError } = await supabase.auth.updateUser({
           email: formAdmin.email,
@@ -312,7 +333,7 @@ export default function AdminDashboardPage() {
         if (authError) throw new Error("Error actualizando credenciales: " + authError.message);
       }
 
-      // 3. Actualizar la base de datos (Directorio Operativo)
+      // Actualizar la base de datos (Directorio Operativo)
       const { error = null } = await supabase.from('directorio_operativo')
         .update({ 
           nombre_apellido_jefe: formAdmin.nombre_apellido_jefe, 
@@ -320,15 +341,14 @@ export default function AdminDashboardPage() {
           cedula: formAdmin.cedula,
           grado_jerarquia: formAdmin.grado_jerarquia,
           email: formAdmin.email,
-          codigo_situr: formAdmin.codigo_situr,
-          avatar_url: avatarUrl
+          codigo_situr: formAdmin.codigo_situr
         })
         .eq('id', adminUser.id);
         
       if (error) throw error;
 
       alert("Tu perfil ha sido actualizado exitosamente.");
-      setAdminUser({ ...adminUser, ...formAdmin, avatar_url: avatarUrl });
+      setAdminUser({ ...adminUser, ...formAdmin });
       setMostrarModalAdmin(false);
     } catch (error: any) { alert("Error: " + error.message); } finally { setLoading(false); }
   };
@@ -606,7 +626,7 @@ export default function AdminDashboardPage() {
 
       <div className="max-w-screen-2xl mx-auto p-6">
         
-        {/* CABECERA (AQUÍ ESTÁ EL BOTÓN DE AGREGAR Y LA FOTO DE PERFIL) */}
+        {/* CABECERA */}
         <div className="bg-white rounded-t-3xl shadow-sm p-6 mb-2 flex flex-col md:flex-row justify-between items-center gap-6 border-b-4 border-[#00529b]">
           <div className="flex gap-12 items-center justify-center">
             <img src="/logo1.png" alt="Logo 1" className="h-20 w-auto object-contain" />
@@ -614,14 +634,10 @@ export default function AdminDashboardPage() {
           </div>
           
           <div className="flex flex-col md:flex-row items-center gap-4 bg-gray-50 p-3 rounded-2xl border">
-            {/* Foto y Datos del Usuario en línea */}
+            {/* Ícono Genérico y Datos del Usuario */}
             <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-full overflow-hidden bg-gray-200 border-2 border-[#00529b] flex items-center justify-center shrink-0">
-                {adminUser?.avatar_url ? (
-                  <img src={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/${adminUser.avatar_url}`} alt="Avatar" className="h-full w-full object-cover" />
-                ) : (
-                  <User size={24} className="text-gray-400" />
-                )}
+              <div className="h-10 w-10 rounded-full overflow-hidden bg-white border-2 border-[#00529b] flex items-center justify-center shrink-0">
+                <User size={24} className="text-[#00529b]" />
               </div>
               <div className="text-left hidden sm:block pr-2 border-r border-gray-300">
                 <p className="text-sm font-bold text-gray-800">{adminUser?.nombre_apellido_jefe || 'Administrador'}</p>
@@ -629,11 +645,21 @@ export default function AdminDashboardPage() {
               </div>
             </div>
             
-            {/* Botonera */}
+            {/* Botonera Principal Mejorada */}
             <div className="flex items-center gap-2">
               <Link href="/registro-admin" title="Registrar Nuevo Administrador" className="bg-blue-100 text-[#00529b] p-2 rounded-xl text-sm font-bold hover:bg-blue-200 transition-all shadow-sm flex items-center gap-1">
                 <UserPlus size={18} />
               </Link>
+              <button 
+                onClick={() => setMostrarModalEliminarAdmin(true)} 
+                title="Eliminar Administrador" 
+                className="bg-red-50 text-red-600 p-2 rounded-xl text-sm font-bold hover:bg-red-100 transition-all shadow-sm flex items-center gap-1"
+              >
+                <UserMinus size={18} />
+              </button>
+
+              <div className="w-px h-6 bg-gray-300 mx-1"></div> {/* Divisor */}
+
               <button 
                 onClick={() => { 
                   setFormAdmin({ 
@@ -644,7 +670,6 @@ export default function AdminDashboardPage() {
                     email: adminUser.email || '',
                     codigo_situr: adminUser.codigo_situr || ''
                   }); 
-                  setAvatarFile(null);
                   setMostrarModalAdmin(true); 
                 }} 
                 className="bg-white border text-gray-600 px-4 py-2 rounded-xl text-sm font-bold hover:bg-gray-100 transition-all shadow-sm"
@@ -1200,26 +1225,60 @@ export default function AdminDashboardPage() {
       </div>
 
       {/* ==========================================
-          MODAL DE EDITAR PERFIL ADMIN (MEJORADO)
+          MODAL DE ELIMINAR ADMINISTRADORES
+          ========================================== */}
+      {mostrarModalEliminarAdmin && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
+          <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl border">
+            <h3 className="text-xl font-bold text-gray-800 mb-4 border-b pb-3 flex items-center gap-2">
+              <UserMinus className="text-red-600" /> Eliminar Administrador
+            </h3>
+            
+            <div className="max-h-[60vh] overflow-y-auto space-y-2 mb-4">
+              {listaAdmins.length === 0 ? (
+                <p className="text-sm text-gray-500 text-center py-4">Cargando administradores...</p>
+              ) : (
+                listaAdmins.map(admin => (
+                  <div key={admin.id} className="flex justify-between items-center bg-gray-50 p-3 rounded-xl border">
+                    <div className="flex flex-col">
+                      <span className="font-bold text-sm text-gray-800">{admin.nombre_apellido_jefe}</span>
+                      <span className="text-[10px] text-gray-500">{admin.email}</span>
+                    </div>
+                    {admin.id === adminUser?.id ? (
+                      <span className="text-[10px] font-bold text-[#00529b] bg-blue-100 px-3 py-1 rounded-lg">Tú</span>
+                    ) : (
+                      <button
+                        onClick={() => handleEliminarAdmin(admin.id, admin.nombre_apellido_jefe)}
+                        className="bg-white border border-red-200 text-red-600 p-2 rounded-lg hover:bg-red-50 hover:shadow-sm transition-all"
+                        title="Eliminar este administrador"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+            
+            <button 
+              onClick={() => setMostrarModalEliminarAdmin(false)} 
+              className="w-full bg-gray-200 text-gray-700 p-3 rounded-xl font-bold hover:bg-gray-300 transition-all"
+            >
+              Cerrar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ==========================================
+          MODAL DE EDITAR PERFIL ADMIN (SIN FOTO)
           ========================================== */}
       {mostrarModalAdmin && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm overflow-y-auto">
           <div className="bg-white rounded-[2rem] p-8 max-w-3xl w-full shadow-2xl border my-8">
             <h3 className="text-2xl font-black text-gray-800 mb-6 border-b pb-4">Editar Perfil de Administrador</h3>
             
-            <form onSubmit={guardarPerfilAdmin} className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              
-              {/* Selector de Foto */}
-              <div className="flex flex-col items-center justify-center p-6 border-2 border-dashed rounded-2xl relative overflow-hidden group bg-gray-50">
-                {adminUser?.avatar_url && !avatarFile ? (
-                  <img src={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/${adminUser.avatar_url}`} className="absolute inset-0 w-full h-full object-cover opacity-50 group-hover:opacity-20 transition-all" alt="Fondo Avatar" />
-                ) : null}
-                <Camera size={40} className="text-gray-400 mb-2 z-10" />
-                <span className="text-xs font-bold text-gray-500 z-10 text-center mb-2 px-2 bg-white/70 rounded">
-                  {avatarFile ? avatarFile.name : 'Cambiar Foto de Perfil'}
-                </span>
-                <input type="file" className="absolute inset-0 opacity-0 cursor-pointer z-20" onChange={(e) => setAvatarFile(e.target.files![0])} accept="image/*" />
-              </div>
+            <form onSubmit={guardarPerfilAdmin} className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
               
               {/* Datos Personales */}
               <div className="space-y-4">
@@ -1228,8 +1287,8 @@ export default function AdminDashboardPage() {
                   <input required className="w-full p-3 border rounded-xl bg-white" placeholder="Ej: Juan Pérez" value={formAdmin.nombre_apellido_jefe} onChange={e => setFormAdmin({...formAdmin, nombre_apellido_jefe: e.target.value})} />
                 </div>
                 <div>
-                  <label className="text-xs font-bold text-gray-500 mb-1 block">Cédula</label>
-                  <input required className="w-full p-3 border rounded-xl bg-white" placeholder="Ej: V-12345678" value={formAdmin.cedula} onChange={e => setFormAdmin({...formAdmin, cedula: e.target.value})} />
+                  <label className="text-xs font-bold text-gray-500 mb-1 block">Cédula (Solo números)</label>
+                  <input required type="text" inputMode="numeric" pattern="[0-9]*" maxLength={10} className="w-full p-3 border rounded-xl bg-white" placeholder="Ej: 12345678" value={formAdmin.cedula} onChange={e => setFormAdmin({...formAdmin, cedula: e.target.value.replace(/\D/g, '')})} />
                 </div>
                 <div>
                   <label className="text-xs font-bold text-gray-500 mb-1 block">Cargo / Grado</label>
@@ -1238,23 +1297,24 @@ export default function AdminDashboardPage() {
               </div>
 
               {/* Datos de Contacto y Acceso */}
-              <div>
-                <label className="text-xs font-bold text-gray-500 mb-1 block">Correo Electrónico (Para recuperar clave)</label>
-                <input required type="email" className="w-full p-3 border rounded-xl bg-white" placeholder="admin@correo.com" value={formAdmin.email} onChange={e => setFormAdmin({...formAdmin, email: e.target.value})} />
-              </div>
-              <div>
-                <label className="text-xs font-bold text-gray-500 mb-1 block">Teléfono Celular</label>
-                <input required className="w-full p-3 border rounded-xl bg-white" placeholder="0412-0000000" value={formAdmin.telefono_celular_jefe} onChange={e => setFormAdmin({...formAdmin, telefono_celular_jefe: e.target.value})} />
-              </div>
-              
-              <div className="col-span-full">
-                <label className="text-xs font-bold text-[#00529b] mb-1 block">Contraseña Maestra (Código de acceso)</label>
-                <input required type="text" className="w-full p-3 border-2 border-[#00529b] rounded-xl bg-blue-50 font-bold" value={formAdmin.codigo_situr} onChange={e => setFormAdmin({...formAdmin, codigo_situr: e.target.value})} />
-                <p className="text-[10px] text-gray-500 mt-1">* Si cambias el correo o la contraseña, la sesión podría cerrarse por seguridad.</p>
+              <div className="space-y-4">
+                <div>
+                  <label className="text-xs font-bold text-gray-500 mb-1 block">Correo Electrónico (Para recuperar clave)</label>
+                  <input required type="email" className="w-full p-3 border rounded-xl bg-white" placeholder="admin@correo.com" value={formAdmin.email} onChange={e => setFormAdmin({...formAdmin, email: e.target.value})} />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-gray-500 mb-1 block">Teléfono Celular (Solo números)</label>
+                  <input required type="text" inputMode="numeric" pattern="[0-9]*" maxLength={11} className="w-full p-3 border rounded-xl bg-white" placeholder="Ej: 04120000000" value={formAdmin.telefono_celular_jefe} onChange={e => setFormAdmin({...formAdmin, telefono_celular_jefe: e.target.value.replace(/\D/g, '')})} />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-[#00529b] mb-1 block">Contraseña Maestra (Código de acceso)</label>
+                  <input required type="text" minLength={6} className="w-full p-3 border-2 border-[#00529b] rounded-xl bg-blue-50 font-bold" value={formAdmin.codigo_situr} onChange={e => setFormAdmin({...formAdmin, codigo_situr: e.target.value})} />
+                  <p className="text-[10px] text-gray-500 mt-1">* Si cambias el correo o la contraseña, la sesión podría cerrarse por seguridad.</p>
+                </div>
               </div>
 
-              <div className="col-span-full flex gap-3 pt-4 border-t mt-2">
-                <button type="button" onClick={() => setMostrarModalAdmin(false)} className="flex-1 bg-gray-200 text-gray-700 p-4 rounded-xl font-bold hover:bg-gray-300 transition-all">Cancelar</button>
+              <div className="col-span-full flex flex-col sm:flex-row gap-3 pt-6 border-t mt-4">
+                <button type="button" onClick={() => setMostrarModalAdmin(false)} className="flex-1 bg-gray-200 text-gray-700 p-4 rounded-xl font-bold hover:bg-gray-300 transition-all text-center">Cancelar</button>
                 <button type="submit" disabled={loading} className="flex-1 bg-[#00529b] text-white p-4 rounded-xl font-bold hover:bg-[#003d73] transition-all shadow-md">
                   {loading ? 'Guardando...' : 'Guardar Cambios'}
                 </button>
