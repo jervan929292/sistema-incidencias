@@ -1,6 +1,5 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import Link from 'next/link';
 import { ShieldCheck, Eye, EyeOff, UserPlus, Edit, Mail, Phone, Lock, Camera, User, Briefcase } from 'lucide-react';
@@ -10,24 +9,8 @@ export default function RegistroAdminPage() {
   const [admins, setAdmins] = useState<any[]>([]);
   const [avatar, setAvatar] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
-  const router = useRouter(); // <-- Agregamos el router aquí
 
   useEffect(() => { fetchAdmins(); }, []);
-
-  // --- INICIO DEL ATAJO SECRETO CTRL + 8 (PARA VOLVER AL LOGIN) ---
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Detecta si se presiona Control y el número 8
-      if (e.ctrlKey && e.key === '8') {
-        e.preventDefault();
-        router.push('/'); // Te devuelve a la pantalla de inicio de sesión
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [router]);
-  // --- FIN DEL ATAJO SECRETO ---
 
   const fetchAdmins = async () => {
     const { data } = await supabase.from('directorio_operativo').select('*').eq('rol', 'admin');
