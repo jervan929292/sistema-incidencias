@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Sistema Incidencias CUPAZ</string>
+    <string name="title_activity_main">Sistema Incidencias CUPAZ</string>
+    <string name="package_name">com.cupaz.incidencias</string>
+    <string name="custom_url_scheme">com.cupaz.incidencias</string>
+</resources>

@@ -1,8 +1,9 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Pencil, SquarePen, Pen, Calendar, Search, FileSpreadsheet, FileText, Filter, ShieldAlert, Activity, ShieldCheck, Siren, Target, BarChart3, Award, TrendingUp, Settings, Plus, Trash2, Edit3, ChevronRight } from 'lucide-react'
+import { Pencil, SquarePen, Pen, Calendar, Search, FileSpreadsheet, FileText, Filter, ShieldAlert, Activity, ShieldCheck, Siren, Target, BarChart3, Award, TrendingUp, Settings, Plus, Trash2, Edit3, ChevronRight, UserPlus, Camera, User } from 'lucide-react'
 import * as XLSX from 'xlsx';
+import Link from 'next/link';
 
 export default function AdminDashboardPage() {
   const [activeTab, setActiveTab] = useState('directorio'); 
@@ -23,10 +24,13 @@ export default function AdminDashboardPage() {
   const [filtroMunicipio, setFiltroMunicipio] = useState('');
   const [filtroParroquia, setFiltroParroquia] = useState('');
 
-  // Estados de Admin
+  // Estados de Admin (MODIFICADO PARA SOPORTAR TODOS LOS DATOS Y FOTO)
   const [adminUser, setAdminUser] = useState<any>(null);
   const [mostrarModalAdmin, setMostrarModalAdmin] = useState(false);
-  const [formAdmin, setFormAdmin] = useState({ nombre_apellido_jefe: '', telefono_celular_jefe: '' });
+  const [formAdmin, setFormAdmin] = useState({ 
+    nombre_apellido_jefe: '', telefono_celular_jefe: '', cedula: '', grado_jerarquia: '', email: '', codigo_situr: '' 
+  });
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
 
   // Estados Formularios
   const [mostrarFormualioManual, setMostrarFormularioManual] = useState(false);
@@ -61,7 +65,7 @@ export default function AdminDashboardPage() {
   const [fechaRepHasta, setFechaRepHasta] = useState('');
 
   // ==========================================
-  // ESTADOS NUEVOS: GESTIÓN DE CATÁLOGOS (NIVEL DIOS)
+  // ESTADOS NUEVOS: GESTIÓN DE CATÁLOGOS
   // ==========================================
   const [catClasificacion, setCatClasificacion] = useState<any[]>([]);
   const [catIncidencia, setCatIncidencia] = useState<any[]>([]);
@@ -91,9 +95,6 @@ export default function AdminDashboardPage() {
     checkAccess();
   }, []);
 
-  // ==========================================
-  // LECTURA DE BASE DE DATOS (INCLUYENDO LOS 3 CATÁLOGOS NUEVOS)
-  // ==========================================
   const fetchDatos = async () => {
     const { data: users, error: errU } = await supabase.from('directorio_operativo').select('*').neq('rol', 'admin').limit(10000);
     if (errU) alert("Error cargando usuarios: " + errU.message);
@@ -122,7 +123,6 @@ export default function AdminDashboardPage() {
     const { data: incs } = await supabase.from('incidencias').select('*').limit(50000);
     if (incs) setIncidenciasDB(incs || []);
 
-    // Descargar Catálogos para edición
     const { data: cClas } = await supabase.from('catalogo_clasificacion').select('*').order('nombre');
     if (cClas) setCatClasificacion(cClas);
     const { data: cInc } = await supabase.from('catalogo_incidencia').select('*').order('nombre');
@@ -133,9 +133,6 @@ export default function AdminDashboardPage() {
     setSelectedIds([]); 
   };
 
-  // ==========================================
-  // FUNCIONES CRUD PARA LOS CATÁLOGOS
-  // ==========================================
   const agregarCatalogo = async (tabla: string, payload: any, setterInput: Function) => {
     if(loading) return;
     setLoading(true);
@@ -167,7 +164,6 @@ export default function AdminDashboardPage() {
       const { error } = await supabase.from(tabla).delete().eq('id', id);
       if (error) throw error;
       
-      // Limpiar selecciones si se elimina el padre
       if (tabla === 'catalogo_clasificacion' && id === selectedClasId) { setSelectedClasId(''); setSelectedIncId(''); }
       if (tabla === 'catalogo_incidencia' && id === selectedIncId) { setSelectedIncId(''); }
       
@@ -175,9 +171,6 @@ export default function AdminDashboardPage() {
     } catch (err: any) { alert("Error al eliminar: " + err.message); } finally { setLoading(false); }
   };
 
-  // ==========================================
-  // EXPORTAR CREDENCIALES
-  // ==========================================
   const handleDescargarCredenciales = () => {
     if (usuariosFiltrados.length === 0) {
       alert("No hay registros en la tabla para exportar en este momento.");
@@ -198,9 +191,6 @@ export default function AdminDashboardPage() {
     XLSX.writeFile(wb, 'BD_Credenciales_Jefes_Cuadrante.xlsx');
   };
 
-  // ==========================================
-  // OTRAS LÓGICAS (FILTROS)
-  // ==========================================
   const municipiosUnicos = Array.from(new Set(usuarios.map(u => u.municipio))).filter(Boolean).sort();
   const parroquiasUnicas = Array.from(
     new Set(usuarios.filter(u => filtroMunicipio === '' || u.municipio === filtroMunicipio).map(u => u.parroquia))
@@ -295,16 +285,50 @@ export default function AdminDashboardPage() {
     window.location.href = '/login';
   };
 
+  // ==========================================
+  // FUNCIÓN MEJORADA: GUARDAR PERFIL ADMIN
+  // ==========================================
   const guardarPerfilAdmin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     try {
+      let avatarUrl = adminUser.avatar_url; // Mantiene la actual por defecto
+
+      // 1. Subir la imagen si se seleccionó una nueva
+      if (avatarFile) {
+        const fileExt = avatarFile.name.split('.').pop();
+        const fileName = `${Math.random()}.${fileExt}`;
+        const { data: uploadData, error: uploadError } = await supabase.storage.from('fotos-perfil').upload(fileName, avatarFile);
+        if (uploadError) throw uploadError;
+        avatarUrl = uploadData?.path || '';
+      }
+
+      // 2. Si cambió el correo o la clave, actualizar Auth de Supabase
+      if (formAdmin.email !== adminUser.email || formAdmin.codigo_situr !== adminUser.codigo_situr) {
+        const { error: authError } = await supabase.auth.updateUser({
+          email: formAdmin.email,
+          password: formAdmin.codigo_situr
+        });
+        if (authError) throw new Error("Error actualizando credenciales: " + authError.message);
+      }
+
+      // 3. Actualizar la base de datos (Directorio Operativo)
       const { error = null } = await supabase.from('directorio_operativo')
-        .update({ nombre_apellido_jefe: formAdmin.nombre_apellido_jefe, telefono_celular_jefe: formAdmin.telefono_celular_jefe })
+        .update({ 
+          nombre_apellido_jefe: formAdmin.nombre_apellido_jefe, 
+          telefono_celular_jefe: formAdmin.telefono_celular_jefe,
+          cedula: formAdmin.cedula,
+          grado_jerarquia: formAdmin.grado_jerarquia,
+          email: formAdmin.email,
+          codigo_situr: formAdmin.codigo_situr,
+          avatar_url: avatarUrl
+        })
         .eq('id', adminUser.id);
+        
       if (error) throw error;
-      alert("Tu perfil ha sido actualizado.");
-      setAdminUser({ ...adminUser, ...formAdmin });
+
+      alert("Tu perfil ha sido actualizado exitosamente.");
+      setAdminUser({ ...adminUser, ...formAdmin, avatar_url: avatarUrl });
       setMostrarModalAdmin(false);
     } catch (error: any) { alert("Error: " + error.message); } finally { setLoading(false); }
   };
@@ -582,19 +606,53 @@ export default function AdminDashboardPage() {
 
       <div className="max-w-screen-2xl mx-auto p-6">
         
-        {/* CABECERA */}
+        {/* CABECERA (AQUÍ ESTÁ EL BOTÓN DE AGREGAR Y LA FOTO DE PERFIL) */}
         <div className="bg-white rounded-t-3xl shadow-sm p-6 mb-2 flex flex-col md:flex-row justify-between items-center gap-6 border-b-4 border-[#00529b]">
           <div className="flex gap-12 items-center justify-center">
             <img src="/logo1.png" alt="Logo 1" className="h-20 w-auto object-contain" />
             <img src="/logo2.png" alt="Logo 2" className="h-20 w-auto object-contain" />
           </div>
-          <div className="flex items-center gap-4 bg-gray-50 p-3 rounded-2xl border">
-            <div className="text-right hidden sm:block">
-              <p className="text-sm font-bold text-gray-800">{adminUser?.nombre_apellido_jefe || 'Administrador'}</p>
-              <p className="text-xs text-blue-600 font-bold">Panel de Control</p>
+          
+          <div className="flex flex-col md:flex-row items-center gap-4 bg-gray-50 p-3 rounded-2xl border">
+            {/* Foto y Datos del Usuario en línea */}
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-full overflow-hidden bg-gray-200 border-2 border-[#00529b] flex items-center justify-center shrink-0">
+                {adminUser?.avatar_url ? (
+                  <img src={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/${adminUser.avatar_url}`} alt="Avatar" className="h-full w-full object-cover" />
+                ) : (
+                  <User size={24} className="text-gray-400" />
+                )}
+              </div>
+              <div className="text-left hidden sm:block pr-2 border-r border-gray-300">
+                <p className="text-sm font-bold text-gray-800">{adminUser?.nombre_apellido_jefe || 'Administrador'}</p>
+                <p className="text-xs text-blue-600 font-bold">{adminUser?.grado_jerarquia || 'Panel de Control'}</p>
+              </div>
             </div>
-            <button onClick={() => { setFormAdmin({ nombre_apellido_jefe: adminUser.nombre_apellido_jefe || '', telefono_celular_jefe: adminUser.telefono_celular_jefe || '' }); setMostrarModalAdmin(true); }} className="bg-white border text-gray-600 px-4 py-2 rounded-xl text-sm font-bold hover:bg-gray-100 transition-all shadow-sm">Editar Perfil</button>
-            <button onClick={handleLogout} className="bg-red-50 text-red-600 border border-red-200 px-4 py-2 rounded-xl text-sm font-bold hover:bg-red-100 hover:text-red-700 transition-all shadow-sm">Cerrar Sesión</button>
+            
+            {/* Botonera */}
+            <div className="flex items-center gap-2">
+              <Link href="/registro-admin" title="Registrar Nuevo Administrador" className="bg-blue-100 text-[#00529b] p-2 rounded-xl text-sm font-bold hover:bg-blue-200 transition-all shadow-sm flex items-center gap-1">
+                <UserPlus size={18} />
+              </Link>
+              <button 
+                onClick={() => { 
+                  setFormAdmin({ 
+                    nombre_apellido_jefe: adminUser.nombre_apellido_jefe || '', 
+                    telefono_celular_jefe: adminUser.telefono_celular_jefe || '',
+                    cedula: adminUser.cedula || '',
+                    grado_jerarquia: adminUser.grado_jerarquia || '',
+                    email: adminUser.email || '',
+                    codigo_situr: adminUser.codigo_situr || ''
+                  }); 
+                  setAvatarFile(null);
+                  setMostrarModalAdmin(true); 
+                }} 
+                className="bg-white border text-gray-600 px-4 py-2 rounded-xl text-sm font-bold hover:bg-gray-100 transition-all shadow-sm"
+              >
+                Editar Perfil
+              </button>
+              <button onClick={handleLogout} className="bg-red-50 text-red-600 border border-red-200 px-4 py-2 rounded-xl text-sm font-bold hover:bg-red-100 hover:text-red-700 transition-all shadow-sm">Salir</button>
+            </div>
           </div>
         </div>
 
@@ -1141,20 +1199,72 @@ export default function AdminDashboardPage() {
         </div>
       </div>
 
-      {/* MODALES REUTILIZADOS (No se tocaron) */}
+      {/* ==========================================
+          MODAL DE EDITAR PERFIL ADMIN (MEJORADO)
+          ========================================== */}
       {mostrarModalAdmin && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
-          <div className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl border">
-            <h3 className="text-xl font-bold text-gray-800 mb-4">Mi Perfil</h3>
-            <form onSubmit={guardarPerfilAdmin} className="space-y-4">
-              <div><label className="block text-sm font-bold text-gray-600 mb-1">Nombre Completo</label><input required type="text" className="w-full p-3 border rounded-xl" value={formAdmin.nombre_apellido_jefe} onChange={e => setFormAdmin({...formAdmin, nombre_apellido_jefe: e.target.value})} /></div>
-              <div><label className="block text-sm font-bold text-gray-600 mb-1">Teléfono</label><input type="text" className="w-full p-3 border rounded-xl" value={formAdmin.telefono_celular_jefe} onChange={e => setFormAdmin({...formAdmin, telefono_celular_jefe: e.target.value})} /></div>
-              <div className="flex gap-3 pt-4 border-t"><button type="button" onClick={() => setMostrarModalAdmin(false)} className="flex-1 bg-gray-200 p-3 rounded-xl font-bold">Cancelar</button><button type="submit" className="flex-1 bg-[#00529b] text-white p-3 rounded-xl font-bold">Guardar</button></div>
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm overflow-y-auto">
+          <div className="bg-white rounded-[2rem] p-8 max-w-3xl w-full shadow-2xl border my-8">
+            <h3 className="text-2xl font-black text-gray-800 mb-6 border-b pb-4">Editar Perfil de Administrador</h3>
+            
+            <form onSubmit={guardarPerfilAdmin} className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              
+              {/* Selector de Foto */}
+              <div className="flex flex-col items-center justify-center p-6 border-2 border-dashed rounded-2xl relative overflow-hidden group bg-gray-50">
+                {adminUser?.avatar_url && !avatarFile ? (
+                  <img src={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/${adminUser.avatar_url}`} className="absolute inset-0 w-full h-full object-cover opacity-50 group-hover:opacity-20 transition-all" alt="Fondo Avatar" />
+                ) : null}
+                <Camera size={40} className="text-gray-400 mb-2 z-10" />
+                <span className="text-xs font-bold text-gray-500 z-10 text-center mb-2 px-2 bg-white/70 rounded">
+                  {avatarFile ? avatarFile.name : 'Cambiar Foto de Perfil'}
+                </span>
+                <input type="file" className="absolute inset-0 opacity-0 cursor-pointer z-20" onChange={(e) => setAvatarFile(e.target.files![0])} accept="image/*" />
+              </div>
+              
+              {/* Datos Personales */}
+              <div className="space-y-4">
+                <div>
+                  <label className="text-xs font-bold text-gray-500 mb-1 block">Nombre completo</label>
+                  <input required className="w-full p-3 border rounded-xl bg-white" placeholder="Ej: Juan Pérez" value={formAdmin.nombre_apellido_jefe} onChange={e => setFormAdmin({...formAdmin, nombre_apellido_jefe: e.target.value})} />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-gray-500 mb-1 block">Cédula</label>
+                  <input required className="w-full p-3 border rounded-xl bg-white" placeholder="Ej: V-12345678" value={formAdmin.cedula} onChange={e => setFormAdmin({...formAdmin, cedula: e.target.value})} />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-gray-500 mb-1 block">Cargo / Grado</label>
+                  <input required className="w-full p-3 border rounded-xl bg-white" placeholder="Ej: Comisionado" value={formAdmin.grado_jerarquia} onChange={e => setFormAdmin({...formAdmin, grado_jerarquia: e.target.value})} />
+                </div>
+              </div>
+
+              {/* Datos de Contacto y Acceso */}
+              <div>
+                <label className="text-xs font-bold text-gray-500 mb-1 block">Correo Electrónico (Para recuperar clave)</label>
+                <input required type="email" className="w-full p-3 border rounded-xl bg-white" placeholder="admin@correo.com" value={formAdmin.email} onChange={e => setFormAdmin({...formAdmin, email: e.target.value})} />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-gray-500 mb-1 block">Teléfono Celular</label>
+                <input required className="w-full p-3 border rounded-xl bg-white" placeholder="0412-0000000" value={formAdmin.telefono_celular_jefe} onChange={e => setFormAdmin({...formAdmin, telefono_celular_jefe: e.target.value})} />
+              </div>
+              
+              <div className="col-span-full">
+                <label className="text-xs font-bold text-[#00529b] mb-1 block">Contraseña Maestra (Código de acceso)</label>
+                <input required type="text" className="w-full p-3 border-2 border-[#00529b] rounded-xl bg-blue-50 font-bold" value={formAdmin.codigo_situr} onChange={e => setFormAdmin({...formAdmin, codigo_situr: e.target.value})} />
+                <p className="text-[10px] text-gray-500 mt-1">* Si cambias el correo o la contraseña, la sesión podría cerrarse por seguridad.</p>
+              </div>
+
+              <div className="col-span-full flex gap-3 pt-4 border-t mt-2">
+                <button type="button" onClick={() => setMostrarModalAdmin(false)} className="flex-1 bg-gray-200 text-gray-700 p-4 rounded-xl font-bold hover:bg-gray-300 transition-all">Cancelar</button>
+                <button type="submit" disabled={loading} className="flex-1 bg-[#00529b] text-white p-4 rounded-xl font-bold hover:bg-[#003d73] transition-all shadow-md">
+                  {loading ? 'Guardando...' : 'Guardar Cambios'}
+                </button>
+              </div>
             </form>
           </div>
         </div>
       )}
 
+      {/* MODAL DE EDITAR USUARIO (Se mantuvo intacto) */}
       {editingUsuario && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
           <div className="bg-white rounded-3xl p-6 max-w-4xl w-full shadow-2xl border flex flex-col max-h-[90vh]">

@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { Mail, KeyRound, Eye, EyeOff, ShieldCheck, Loader2, AlertCircle } from 'lucide-react';
@@ -12,6 +12,8 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const router = useRouter();
+
+  
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
