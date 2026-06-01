@@ -13,6 +13,21 @@ export default function LoginPage() {
   const [errorMsg, setErrorMsg] = useState('');
   const router = useRouter();
 
+  // --- INICIO DEL ATAJO SECRETO CTRL + 8 ---
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Detecta si se presiona Control y el número 8 al mismo tiempo
+      if (e.ctrlKey && e.key === '8') {
+        e.preventDefault();
+        router.push('/registro-admin'); // <--- ¡Ruta corregida aquí!
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [router]);
+  // --- FIN DEL ATAJO SECRETO ---
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
