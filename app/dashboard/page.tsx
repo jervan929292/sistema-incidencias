@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import { ShieldCheck, Loader2, AlertCircle, CheckCircle2, MapPin, FileText, Users, HelpCircle, ChevronDown, Activity } from 'lucide-react';
+import { ShieldCheck, Loader2, AlertCircle, CheckCircle2, MapPin, FileText, Users, HelpCircle, ChevronDown, Activity, Edit3, Trash2, Plus } from 'lucide-react';
 
 // ==========================================
 // LISTA EXTRAÍDA DE TU ARCHIVO EXCEL
@@ -39,7 +39,7 @@ export default function UserDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [enviando, setEnviando] = useState(false);
   
-  // ESTADO NUEVO: Contador de reportes del circuito
+  // ESTADO: Contador de reportes del circuito
   const [totalReportes, setTotalReportes] = useState(0);
 
   // Catálogos descargados de la Base de Datos
@@ -47,6 +47,13 @@ export default function UserDashboardPage() {
   const [allIncidencias, setAllIncidencias] = useState<any[]>([]);
   const [allActividades, setAllActividades] = useState<any[]>([]);
   const [misSectores, setMisSectores] = useState<any[]>([]);
+
+  // ==========================================
+  // NUEVOS ESTADOS: GESTIÓN DE MIS SECTORES
+  // ==========================================
+  const [mostrarModalSectores, setMostrarModalSectores] = useState(false);
+  const [nuevoSector, setNuevoSector] = useState('');
+  const [guardandoSector, setGuardandoSector] = useState(false);
 
   // Desplegables en Cascada Filtrados
   const [incidenciasFiltradas, setIncidenciasFiltradas] = useState<any[]>([]);
@@ -63,7 +70,7 @@ export default function UserDashboardPage() {
     clasificacion: '',
     incidencia: '',
     actividad: '',
-    cantidad: 1,
+    cantidad: 1, // Se mantiene interno en 1 para la BD
     circuito_comunal: '',
     sector_especifico: '',
     organismos_involucrados: [] as string[],
@@ -85,7 +92,7 @@ export default function UserDashboardPage() {
       setUsuarioLogueado(userData);
       setForm(prev => ({ ...prev, circuito_comunal: userData.comuna_o_circuito_comunal || '' }));
 
-      // NUEVO: Consultar cuántos reportes tiene este circuito comunal en la BD
+      // Consultar cuántos reportes tiene este circuito comunal en la BD
       if (userData.comuna_o_circuito_comunal) {
         const { count } = await supabase
           .from('incidencias')
@@ -115,6 +122,50 @@ export default function UserDashboardPage() {
   }, [router]);
 
   // ==========================================
+  // FUNCIONES PARA GESTIONAR MIS SECTORES
+  // ==========================================
+  const agregarSector = async () => {
+    if (!nuevoSector.trim()) return;
+    setGuardandoSector(true);
+    try {
+      const payload = {
+        nombre_sector: nuevoSector.trim().toUpperCase(),
+        circuito_comunal: usuarioLogueado.comuna_o_circuito_comunal,
+        codigo_situr: usuarioLogueado.codigo_situr
+      };
+      const { error } = await supabase.from('sectores').insert([payload]);
+      if (error) throw error;
+      
+      setNuevoSector('');
+      // Refrescar lista de sectores
+      const { data: secs } = await supabase.from('sectores').select('*').eq('codigo_situr', usuarioLogueado.codigo_situr);
+      if (secs) setMisSectores(secs);
+    } catch (err: any) {
+      alert("Error al agregar sector: " + err.message);
+    } finally {
+      setGuardandoSector(false);
+    }
+  };
+
+  const eliminarSector = async (id: string, nombre: string) => {
+    if (!window.confirm(`¿Seguro que deseas eliminar el sector "${nombre}" de tu lista?`)) return;
+    try {
+      const { error } = await supabase.from('sectores').delete().eq('id', id);
+      if (error) throw error;
+      
+      // Refrescar lista de sectores
+      const { data: secs } = await supabase.from('sectores').select('*').eq('codigo_situr', usuarioLogueado.codigo_situr);
+      if (secs) {
+        setMisSectores(secs);
+        // Si el usuario tenía seleccionado este sector en el formulario, lo limpiamos
+        if (form.sector_especifico === nombre) setForm(prev => ({ ...prev, sector_especifico: '' }));
+      }
+    } catch (err: any) {
+      alert("Error al eliminar sector: " + err.message);
+    }
+  };
+
+  // ==========================================
   // MANEJADORES DE CASCADA (FILTRADO DINÁMICO)
   // ==========================================
   const handleClasificacionChange = (valor: string) => {
@@ -142,7 +193,6 @@ export default function UserDashboardPage() {
     }
   };
 
-  // Función para agregar o quitar organismos de la lista
   const toggleOrganismo = (org: string) => {
     setForm(prev => {
       const actual = prev.organismos_involucrados;
@@ -184,7 +234,7 @@ export default function UserDashboardPage() {
         clasificacion: form.clasificacion,
         incidencia: form.incidencia,
         actividad: form.actividad,
-        cantidad: Number(form.cantidad),
+        cantidad: form.cantidad, // Se envía 1 automáticamente
         circuito_comunal: form.circuito_comunal.toUpperCase().trim(),
         organismos_involucrados: organismosTexto,
         lugar_actividad: lugarCompleto,
@@ -197,7 +247,6 @@ export default function UserDashboardPage() {
 
       setSuccessMsg("¡Reporte de Incidencia enviado con éxito al Centro de Comando VEN 911!");
       
-      // Sumar 1 al contador visual de reportes en tiempo real
       if (!reporteEspecial) {
         setTotalReportes(prev => prev + 1);
       }
@@ -206,7 +255,7 @@ export default function UserDashboardPage() {
         clasificacion: '',
         incidencia: '',
         actividad: '',
-        cantidad: 1,
+        cantidad: 1, // Se reinicia siempre a 1
         circuito_comunal: usuarioLogueado.comuna_o_circuito_comunal || '',
         sector_especifico: '',
         organismos_involucrados: [],
@@ -235,9 +284,9 @@ export default function UserDashboardPage() {
     <div className="min-h-screen bg-[#f0f2f5]">
       <div className="max-w-screen-xl mx-auto p-6">
         
-        {/* CABECERA INSTITUCIONAL CON EL NUEVO CONTADOR */}
+        {/* CABECERA INSTITUCIONAL */}
         <div className="bg-white rounded-3xl shadow-sm p-6 mb-6 flex flex-col md:flex-row justify-between items-center gap-6 border-b-4 border-[#00529b]">
-          <div className="flex gap-8 items-center">
+          <div className="flex gap-8 items-center justify-center w-full md:w-auto">
             <img src="/logo1.png" alt="VEN 911" className="h-16 w-auto object-contain" />
             <img src="/logo2.png" alt="CUPAZ" className="h-16 w-auto object-contain" />
           </div>
@@ -251,9 +300,21 @@ export default function UserDashboardPage() {
                 <Activity size={14} className="text-emerald-600" />
                 <span className="text-[10px] font-black uppercase tracking-wider">{totalReportes} Novedades Registradas</span>
               </div>
-
             </div>
-            <button onClick={handleLogout} className="bg-red-50 text-red-600 border border-red-200 px-4 py-2 rounded-xl text-sm font-bold hover:bg-red-100 transition-all shadow-sm w-full sm:w-auto mt-2 sm:mt-0">Cerrar Sesión</button>
+
+            {/* DIVISOR Y BOTONERA */}
+            <div className="hidden sm:block w-px h-10 bg-gray-300 mx-1"></div>
+            
+            <div className="flex gap-2 w-full sm:w-auto justify-center">
+              <button 
+                onClick={() => setMostrarModalSectores(true)} 
+                className="bg-blue-50 text-[#00529b] border border-blue-200 px-4 py-2 rounded-xl text-sm font-bold hover:bg-blue-100 transition-all shadow-sm flex items-center justify-center gap-1 flex-1 sm:flex-none"
+                title="Editar mis sectores"
+              >
+                <Edit3 size={16} /> Sectores
+              </button>
+              <button onClick={handleLogout} className="bg-red-50 text-red-600 border border-red-200 px-4 py-2 rounded-xl text-sm font-bold hover:bg-red-100 transition-all shadow-sm flex-1 sm:flex-none">Salir</button>
+            </div>
           </div>
         </div>
 
@@ -394,62 +455,48 @@ export default function UserDashboardPage() {
               </div>
             </div>
 
-            {/* CANTIDAD Y ORGANISMOS MULTI-SELECCIÓN */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="md:col-span-1">
-                <label className="block text-xs font-bold text-gray-600 mb-1">Cantidad de Actividades</label>
-                <input 
-                  type="number" 
-                  required 
-                  min={1} 
-                  className="w-full p-2.5 border rounded-lg bg-white text-sm font-bold text-gray-800 focus:ring-2 focus:ring-[#00529b]" 
-                  value={form.cantidad}
-                  onChange={e => setForm({ ...form, cantidad: Number(e.target.value) })}
-                />
+            {/* ORGANISMOS MULTI-SELECCIÓN */}
+            <div className="relative">
+              <label className="block text-xs font-bold text-gray-600 mb-1">Organismos Involucrados</label>
+              
+              <div 
+                onClick={() => setDropdownOrganismosAbierto(!dropdownOrganismosAbierto)}
+                className={`w-full p-2.5 border rounded-lg bg-white text-sm font-bold cursor-pointer flex justify-between items-center transition-all ${dropdownOrganismosAbierto ? 'ring-2 ring-[#00529b] border-[#00529b]' : 'border-gray-300'} ${form.organismos_involucrados.length > 0 ? 'text-[#00529b]' : 'text-gray-500'}`}
+              >
+                <span className="truncate">
+                  {form.organismos_involucrados.length > 0 
+                    ? `${form.organismos_involucrados.length} Organismo(s) seleccionado(s)` 
+                    : "Seleccione organismos (Obligatorio)..."}
+                </span>
+                <ChevronDown size={18} className={`transition-transform duration-200 ${dropdownOrganismosAbierto ? 'rotate-180 text-[#00529b]' : 'text-gray-400'}`} />
               </div>
 
-              <div className="md:col-span-2 relative">
-                <label className="block text-xs font-bold text-gray-600 mb-1">Organismos Involucrados</label>
-                
-                <div 
-                  onClick={() => setDropdownOrganismosAbierto(!dropdownOrganismosAbierto)}
-                  className={`w-full p-2.5 border rounded-lg bg-white text-sm font-bold cursor-pointer flex justify-between items-center transition-all ${dropdownOrganismosAbierto ? 'ring-2 ring-[#00529b] border-[#00529b]' : 'border-gray-300'} ${form.organismos_involucrados.length > 0 ? 'text-[#00529b]' : 'text-gray-500'}`}
-                >
-                  <span className="truncate">
-                    {form.organismos_involucrados.length > 0 
-                      ? `${form.organismos_involucrados.length} Organismo(s) seleccionado(s)` 
-                      : "Seleccione organismos (Obligatorio)..."}
-                  </span>
-                  <ChevronDown size={18} className={`transition-transform duration-200 ${dropdownOrganismosAbierto ? 'rotate-180 text-[#00529b]' : 'text-gray-400'}`} />
-                </div>
-
-                {dropdownOrganismosAbierto && (
-                  <div className="absolute z-50 w-full mt-2 bg-white border border-gray-200 rounded-xl shadow-[0_10px_40px_rgba(0,0,0,0.1)] overflow-hidden">
-                    <div className="max-h-56 overflow-y-auto p-1 divide-y divide-gray-50">
-                      {LISTA_ORGANISMOS.map((org, idx) => (
-                        <label key={idx} className="flex items-center gap-3 p-3 hover:bg-blue-50 cursor-pointer transition-colors group">
-                          <input 
-                            type="checkbox" 
-                            className="w-4 h-4 accent-[#00529b] cursor-pointer rounded border-gray-300"
-                            checked={form.organismos_involucrados.includes(org)}
-                            onChange={() => toggleOrganismo(org)}
-                          />
-                          <span className="text-[11px] font-bold text-gray-700 group-hover:text-[#00529b] leading-tight">{org}</span>
-                        </label>
-                      ))}
-                    </div>
-                    <div className="p-3 bg-gray-50 border-t text-center">
-                      <button 
-                        type="button" 
-                        onClick={() => setDropdownOrganismosAbierto(false)} 
-                        className="text-xs font-black tracking-wide text-[#00529b] uppercase hover:underline w-full"
-                      >
-                        Confirmar y Cerrar
-                      </button>
-                    </div>
+              {dropdownOrganismosAbierto && (
+                <div className="absolute z-50 w-full mt-2 bg-white border border-gray-200 rounded-xl shadow-[0_10px_40px_rgba(0,0,0,0.1)] overflow-hidden">
+                  <div className="max-h-56 overflow-y-auto p-1 divide-y divide-gray-50">
+                    {LISTA_ORGANISMOS.map((org, idx) => (
+                      <label key={idx} className="flex items-center gap-3 p-3 hover:bg-blue-50 cursor-pointer transition-colors group">
+                        <input 
+                          type="checkbox" 
+                          className="w-4 h-4 accent-[#00529b] cursor-pointer rounded border-gray-300"
+                          checked={form.organismos_involucrados.includes(org)}
+                          onChange={() => toggleOrganismo(org)}
+                        />
+                        <span className="text-[11px] font-bold text-gray-700 group-hover:text-[#00529b] leading-tight">{org}</span>
+                      </label>
+                    ))}
                   </div>
-                )}
-              </div>
+                  <div className="p-3 bg-gray-50 border-t text-center">
+                    <button 
+                      type="button" 
+                      onClick={() => setDropdownOrganismosAbierto(false)} 
+                      className="text-xs font-black tracking-wide text-[#00529b] uppercase hover:underline w-full"
+                    >
+                      Confirmar y Cerrar
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* LUGAR PRE_DISEÑADO */}
@@ -516,6 +563,73 @@ export default function UserDashboardPage() {
           </form>
         </div>
       </div>
+
+      {/* ==========================================
+          MODAL PARA GESTIONAR MIS SECTORES
+          ========================================== */}
+      {mostrarModalSectores && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
+          <div className="bg-white rounded-[2rem] p-8 max-w-md w-full shadow-2xl border">
+            <h3 className="text-xl font-black text-[#00529b] mb-4 border-b pb-3 flex items-center gap-2">
+              <MapPin size={24} /> Mis Sectores Asignados
+            </h3>
+
+            {/* Lista de sectores actuales */}
+            <div className="max-h-60 overflow-y-auto mb-6 space-y-2 pr-2">
+              {misSectores.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-6 text-gray-400">
+                  <MapPin size={32} className="opacity-50 mb-2" />
+                  <p className="text-sm font-bold text-center">No tienes sectores registrados.</p>
+                </div>
+              ) : (
+                misSectores.map(sec => (
+                  <div key={sec.id} className="flex justify-between items-center bg-gray-50 p-3 rounded-xl border group hover:border-red-200 transition-colors">
+                    <span className="font-bold text-xs text-gray-700 uppercase leading-tight">{sec.nombre_sector}</span>
+                    <button 
+                      onClick={() => eliminarSector(sec.id, sec.nombre_sector)} 
+                      className="text-gray-400 hover:text-red-500 hover:bg-red-50 p-1.5 rounded-lg transition-colors"
+                      title="Eliminar este sector"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Agregar nuevo sector */}
+            <div className="mb-6">
+              <label className="block text-xs font-bold text-gray-500 mb-2">Agregar Nuevo Sector</label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  className="flex-1 p-3 border rounded-xl bg-gray-50 focus:ring-2 focus:ring-[#00529b] outline-none text-xs font-bold uppercase"
+                  placeholder="Ej: SECTOR LA CAÑADA..."
+                  value={nuevoSector}
+                  onChange={e => setNuevoSector(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && agregarSector()}
+                />
+                <button
+                  onClick={agregarSector}
+                  disabled={guardandoSector || !nuevoSector.trim()}
+                  className="bg-[#00529b] text-white p-3 rounded-xl hover:bg-[#003d73] transition-colors disabled:opacity-50 flex items-center justify-center"
+                  title="Añadir a mi lista"
+                >
+                  {guardandoSector ? <Loader2 className="animate-spin" size={20} /> : <Plus size={20} />}
+                </button>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setMostrarModalSectores(false)}
+              className="w-full bg-gray-200 text-gray-700 p-4 rounded-xl font-black uppercase tracking-wide hover:bg-gray-300 transition-all"
+            >
+              Cerrar Ventana
+            </button>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
