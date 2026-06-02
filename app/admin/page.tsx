@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Pencil, SquarePen, Pen, Calendar, Search, FileSpreadsheet, FileText, Filter, ShieldAlert, Activity, ShieldCheck, Siren, Target, BarChart3, Award, TrendingUp, Settings, Plus, Trash2, Edit3, ChevronRight, UserPlus, UserMinus, User, Star, AlertCircle } from 'lucide-react'
+import { SquarePen, Calendar, Search, FileSpreadsheet, FileText, Filter, ShieldAlert, Activity, ShieldCheck, Siren, Target, Award, TrendingUp, Settings, Plus, Trash2, Edit3, ChevronRight, UserPlus, UserMinus, User, Star, AlertCircle } from 'lucide-react'
 import * as XLSX from 'xlsx';
 import Link from 'next/link';
 
@@ -40,9 +40,7 @@ export default function AdminDashboardPage() {
   const [loading, setLoading] = useState(false);
   const [verificando, setVerificando] = useState(true);
   
-  // ==========================================
   // ESTADOS DE PROGRESO DE CARGA EXCEL
-  // ==========================================
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadMessage, setUploadMessage] = useState('');
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -77,12 +75,10 @@ export default function AdminDashboardPage() {
   
   // Estados Edición
   const [editingUsuario, setEditingUsuario] = useState<any | null>(null);
-  const [formEditar, setFormEditar] = useState({ ...formManual }); 
+  const [formEditar, setFormEditar] = useState({ ...formManual, id: '', rol: 'usuario', email: '' }); 
   const [sectoresInputsEditar, setSectoresInputsEditar] = useState<string[]>(['']);
 
-  // ==========================================
   // ESTADOS PANEL DE INCIDENCIAS
-  // ==========================================
   const [incidenciasDB, setIncidenciasDB] = useState<any[]>([]);
   const [fechaDesde, setFechaDesde] = useState('');
   const [fechaHasta, setFechaHasta] = useState('');
@@ -92,15 +88,11 @@ export default function AdminDashboardPage() {
   const [filtroIncidenciaTipo, setFiltroIncidenciaTipo] = useState('');
   const [filtroIncidenciaOrganismo, setFiltroIncidenciaOrganismo] = useState('');
 
-  // ==========================================
   // ESTADOS PANEL DE REPORTES Y ESTADÍSTICAS
-  // ==========================================
   const [fechaRepDesde, setFechaRepDesde] = useState('');
   const [fechaRepHasta, setFechaRepHasta] = useState('');
 
-  // ==========================================
   // ESTADOS NUEVOS: GESTIÓN DE CATÁLOGOS
-  // ==========================================
   const [catClasificacion, setCatClasificacion] = useState<any[]>([]);
   const [catIncidencia, setCatIncidencia] = useState<any[]>([]);
   const [catActividad, setCatActividad] = useState<any[]>([]);
@@ -171,7 +163,6 @@ export default function AdminDashboardPage() {
     if (adminOrg.includes('transporte terrestre')) aliases.push('intt');
     if (adminOrg.includes('proteccion civil')) aliases.push('pc');
 
-    // 1. CARGAR USUARIOS A PRUEBA DE FALLOS
     const { data: users, error: errU } = await supabase.from('directorio_operativo').select('*').neq('rol', 'admin').neq('rol', 'superusuario').limit(10000);
     if (errU) alert("Error cargando usuarios: " + errU.message);
     else if (users) {
@@ -187,7 +178,6 @@ export default function AdminDashboardPage() {
       }
     }
 
-    // 2. CARGAR SECTORES
     let todosLosSectores: any[] = [];
     let limite = 1000;
     let inicio = 0;
@@ -203,7 +193,6 @@ export default function AdminDashboardPage() {
     }
     setSectoresDB(todosLosSectores);
     
-    // 3. CARGAR INCIDENCIAS A PRUEBA DE FALLOS
     const { data: incs } = await supabase.from('incidencias').select('*').limit(50000);
     if (incs) {
       if (!isSuper && currentUser.organismo_responsable) {
@@ -218,7 +207,6 @@ export default function AdminDashboardPage() {
       }
     }
 
-    // 4. CARGAR CATÁLOGOS
     const { data: cClas } = await supabase.from('catalogo_clasificacion').select('*').order('nombre');
     if (cClas) setCatClasificacion(cClas);
     const { data: cInc } = await supabase.from('catalogo_incidencia').select('*').order('nombre');
@@ -890,7 +878,6 @@ export default function AdminDashboardPage() {
                     Al guardar, el sistema creará automáticamente su <b>Correo Electrónico</b> y su <b>Clave de acceso</b> será el mismo <b>Código SITUR</b>.
                   </div>
                   
-                  {/* Si es SuperUsuario, puede elegir el organismo. Si es Admin, se pone automático su organismo */}
                   <div className="col-span-full">
                     <label className="block text-xs font-bold text-[#00529b] mb-1">Organismo Responsable</label>
                     {esSuperUser ? (
@@ -993,7 +980,7 @@ export default function AdminDashboardPage() {
                 </div>
               </div>
 
-              {/* 4 TARJETAS ESTADÍSTICAS (PILARES + TOTAL) */}
+              {/* 4 TARJETAS ESTADÍSTICAS */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className="bg-white border border-gray-200 rounded-2xl p-4 flex items-center gap-4 shadow-sm">
                   <div className="bg-blue-50 p-3 rounded-full text-[#00529b]"><Activity size={28} /></div>
@@ -1148,7 +1135,6 @@ export default function AdminDashboardPage() {
           {/* 3. PANEL DE REPORTES Y ESTADÍSTICAS */}
           {activeTab === 'reportes' && (
             <div className="animate-fade-in w-full space-y-6">
-              
               <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-gradient-to-r from-[#00529b] to-blue-800 p-6 rounded-2xl text-white shadow-md">
                 <div className="flex items-center gap-3">
                   <div className="bg-white/10 p-2 rounded-xl backdrop-blur-md border border-white/20 flex items-center justify-center">
@@ -1540,7 +1526,6 @@ export default function AdminDashboardPage() {
                 )}
               </div>
 
-              {/* Si estamos editando a un Admin, mostramos su correo oficial */}
               {(formEditar.rol === 'admin' || formEditar.rol === 'superusuario') && (
                 <div className="col-span-full">
                   <label className="block text-xs font-bold text-gray-600 mb-1">Correo Electrónico (Login)</label>
@@ -1555,7 +1540,6 @@ export default function AdminDashboardPage() {
               <div><label className="block text-xs font-bold text-gray-600 mb-1">Nombres y Apellidos</label><input required type="text" className="w-full p-2 border rounded-lg" value={formEditar.nombre_apellido_jefe} onChange={e => setFormEditar({...formEditar, nombre_apellido_jefe: e.target.value})} /></div>
               <div><label className="block text-xs font-bold text-gray-600 mb-1">Cédula</label><input type="text" className="w-full p-2 border rounded-lg" value={formEditar.cedula} onChange={e => setFormEditar({...formEditar, cedula: e.target.value})} /></div>
               
-              {/* CASILLA DE CLAVE BLOQUEADA PARA NO-SUPERUSUARIOS */}
               <div>
                 <label className="block text-xs font-bold text-[#00529b] mb-1">Clave / SITUR</label>
                 <input 
@@ -1572,7 +1556,6 @@ export default function AdminDashboardPage() {
               <div><label className="block text-xs font-bold text-gray-600 mb-1">Circuito Comunal</label><input required type="text" className="w-full p-2 border rounded-lg" value={formEditar.comuna_o_circuito_comunal} onChange={e => setFormEditar({...formEditar, comuna_o_circuito_comunal: e.target.value})} /></div>
               <div><label className="block text-xs font-bold text-gray-600 mb-1">Teléfono Jefe</label><input type="text" className="w-full p-2 border rounded-lg" value={formEditar.telefono_celular_jefe} onChange={e => setFormEditar({...formEditar, telefono_celular_jefe: e.target.value})} /></div>
               
-              {/* Si es admin, ocultamos cuadrantes y consejos comunales que no aplican mucho */}
               {formEditar.rol === 'usuario' && (
                 <>
                   <div><label className="block text-xs font-bold text-gray-600 mb-1">Cuadrante N°</label><input type="text" className="w-full p-2 border rounded-lg" value={formEditar.cuadrante} onChange={e => setFormEditar({...formEditar, cuadrante: e.target.value})} /></div>
@@ -1582,7 +1565,7 @@ export default function AdminDashboardPage() {
               )}
               
               <div className="col-span-full border-t pt-4 mt-2">
-                <label className="block text-sm font-bold text-gray-700 mb-2">Sectores pertenecientes a este Circuito (Editar / Rellenar Faltantes)</label>
+                <label className="block text-sm font-bold text-gray-700 mb-2">Sectores pertenecientes a este Circuito</label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
                   {sectoresInputsEditar.map((sectorValue, index) => (
                     <div key={index} className="relative flex items-center">
