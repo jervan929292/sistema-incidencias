@@ -1,9 +1,37 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Pencil, SquarePen, Pen, Calendar, Search, FileSpreadsheet, FileText, Filter, ShieldAlert, Activity, ShieldCheck, Siren, Target, BarChart3, Award, TrendingUp, Settings, Plus, Trash2, Edit3, ChevronRight, UserPlus, UserMinus, User } from 'lucide-react'
+import { Pencil, SquarePen, Pen, Calendar, Search, FileSpreadsheet, FileText, Filter, ShieldAlert, Activity, ShieldCheck, Siren, Target, BarChart3, Award, TrendingUp, Settings, Plus, Trash2, Edit3, ChevronRight, UserPlus, UserMinus, User, Star, AlertCircle } from 'lucide-react'
 import * as XLSX from 'xlsx';
 import Link from 'next/link';
+
+// LISTA DE ORGANISMOS PARA EL FORMULARIO MANUAL
+const LISTA_ORGANISMOS = [
+  "VEN 911",
+  "Cuerpo de Investigaciones Científicas Penales y Criminalísticas",
+  "Dirección de Atención Integral Penitenciaria",
+  "Dirección General de Bomberos y Bomberas",
+  "Direccion General de Cuadrantes de Paz",
+  "Dirección General de los Centros de Comando, Control y Telecomunicaciones",
+  "Dirección General de Prevención del Delito",
+  "Guardia Nacional bolivariana",
+  "Instituto Nacional Contra la Discriminación Racial",
+  "Instituto Nacional de Meteorología e Hidrología",
+  "Instituto Nacional de Transporte Terrestre",
+  "Oficina Nacional Contra la Delincuencia Organizada y Financiamiento al Terrorismo",
+  "Oficina Nacional para La Atención Integral de las Victimas",
+  "Policía Estadal",
+  "Policía Municipal",
+  "Policía Nacional Bolivariana",
+  "Protección Civil y Administración de Desastre",
+  "Servicio Autónomo de Identificación, Migración y Extranjería",
+  "Servicio Autónomo de Registros y Notarias",
+  "Servicio Nacional para el Desarme",
+  "Sistema Nacional de Medicina Forense",
+  "Superintendencia Nacional Antidrogas",
+  "Universidad Nacional Experimental de la Seguridad",
+  "Otros"
+];
 
 export default function AdminDashboardPage() {
   const [activeTab, setActiveTab] = useState('directorio'); 
@@ -24,14 +52,16 @@ export default function AdminDashboardPage() {
   const [filtroMunicipio, setFiltroMunicipio] = useState('');
   const [filtroParroquia, setFiltroParroquia] = useState('');
 
-  // Estados de Admin
+  // Estados de Admin y Permisos
   const [adminUser, setAdminUser] = useState<any>(null);
+  const [esSuperUser, setEsSuperUser] = useState(false);
+  
   const [mostrarModalAdmin, setMostrarModalAdmin] = useState(false);
   const [formAdmin, setFormAdmin] = useState({ 
     nombre_apellido_jefe: '', telefono_celular_jefe: '', cedula: '', grado_jerarquia: '', email: '', codigo_situr: '' 
   });
   
-  // NUVEO: Estados para Eliminar Administradores
+  // Estados para Administradores
   const [listaAdmins, setListaAdmins] = useState<any[]>([]);
   const [mostrarModalEliminarAdmin, setMostrarModalEliminarAdmin] = useState(false);
 
@@ -44,7 +74,7 @@ export default function AdminDashboardPage() {
   });
   const [sectoresInputs, setSectoresInputs] = useState<string[]>(['']);
   
-  // Estados Edición
+  // Estados Edición (Aplica tanto para Usuarios como para Admins)
   const [editingUsuario, setEditingUsuario] = useState<any | null>(null);
   const [formEditar, setFormEditar] = useState({ ...formManual }); 
   const [sectoresInputsEditar, setSectoresInputsEditar] = useState<string[]>(['']);
@@ -87,51 +117,105 @@ export default function AdminDashboardPage() {
       if (!user) { window.location.href = '/login'; return; }
       
       const { data: adminData } = await supabase.from('directorio_operativo').select('*').eq('id', user.id).single();
-      if (adminData?.rol !== 'admin') {
-        window.location.href = '/dashboard';
-      } else {
+      
+      if (adminData?.rol === 'admin' || adminData?.rol === 'superusuario') {
         setAdminUser(adminData); 
+        setEsSuperUser(adminData.rol === 'superusuario');
         setVerificando(false);
-        fetchDatos();
-        fetchAdmins(); // Cargamos la lista de admins
+        fetchDatos(adminData);
+        if (adminData.rol === 'superusuario') {
+          fetchAdmins();
+        }
+      } else {
+        window.location.href = '/dashboard';
       }
     };
     checkAccess();
   }, []);
 
   const fetchAdmins = async () => {
-    const { data } = await supabase.from('directorio_operativo').select('*').eq('rol', 'admin');
-    if (data) setListaAdmins(data);
+    const { data } = await supabase.from('directorio_operativo').select('*').in('rol', ['admin', 'superusuario']);
+    if (data) {
+      const sortedData = data.sort((a, b) => {
+        const aEmpty = !a.organismo_responsable ? 1 : 0;
+        const bEmpty = !b.organismo_responsable ? 1 : 0;
+        return bEmpty - aEmpty;
+      });
+      setListaAdmins(sortedData);
+    }
   };
 
-  const fetchDatos = async () => {
-    const { data: users, error: errU } = await supabase.from('directorio_operativo').select('*').neq('rol', 'admin').limit(10000);
-    if (errU) alert("Error cargando usuarios: " + errU.message);
-    else if (users) setUsuarios(users || []);
+  const fetchDatos = async (currentUser: any) => {
+    const isSuper = currentUser.rol === 'superusuario';
 
+    if (!isSuper && (!currentUser.organismo_responsable || currentUser.organismo_responsable.trim() === '')) {
+      setUsuarios([]);
+      setSectoresDB([]);
+      setIncidenciasDB([]);
+      setCatClasificacion([]);
+      setCatIncidencia([]);
+      setCatActividad([]);
+      return; 
+    }
+    
+    const normalizeStr = (str: string) => (str || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    const adminOrg = normalizeStr(currentUser.organismo_responsable);
+    
+    const aliases = [adminOrg];
+    if (adminOrg.includes('estadal')) aliases.push('estado', 'polifalcon');
+    if (adminOrg.includes('bolivariana')) aliases.push('pnb', 'cpnb');
+    if (adminOrg.includes('guardia nacional')) aliases.push('gnb');
+    if (adminOrg.includes('bomberos')) aliases.push('bombero');
+    if (adminOrg.includes('cientificas')) aliases.push('cicpc');
+    if (adminOrg.includes('transporte terrestre')) aliases.push('intt');
+    if (adminOrg.includes('proteccion civil')) aliases.push('pc');
+
+    // 1. CARGAR USUARIOS
+    const { data: users, error: errU } = await supabase.from('directorio_operativo').select('*').neq('rol', 'admin').neq('rol', 'superusuario').limit(10000);
+    if (errU) alert("Error cargando usuarios: " + errU.message);
+    else if (users) {
+      if (!isSuper && currentUser.organismo_responsable) {
+        const filteredUsers = users.filter(u => {
+          const uOrg = normalizeStr(u.organismo_responsable);
+          return aliases.some(alias => uOrg.includes(alias) || alias.includes(uOrg));
+        });
+        setUsuarios(filteredUsers);
+      } else {
+        setUsuarios(users);
+      }
+    }
+
+    // 2. CARGAR SECTORES
     let todosLosSectores: any[] = [];
     let limite = 1000;
     let inicio = 0;
     let hayMas = true;
-
     while (hayMas) {
       const { data: secs, error: errS } = await supabase.from('sectores').select('*').range(inicio, inicio + limite - 1);
-      if (errS) {
-        console.error("Error cargando sectores:", errS);
-        hayMas = false;
-      } else if (secs && secs.length > 0) {
+      if (errS) { console.error("Error cargando sectores:", errS); hayMas = false; }
+      else if (secs && secs.length > 0) {
         todosLosSectores = [...todosLosSectores, ...secs];
         inicio += limite;
         if (secs.length < limite) hayMas = false; 
-      } else {
-        hayMas = false;
-      }
+      } else { hayMas = false; }
     }
     setSectoresDB(todosLosSectores);
     
+    // 3. CARGAR INCIDENCIAS
     const { data: incs } = await supabase.from('incidencias').select('*').limit(50000);
-    if (incs) setIncidenciasDB(incs || []);
+    if (incs) {
+      if (!isSuper && currentUser.organismo_responsable) {
+        const filteredIncs = incs.filter(inc => {
+          const incOrgs = normalizeStr(inc.organismos_involucrados);
+          return aliases.some(alias => incOrgs.includes(alias));
+        });
+        setIncidenciasDB(filteredIncs);
+      } else {
+        setIncidenciasDB(incs);
+      }
+    }
 
+    // 4. CARGAR CATÁLOGOS
     const { data: cClas } = await supabase.from('catalogo_clasificacion').select('*').order('nombre');
     if (cClas) setCatClasificacion(cClas);
     const { data: cInc } = await supabase.from('catalogo_incidencia').select('*').order('nombre');
@@ -142,6 +226,60 @@ export default function AdminDashboardPage() {
     setSelectedIds([]); 
   };
 
+  const handleToggleSuperUser = async (idUsuario: string, nombreUsuario: string, rolActual: string) => {
+    if (!esSuperUser) return;
+    const nuevoRol = rolActual === 'superusuario' ? 'admin' : 'superusuario';
+    const accion = rolActual === 'superusuario' ? 'quitarle' : 'otorgarle';
+    
+    if (!window.confirm(`¿Quiere ${accion} el rol de SUPER USUARIO a "${nombreUsuario}"?`)) return;
+
+    setLoading(true);
+    try {
+      const { error } = await supabase.from('directorio_operativo').update({ rol: nuevoRol }).eq('id', idUsuario);
+      if (error) throw error;
+      alert(`Privilegios actualizados correctamente.`);
+      fetchAdmins();
+    } catch (error: any) {
+      alert("Error al actualizar rol: " + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const asignarOrganismoAdmin = async (idUsuario: string, nuevoOrganismo: string) => {
+    if (!nuevoOrganismo) return;
+    setLoading(true);
+    try {
+      const { error } = await supabase.from('directorio_operativo').update({ organismo_responsable: nuevoOrganismo }).eq('id', idUsuario);
+      if (error) throw error;
+      fetchAdmins();
+    } catch (error: any) {
+      alert("Error al asignar organismo: " + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleEliminarAdmin = async (idAEliminar: string, nombreAdmin: string) => {
+    if (idAEliminar === adminUser?.id) {
+      alert("No puedes eliminar tu propia cuenta mientras estás conectado.");
+      return;
+    }
+    if (!window.confirm(`⚠️ ADVERTENCIA: ¿Estás completamente seguro de que deseas eliminar al administrador "${nombreAdmin}"?`)) return;
+
+    setLoading(true);
+    try {
+      const { error } = await supabase.from('directorio_operativo').delete().eq('id', idAEliminar);
+      if (error) throw error;
+      alert(`El administrador ${nombreAdmin} fue eliminado correctamente.`);
+      fetchAdmins(); 
+    } catch (error: any) {
+      alert("Error al eliminar administrador: " + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const agregarCatalogo = async (tabla: string, payload: any, setterInput: Function) => {
     if(loading) return;
     setLoading(true);
@@ -149,52 +287,53 @@ export default function AdminDashboardPage() {
       const { error } = await supabase.from(tabla).insert([payload]);
       if (error) throw error;
       setterInput('');
-      await fetchDatos();
+      await fetchDatos(adminUser);
     } catch (err: any) { alert("Error: " + err.message); } finally { setLoading(false); }
   };
 
   const editarCatalogo = async (tabla: string, id: string, nombreActual: string) => {
     const nuevoNombre = window.prompt(`Corregir nombre en la base de datos:`, nombreActual);
     if (!nuevoNombre || nuevoNombre.trim() === '' || nuevoNombre === nombreActual) return;
-    
     setLoading(true);
     try {
       const { error } = await supabase.from(tabla).update({ nombre: nuevoNombre.trim() }).eq('id', id);
       if (error) throw error;
-      await fetchDatos();
+      await fetchDatos(adminUser);
     } catch (err: any) { alert("Error al editar: " + err.message); } finally { setLoading(false); }
   };
 
   const eliminarCatalogo = async (tabla: string, id: string) => {
-    if (!window.confirm("⚠️ ADVERTENCIA: ¿Estás seguro de eliminar este elemento? Si tiene sub-elementos asignados, también podrían verse afectados.")) return;
-    
+    if (!window.confirm("⚠️ ADVERTENCIA: ¿Estás seguro de eliminar este elemento?")) return;
     setLoading(true);
     try {
       const { error } = await supabase.from(tabla).delete().eq('id', id);
       if (error) throw error;
-      
       if (tabla === 'catalogo_clasificacion' && id === selectedClasId) { setSelectedClasId(''); setSelectedIncId(''); }
       if (tabla === 'catalogo_incidencia' && id === selectedIncId) { setSelectedIncId(''); }
-      
-      await fetchDatos();
+      await fetchDatos(adminUser);
     } catch (err: any) { alert("Error al eliminar: " + err.message); } finally { setLoading(false); }
   };
 
   const handleDescargarCredenciales = () => {
-    if (usuariosFiltrados.length === 0) {
-      alert("No hay registros en la tabla para exportar en este momento.");
-      return;
-    }
+    if (usuariosFiltrados.length === 0) { alert("No hay registros en la tabla para exportar."); return; }
     const dataCredenciales = usuariosFiltrados.map(u => ({
-      'NOMBRE Y APELLIDO DEL JEFE': `${u.grado_jerarquia || ''} ${u.nombre_apellido_jefe || ''}`.trim(),
-      'CORREO ELECTRÓNICO ASIGNADO': u.email || 'N/A',
-      'CLAVE DE ACCESO (CÓDIGO SITUR)': u.codigo_situr || 'N/A',
+      'CÓDIGO SITUR (CLAVE)': u.codigo_situr || 'N/A',
+      'CORREO ASIGNADO': u.email || 'N/A',
+      'RANGO / JERARQUÍA': u.grado_jerarquia || 'N/A',
+      'NOMBRES Y APELLIDOS': u.nombre_apellido_jefe || 'N/A',
+      'CÉDULA': u.cedula || 'N/A',
+      'TELÉFONO CELULAR': u.telefono_celular_jefe || 'N/A',
       'CIRCUITO COMUNAL': u.comuna_o_circuito_comunal || 'N/A',
       'MUNICIPIO': u.municipio || 'N/A',
       'PARROQUIA': u.parroquia || 'N/A',
+      'ORGANISMO': u.organismo_responsable || 'N/A',
       'CUADRANTE ASOCIADO': u.cuadrante || 'N/A'
     }));
+
     const ws = XLSX.utils.json_to_sheet(dataCredenciales);
+    const wscols = [ { wch: 20 }, { wch: 30 }, { wch: 22 }, { wch: 35 }, { wch: 15 }, { wch: 18 }, { wch: 35 }, { wch: 20 }, { wch: 20 }, { wch: 25 }, { wch: 22 } ];
+    ws['!cols'] = wscols;
+
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Credenciales de Acceso');
     XLSX.writeFile(wb, 'BD_Credenciales_Jefes_Cuadrante.xlsx');
@@ -285,31 +424,8 @@ export default function AdminDashboardPage() {
       const { error } = await supabase.from('directorio_operativo').delete().in('id', selectedIds);
       if (error) throw error;
       alert(`Se eliminaron ${selectedIds.length} registros exitosamente.`);
-      fetchDatos();
+      fetchDatos(adminUser);
     } catch (error: any) { alert("Error al eliminar: " + error.message); } finally { setLoading(false); }
-  };
-
-  // NUEVA FUNCIÓN: Eliminar Administrador
-  const handleEliminarAdmin = async (idAEliminar: string, nombreAdmin: string) => {
-    if (idAEliminar === adminUser?.id) {
-      alert("No puedes eliminar tu propia cuenta mientras estás conectado.");
-      return;
-    }
-    
-    if (!window.confirm(`⚠️ ADVERTENCIA: ¿Estás completamente seguro de que deseas eliminar al administrador "${nombreAdmin}"? Perderá acceso total al sistema.`)) return;
-
-    setLoading(true);
-    try {
-      const { error } = await supabase.from('directorio_operativo').delete().eq('id', idAEliminar);
-      if (error) throw error;
-
-      alert(`El administrador ${nombreAdmin} fue eliminado correctamente.`);
-      fetchAdmins(); // Recargamos la lista
-    } catch (error: any) {
-      alert("Error al eliminar administrador: " + error.message);
-    } finally {
-      setLoading(false);
-    }
   };
 
   const handleLogout = async () => {
@@ -317,14 +433,10 @@ export default function AdminDashboardPage() {
     window.location.href = '/login';
   };
 
-  // ==========================================
-  // FUNCIÓN MEJORADA: GUARDAR PERFIL ADMIN (SIN FOTO)
-  // ==========================================
   const guardarPerfilAdmin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     try {
-      // Si cambió el correo o la clave, actualizar Auth de Supabase
       if (formAdmin.email !== adminUser.email || formAdmin.codigo_situr !== adminUser.codigo_situr) {
         const { error: authError } = await supabase.auth.updateUser({
           email: formAdmin.email,
@@ -333,7 +445,6 @@ export default function AdminDashboardPage() {
         if (authError) throw new Error("Error actualizando credenciales: " + authError.message);
       }
 
-      // Actualizar la base de datos (Directorio Operativo)
       const { error = null } = await supabase.from('directorio_operativo')
         .update({ 
           nombre_apellido_jefe: formAdmin.nombre_apellido_jefe, 
@@ -479,7 +590,7 @@ export default function AdminDashboardPage() {
         setShowUploadModal(false);
       }, 500);
       
-      fetchDatos();
+      fetchDatos(adminUser);
     } catch (error: any) {
       alert("Error Crítico: " + error.message);
       setShowUploadModal(false);
@@ -531,23 +642,29 @@ export default function AdminDashboardPage() {
         telefono_celular_jefe: '', codigo_situr: '', comuna_o_circuito_comunal: '', consejos_comunales: ''
       });
       setSectoresInputs(['']);
-      fetchDatos();
+      fetchDatos(adminUser);
     } catch (error: any) { alert(error.message); } finally { setLoading(false); }
   };
 
   const abrirEditar = (u: any) => {
     setEditingUsuario(u);
     setFormEditar({
+      id: u.id,
+      rol: u.rol || 'usuario', // Fundamental para saber si editamos un admin o un usuario
       estado: u.estado || '', municipio: u.municipio || '', parroquia: u.parroquia || '',
       cuadrante: u.cuadrante || '', telefono_cuadrante: u.telefono_cuadrante || '',
       organismo_responsable: u.organismo_responsable || '', grado_jerarquia: u.grado_jerarquia || '',
       cedula: u.cedula || '', nombre_apellido_jefe: u.nombre_apellido_jefe || '',
       telefono_celular_jefe: u.telefono_celular_jefe || '', codigo_situr: u.codigo_situr || '',
-      comuna_o_circuito_comunal: u.comuna_o_circuito_comunal || '', consejos_comunales: u.consejos_comunales || ''
+      comuna_o_circuito_comunal: u.comuna_o_circuito_comunal || '', consejos_comunales: u.consejos_comunales || '',
+      email: u.email || ''
     });
 
     const deEsteUsuario = sectoresDB.filter(s => s.codigo_situr === u.codigo_situr).map(s => s.nombre_sector);
     setSectoresInputsEditar(deEsteUsuario.length > 0 ? [...deEsteUsuario, ''] : ['']);
+    
+    // Si abrimos la edición desde el panel de admins, cerramos ese panel para evitar confusión visual
+    setMostrarModalEliminarAdmin(false); 
   };
 
   const handleEditSubmit = async (e: React.FormEvent) => {
@@ -557,14 +674,22 @@ export default function AdminDashboardPage() {
       const codigoSiturLimpio = formEditar.codigo_situr?.toString().trim();
       const circuitoLimpio = formEditar.comuna_o_circuito_comunal?.toString().trim();
       const codigoViejo = editingUsuario.codigo_situr?.toString(); 
+      const emailViejo = editingUsuario.email?.toString();
 
       if (!codigoSiturLimpio) throw new Error("El Código SITUR es requerido.");
+
+      // Si el Superusuario cambió el correo o la clave de este usuario, debemos actualizar Auth
+      if (esSuperUser && (formEditar.email !== emailViejo || codigoSiturLimpio !== codigoViejo)) {
+         // NOTA: Para cambiar correos de otros usuarios en Supabase Auth se requiere un backend seguro.
+         // En el frontend, solo actualizaremos la tabla pública. Supabase Auth restringe modificar a otros.
+         // El login JIT (Just-In-Time) que tienes configurado creará la cuenta Auth con la nueva clave si no existe.
+      }
 
       const datosJefeLimpios = {
         ...formEditar,
         codigo_situr: codigoSiturLimpio,
         comuna_o_circuito_comunal: circuitoLimpio,
-        email: `${codigoSiturLimpio}@cupaz.com`.toLowerCase()
+        email: formEditar.rol === 'admin' || formEditar.rol === 'superusuario' ? formEditar.email : `${codigoSiturLimpio}@cupaz.com`.toLowerCase()
       };
 
       const { error: errJefe } = await supabase.from('directorio_operativo')
@@ -573,6 +698,7 @@ export default function AdminDashboardPage() {
       
       if (errJefe) throw errJefe;
 
+      // Actualizar sectores
       if (codigoViejo) {
         await supabase.from('sectores').delete().eq('codigo_situr', codigoViejo);
       }
@@ -594,9 +720,12 @@ export default function AdminDashboardPage() {
         if (errSec) throw new Error("Fallo al insertar los sectores: " + errSec.message);
       }
 
-      alert("Usuario y sectores actualizados con éxito.");
+      alert("Ficha actualizada con éxito.");
       setEditingUsuario(null);
-      await fetchDatos(); 
+      await fetchDatos(adminUser); 
+      if (formEditar.rol === 'admin' || formEditar.rol === 'superusuario') {
+        fetchAdmins();
+      }
       
     } catch (error: any) { 
       alert("Error: " + error.message); 
@@ -606,7 +735,7 @@ export default function AdminDashboardPage() {
     }
   };
 
-  if (verificando) return <div className="min-h-screen flex items-center justify-center bg-[#f0f2f5]"><p className="text-xl font-bold text-gray-700 animate-pulse">Verificando...</p></div>;
+  if (verificando) return <div className="min-h-screen flex items-center justify-center bg-[#f0f2f5]"><p className="text-xl font-bold text-gray-700 animate-pulse">Verificando Credenciales de Seguridad...</p></div>;
 
   return (
     <div className="min-h-screen bg-[#f0f2f5]">
@@ -634,32 +763,35 @@ export default function AdminDashboardPage() {
           </div>
           
           <div className="flex flex-col md:flex-row items-center gap-4 bg-gray-50 p-3 rounded-2xl border">
-            {/* Ícono Genérico y Datos del Usuario */}
             <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-full overflow-hidden bg-white border-2 border-[#00529b] flex items-center justify-center shrink-0">
-                <User size={24} className="text-[#00529b]" />
+              <div className={`h-10 w-10 rounded-full overflow-hidden bg-white border-2 flex items-center justify-center shrink-0 ${esSuperUser ? 'border-amber-500' : 'border-[#00529b]'}`}>
+                {esSuperUser ? <Star size={20} className="text-amber-500" /> : <User size={24} className="text-[#00529b]" />}
               </div>
               <div className="text-left hidden sm:block pr-2 border-r border-gray-300">
                 <p className="text-sm font-bold text-gray-800">{adminUser?.nombre_apellido_jefe || 'Administrador'}</p>
-                <p className="text-xs text-blue-600 font-bold">{adminUser?.grado_jerarquia || 'Panel de Control'}</p>
+                <p className={`text-xs font-bold ${esSuperUser ? 'text-amber-600' : 'text-blue-600'}`}>
+                  {esSuperUser ? 'SUPERUSUARIO - ' : ''} {adminUser?.organismo_responsable || 'SIN ORGANISMO ASIGNADO'}
+                </p>
               </div>
             </div>
             
-            {/* Botonera Principal Mejorada */}
             <div className="flex items-center gap-2">
               <Link href="/registro-admin" title="Registrar Nuevo Administrador" className="bg-blue-100 text-[#00529b] p-2 rounded-xl text-sm font-bold hover:bg-blue-200 transition-all shadow-sm flex items-center gap-1">
                 <UserPlus size={18} />
               </Link>
-              <button 
-                onClick={() => setMostrarModalEliminarAdmin(true)} 
-                title="Eliminar Administrador" 
-                className="bg-red-50 text-red-600 p-2 rounded-xl text-sm font-bold hover:bg-red-100 transition-all shadow-sm flex items-center gap-1"
-              >
-                <UserMinus size={18} />
-              </button>
+              
+              {esSuperUser && (
+                <button 
+                  onClick={() => setMostrarModalEliminarAdmin(true)} 
+                  title="Gestionar Administradores" 
+                  className="bg-red-50 text-red-600 p-2 rounded-xl text-sm font-bold hover:bg-red-100 transition-all shadow-sm flex items-center gap-1"
+                >
+                  <UserMinus size={18} />
+                </button>
+              )}
 
-              <div className="w-px h-6 bg-gray-300 mx-1"></div> {/* Divisor */}
-
+              <div className="w-px h-6 bg-gray-300 mx-1"></div>
+              
               <button 
                 onClick={() => { 
                   setFormAdmin({ 
@@ -686,7 +818,9 @@ export default function AdminDashboardPage() {
           <button onClick={() => setActiveTab('directorio')} className={`flex-1 py-4 px-2 font-bold text-lg transition-all ${activeTab === 'directorio' ? 'bg-[#00529b] text-white' : 'text-gray-600 hover:bg-gray-100'}`}>Directorio Operativo</button>
           <button onClick={() => setActiveTab('incidencias')} className={`flex-1 py-4 px-2 font-bold text-lg transition-all ${activeTab === 'incidencias' ? 'bg-[#00529b] text-white' : 'text-gray-600 hover:bg-gray-100'}`}>Panel de Incidencias</button>
           <button onClick={() => setActiveTab('reportes')} className={`flex-1 py-4 px-2 font-bold text-lg transition-all ${activeTab === 'reportes' ? 'bg-[#00529b] text-white' : 'text-gray-600 hover:bg-gray-100'}`}>Reportes y Estadísticas</button>
-          <button onClick={() => setActiveTab('catalogos')} className={`flex-1 py-4 px-2 font-bold text-lg transition-all ${activeTab === 'catalogos' ? 'bg-[#00529b] text-white' : 'text-gray-600 hover:bg-gray-100'}`}>Gestión de Catálogos</button>
+          {esSuperUser && (
+            <button onClick={() => setActiveTab('catalogos')} className={`flex-1 py-4 px-2 font-bold text-lg transition-all ${activeTab === 'catalogos' ? 'bg-[#00529b] text-white' : 'text-gray-600 hover:bg-gray-100'}`}>Gestión de Catálogos</button>
+          )}
         </div>
 
         {/* CONTENIDO PRINCIPAL */}
@@ -698,7 +832,9 @@ export default function AdminDashboardPage() {
               
               <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
                 <div className="flex items-center gap-3">
-                  <h2 className="text-2xl font-bold text-gray-800">Gestión de Usuarios</h2>
+                  <h2 className="text-2xl font-bold text-gray-800">
+                    Gestión de Usuarios {esSuperUser ? '(Todos los Organismos)' : `(${adminUser?.organismo_responsable || 'SIN ORGANISMO ASIGNADO'})`}
+                  </h2>
                   <span className="bg-blue-100 text-blue-800 text-sm font-bold px-3 py-1 rounded-full">{usuariosFiltrados?.length || 0} Mostrando</span>
                 </div>
                 
@@ -714,10 +850,12 @@ export default function AdminDashboardPage() {
                   <button onClick={() => setMostrarFormularioManual(!mostrarFormualioManual)} className="bg-gray-800 text-white px-6 py-3 rounded-xl font-bold shadow-md hover:bg-gray-700 transition-all">
                     {mostrarFormualioManual ? '- CERRAR FORMULARIO' : '+ AGREGAR MANUAL'}
                   </button>
-                  <label className="bg-[#00529b] text-white px-6 py-3 rounded-xl cursor-pointer hover:bg-[#003d73] transition-all font-bold shadow-md whitespace-nowrap">
-                    {loading ? 'Procesando...' : '+ SUBIR / ACTUALIZAR EXCEL'}
-                    <input type="file" className="hidden" accept=".xlsx, .xls, .csv" onChange={handleFileUpload} />
-                  </label>
+                  {esSuperUser && (
+                    <label className="bg-[#00529b] text-white px-6 py-3 rounded-xl cursor-pointer hover:bg-[#003d73] transition-all font-bold shadow-md whitespace-nowrap">
+                      {loading ? 'Procesando...' : '+ SUBIR EXCEL'}
+                      <input type="file" className="hidden" accept=".xlsx, .xls, .csv" onChange={handleFileUpload} />
+                    </label>
+                  )}
                 </div>
               </div>
 
@@ -759,13 +897,25 @@ export default function AdminDashboardPage() {
                     <span className="font-bold block mb-1">¡Importante - Credenciales Autogeneradas!</span>
                     Al guardar, el sistema creará automáticamente su <b>Correo Electrónico</b> y su <b>Clave de acceso</b> será el mismo <b>Código SITUR</b>.
                   </div>
+                  
+                  <div className="col-span-full">
+                    <label className="block text-xs font-bold text-[#00529b] mb-1">Organismo Responsable</label>
+                    {esSuperUser ? (
+                      <select required className="w-full p-2 border rounded-lg bg-white font-bold" value={formManual.organismo_responsable} onChange={e => setFormManual({...formManual, organismo_responsable: e.target.value})}>
+                        <option value="">Seleccione el Organismo...</option>
+                        {LISTA_ORGANISMOS.map((org, i) => <option key={i} value={org}>{org}</option>)}
+                      </select>
+                    ) : (
+                      <input required type="text" readOnly className="w-full p-2 border rounded-lg bg-gray-100 text-gray-600 font-bold" value={adminUser.organismo_responsable} />
+                    )}
+                  </div>
+
                   <div><label className="block text-xs font-bold text-gray-600 mb-1">Estado</label><input required type="text" className="w-full p-2 border rounded-lg bg-white" value={formManual.estado} onChange={e => setFormManual({...formManual, estado: e.target.value})} /></div>
                   <div><label className="block text-xs font-bold text-gray-600 mb-1">Municipio</label><input required type="text" className="w-full p-2 border rounded-lg bg-white" value={formManual.municipio} onChange={e => setFormManual({...formManual, municipio: e.target.value})} /></div>
                   <div><label className="block text-xs font-bold text-gray-600 mb-1">Parroquia</label><input required type="text" className="w-full p-2 border rounded-lg bg-white" value={formManual.parroquia} onChange={e => setFormManual({...formManual, parroquia: e.target.value})} /></div>
                   <div><label className="block text-xs font-bold text-gray-600 mb-1">Nombres y Apellidos</label><input required type="text" className="w-full p-2 border rounded-lg bg-white" value={formManual.nombre_apellido_jefe} onChange={e => setFormManual({...formManual, nombre_apellido_jefe: e.target.value})} /></div>
                   <div><label className="block text-xs font-bold text-gray-600 mb-1">Cédula</label><input required type="text" className="w-full p-2 border rounded-lg bg-white" value={formManual.cedula} onChange={e => setFormManual({...formManual, cedula: e.target.value})} /></div>
                   <div><label className="block text-xs font-bold text-gray-600 mb-1">Teléfono Celular</label><input required type="text" className="w-full p-2 border rounded-lg bg-white" value={formManual.telefono_celular_jefe} onChange={e => setFormManual({...formManual, telefono_celular_jefe: e.target.value})} /></div>
-                  <div><label className="block text-xs font-bold text-gray-600 mb-1">Organismo</label><input required type="text" className="w-full p-2 border rounded-lg bg-white" value={formManual.organismo_responsable} onChange={e => setFormManual({...formManual, organismo_responsable: e.target.value})} /></div>
                   <div><label className="block text-xs font-bold text-gray-600 mb-1">Grado o Jerarquía</label><input required type="text" className="w-full p-2 border rounded-lg bg-white" value={formManual.grado_jerarquia} onChange={e => setFormManual({...formManual, grado_jerarquia: e.target.value})} /></div>
                   <div><label className="block text-xs font-bold text-gray-600 mb-1">Cuadrante N°</label><input type="text" className="w-full p-2 border rounded-lg bg-white" value={formManual.cuadrante} onChange={e => setFormManual({...formManual, cuadrante: e.target.value})} /></div>
                   <div><label className="block text-xs font-bold text-gray-600 mb-1">Teléfono Cuadrante</label><input type="text" className="w-full p-2 border rounded-lg bg-white" value={formManual.telefono_cuadrante} onChange={e => setFormManual({...formManual, telefono_cuadrante: e.target.value})} /></div>
@@ -793,49 +943,42 @@ export default function AdminDashboardPage() {
                   <thead className="text-gray-700 uppercase tracking-wider text-[10px]">
                     <tr>
                       <th className="p-2 sticky left-0 top-0 bg-gray-200 z-30 w-10 text-center">Sel</th>
-                      <th className="p-2 sticky left-10 top-0 bg-gray-200 z-30 w-16">Acción</th>
-                      <th className="p-2 sticky top-0 bg-gray-100 z-20 w-48">Ubicación</th>
+                      <th className="p-2 sticky left-10 top-0 bg-gray-200 z-30 w-12">Edit</th>
+                      <th className="p-2 sticky top-0 bg-gray-100 z-20 w-40">Ubicación</th>
                       <th className="p-2 sticky top-0 bg-amber-100 text-amber-800 z-20 w-24">SITUR</th>
-                      <th className="p-2 sticky top-0 bg-gray-100 z-20 w-40">Circuito</th>
-                      <th className="p-2 sticky top-0 bg-blue-100 text-blue-800 z-20 w-32">Sectores</th>
+                      <th className="p-2 sticky top-0 bg-gray-100 z-20 w-32">Circuito</th>
+                      <th className="p-2 sticky top-0 bg-gray-100 z-20 w-28">Rango</th>
                       <th className="p-2 sticky top-0 bg-gray-100 z-20 w-48">Jefe</th>
                       <th className="p-2 sticky top-0 bg-gray-100 z-20 w-24">Cédula</th>
-                      <th className="p-2 sticky top-0 bg-gray-100 z-20 w-24">Teléfono</th>
+                      <th className="p-2 sticky top-0 bg-gray-100 z-20 w-28">Teléfono</th>
                       <th className="p-2 sticky top-0 bg-gray-100 z-20 w-32">Organismo</th>
-                      <th className="p-2 sticky top-0 bg-gray-100 z-20 w-24">Cuadrante</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {usuariosFiltrados.map((u) => {
-                      const misSectores = (sectoresDB || []).filter(s => {
-                        const sSitur = s.codigo_situr ? s.codigo_situr.toString().replace(/\s+/g, '').toUpperCase() : '';
-                        const uSitur = u.codigo_situr ? u.codigo_situr.toString().replace(/\s+/g, '').toUpperCase() : '';
-                        const sCircuito = s.circuito_comunal ? s.circuito_comunal.toString().replace(/\s+/g, '').toUpperCase() : '';
-                        const uCircuito = u.comuna_o_circuito_comunal ? u.comuna_o_circuito_comunal.toString().replace(/\s+/g, '').toUpperCase() : '';
-                        return (sSitur && uSitur && sSitur === uSitur) || (sCircuito && uCircuito && sCircuito === uCircuito);
-                      });
-                      
-                      return (
-                        <tr key={u.id} className="hover:bg-gray-50">
-                          <td className="p-2 text-center sticky left-0 bg-white z-10"><input type="checkbox" onChange={() => handleSelectOne(u.id)} /></td>
-                          <td className="p-2 sticky left-10 bg-white z-10"><button onClick={() => abrirEditar(u)} className="bg-amber-500 text-white px-2 py-1 rounded"><SquarePen size={14}/></button></td>
-                          <td className="p-2 truncate max-w-[190px]">{u.estado} - {u.municipio} - {u.parroquia}</td>
-                          <td className="p-2 font-mono font-bold text-amber-700">{u.codigo_situr}</td>
-                          <td className="p-2 truncate max-w-[150px]">{u.comuna_o_circuito_comunal}</td>
-                          <td className="p-2">
-                            <select className="w-full p-1 border rounded text-[10px]">
-                              <option>Ver ({misSectores.length})</option>
-                              {misSectores.map((s, i) => <option key={i} disabled>• {s.nombre_sector}</option>)}
-                            </select>
-                          </td>
-                          <td className="p-2 truncate max-w-[190px]">{u.grado_jerarquia} {u.nombre_apellido_jefe}</td>
-                          <td className="p-2">{u.cedula}</td>
-                          <td className="p-2">{u.telefono_celular_jefe}</td>
-                          <td className="p-2 truncate max-w-[120px]">{u.organismo_responsable}</td>
-                          <td className="p-2">{u.cuadrante} / {u.telefono_cuadrante}</td>
-                        </tr>
-                      );
-                    })}
+                    {usuariosFiltrados.length === 0 ? (
+                      <tr>
+                        <td colSpan={10} className="p-8 text-center text-gray-400 font-bold">
+                          {adminUser?.organismo_responsable ? 'No hay usuarios registrados para este organismo.' : 'No tienes un organismo asignado para visualizar registros.'}
+                        </td>
+                      </tr>
+                    ) : (
+                      usuariosFiltrados.map((u) => {
+                        return (
+                          <tr key={u.id} className="hover:bg-gray-50">
+                            <td className="p-2 text-center sticky left-0 bg-white z-10"><input type="checkbox" onChange={() => handleSelectOne(u.id)} /></td>
+                            <td className="p-2 sticky left-10 bg-white z-10"><button onClick={() => abrirEditar(u)} className="bg-amber-500 text-white px-2 py-1 rounded"><SquarePen size={14}/></button></td>
+                            <td className="p-2 truncate max-w-[160px]" title={`${u.estado} - ${u.municipio} - ${u.parroquia}`}>{u.municipio} - {u.parroquia}</td>
+                            <td className="p-2 font-mono font-bold text-amber-700">{u.codigo_situr}</td>
+                            <td className="p-2 truncate max-w-[130px]" title={u.comuna_o_circuito_comunal}>{u.comuna_o_circuito_comunal}</td>
+                            <td className="p-2 truncate max-w-[110px] font-bold text-gray-600" title={u.grado_jerarquia}>{u.grado_jerarquia}</td>
+                            <td className="p-2 truncate max-w-[190px]" title={u.nombre_apellido_jefe}>{u.nombre_apellido_jefe}</td>
+                            <td className="p-2">{u.cedula}</td>
+                            <td className="p-2 font-mono">{u.telefono_celular_jefe}</td>
+                            <td className="p-2 truncate max-w-[130px]" title={u.organismo_responsable}>{u.organismo_responsable}</td>
+                          </tr>
+                        );
+                      })
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -935,13 +1078,16 @@ export default function AdminDashboardPage() {
                       {incidenciasTipoUnicas.map((t, i) => <option key={i} value={t as string}>{t}</option>)}
                     </select>
                   </div>
-                  <div className="lg:col-span-1">
-                    <label className="block text-xs font-bold text-gray-500 mb-1">Filtrar por Organismos</label>
-                    <select className="w-full p-2 border rounded-lg bg-white text-sm outline-none shadow-sm cursor-pointer" value={filtroIncidenciaOrganismo} onChange={e => setFiltroIncidenciaOrganismo(e.target.value)}>
-                      <option value="">Todos</option>
-                      {organismosUnicos.map((o, i) => <option key={i} value={o as string}>{o}</option>)}
-                    </select>
-                  </div>
+                  
+                  {esSuperUser && (
+                    <div className="lg:col-span-1">
+                      <label className="block text-xs font-bold text-gray-500 mb-1">Filtrar por Organismos</label>
+                      <select className="w-full p-2 border rounded-lg bg-white text-sm outline-none shadow-sm cursor-pointer" value={filtroIncidenciaOrganismo} onChange={e => setFiltroIncidenciaOrganismo(e.target.value)}>
+                        <option value="">Todos</option>
+                        {organismosUnicos.map((o, i) => <option key={i} value={o as string}>{o}</option>)}
+                      </select>
+                    </div>
+                  )}
 
                   <div className="lg:col-span-2 flex items-end">
                     <button className="w-full bg-[#00529b] text-white px-4 py-2 h-[38px] rounded-lg font-bold shadow-sm hover:bg-[#003d73] transition-all flex items-center justify-center gap-2">
@@ -1121,8 +1267,8 @@ export default function AdminDashboardPage() {
             </div>
           )}
 
-          {/* 4. NUEVA PESTAÑA: GESTIÓN DE CATÁLOGOS */}
-          {activeTab === 'catalogos' && (
+          {/* 4. PESTAÑA DE CATÁLOGOS (SOLO PARA SUPERUSUARIOS) */}
+          {activeTab === 'catalogos' && esSuperUser && (
             <div className="animate-fade-in w-full space-y-6">
               <div className="bg-white rounded-2xl mb-6">
                 <div className="flex items-center gap-3">
@@ -1225,36 +1371,71 @@ export default function AdminDashboardPage() {
       </div>
 
       {/* ==========================================
-          MODAL DE ELIMINAR ADMINISTRADORES
+          MODAL DE GESTION DE ADMINISTRADORES (SOLO SUPERUSER)
           ========================================== */}
-      {mostrarModalEliminarAdmin && (
+      {mostrarModalEliminarAdmin && esSuperUser && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
-          <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl border">
+          <div className="bg-white rounded-3xl p-6 max-w-2xl w-full shadow-2xl border">
             <h3 className="text-xl font-bold text-gray-800 mb-4 border-b pb-3 flex items-center gap-2">
-              <UserMinus className="text-red-600" /> Eliminar Administrador
+              <Settings className="text-[#00529b]" /> Gestión de Administradores
             </h3>
             
-            <div className="max-h-[60vh] overflow-y-auto space-y-2 mb-4">
+            <div className="max-h-[60vh] overflow-y-auto space-y-2 mb-4 pr-2">
               {listaAdmins.length === 0 ? (
                 <p className="text-sm text-gray-500 text-center py-4">Cargando administradores...</p>
               ) : (
                 listaAdmins.map(admin => (
-                  <div key={admin.id} className="flex justify-between items-center bg-gray-50 p-3 rounded-xl border">
-                    <div className="flex flex-col">
-                      <span className="font-bold text-sm text-gray-800">{admin.nombre_apellido_jefe}</span>
-                      <span className="text-[10px] text-gray-500">{admin.email}</span>
-                    </div>
-                    {admin.id === adminUser?.id ? (
-                      <span className="text-[10px] font-bold text-[#00529b] bg-blue-100 px-3 py-1 rounded-lg">Tú</span>
-                    ) : (
-                      <button
-                        onClick={() => handleEliminarAdmin(admin.id, admin.nombre_apellido_jefe)}
-                        className="bg-white border border-red-200 text-red-600 p-2 rounded-lg hover:bg-red-50 hover:shadow-sm transition-all"
-                        title="Eliminar este administrador"
-                      >
-                        <Trash2 size={16} />
-                      </button>
+                  <div key={admin.id} className={`flex flex-col p-3 rounded-xl border ${admin.rol === 'superusuario' ? 'bg-amber-50 border-amber-200' : 'bg-gray-50'}`}>
+                    
+                    {/* Alerta si NO tiene organismo */}
+                    {(!admin.organismo_responsable || admin.organismo_responsable.trim() === '') && (
+                      <div className="mb-2 bg-red-100 text-red-700 text-[10px] font-bold px-2 py-1 rounded-md flex items-center gap-1">
+                        <AlertCircle size={12} /> ESTA PERSONA NO TIENE ORGANISMO ASIGNADO. EDITE SU PERFIL PARA ASIGNARLO.
+                      </div>
                     )}
+
+                    <div className="flex justify-between items-center">
+                      <div className="flex flex-col flex-1 pr-2">
+                        <span className="font-bold text-sm text-gray-800">{admin.nombre_apellido_jefe}</span>
+                        <span className="text-[10px] font-bold text-gray-500 uppercase">{admin.organismo_responsable || 'SIN ORGANISMO ASIGNADO'}</span>
+                      </div>
+                      
+                      <div className="flex gap-2 items-center">
+                        
+                        {/* Botón para Editar Todos los Datos del Admin */}
+                        <button
+                          onClick={() => abrirEditar(admin)}
+                          className="bg-amber-500 text-white p-2 rounded-lg hover:bg-amber-600 transition-all shadow-sm flex items-center gap-1 text-xs font-bold"
+                          title="Editar todos los datos de este administrador"
+                        >
+                          <SquarePen size={14} /> Editar Admin
+                        </button>
+
+                        {/* El botón de Superusuario SOLO aparece si es de VEN 911 */}
+                        {admin.organismo_responsable === 'VEN 911' && (
+                          <button
+                            onClick={() => handleToggleSuperUser(admin.id, admin.nombre_apellido_jefe, admin.rol)}
+                            className={`p-2 rounded-lg transition-all border ${admin.rol === 'superusuario' ? 'bg-amber-500 text-white border-amber-600 shadow-inner' : 'bg-white text-gray-400 border-gray-300 hover:text-amber-500'}`}
+                            title={admin.rol === 'superusuario' ? "Quitar privilegios de Superusuario" : "Convertir en Superusuario"}
+                          >
+                            <Star size={16} className={admin.rol === 'superusuario' ? 'fill-current' : ''} />
+                          </button>
+                        )}
+
+                        {/* Botón para Eliminar */}
+                        {admin.id === adminUser?.id ? (
+                          <span className="text-[10px] font-bold text-[#00529b] bg-blue-100 px-3 py-2 rounded-lg flex items-center h-full">Tú</span>
+                        ) : (
+                          <button
+                            onClick={() => handleEliminarAdmin(admin.id, admin.nombre_apellido_jefe)}
+                            className="bg-white border border-red-200 text-red-600 p-2 rounded-lg hover:bg-red-50 hover:shadow-sm transition-all"
+                            title="Eliminar este administrador"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 ))
               )}
@@ -1264,23 +1445,22 @@ export default function AdminDashboardPage() {
               onClick={() => setMostrarModalEliminarAdmin(false)} 
               className="w-full bg-gray-200 text-gray-700 p-3 rounded-xl font-bold hover:bg-gray-300 transition-all"
             >
-              Cerrar
+              Cerrar Panel
             </button>
           </div>
         </div>
       )}
 
       {/* ==========================================
-          MODAL DE EDITAR PERFIL ADMIN (SIN FOTO)
+          MODAL DE EDITAR PERFIL ADMIN (MÍO PROPIO)
           ========================================== */}
       {mostrarModalAdmin && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm overflow-y-auto">
           <div className="bg-white rounded-[2rem] p-8 max-w-3xl w-full shadow-2xl border my-8">
-            <h3 className="text-2xl font-black text-gray-800 mb-6 border-b pb-4">Editar Perfil de Administrador</h3>
+            <h3 className="text-2xl font-black text-gray-800 mb-6 border-b pb-4">Editar Mi Perfil</h3>
             
             <form onSubmit={guardarPerfilAdmin} className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
               
-              {/* Datos Personales */}
               <div className="space-y-4">
                 <div>
                   <label className="text-xs font-bold text-gray-500 mb-1 block">Nombre completo</label>
@@ -1296,20 +1476,19 @@ export default function AdminDashboardPage() {
                 </div>
               </div>
 
-              {/* Datos de Contacto y Acceso */}
               <div className="space-y-4">
                 <div>
-                  <label className="text-xs font-bold text-gray-500 mb-1 block">Correo Electrónico (Para recuperar clave)</label>
-                  <input required type="email" className="w-full p-3 border rounded-xl bg-white" placeholder="admin@correo.com" value={formAdmin.email} onChange={e => setFormAdmin({...formAdmin, email: e.target.value})} />
+                  <label className="text-xs font-bold text-gray-500 mb-1 block">Correo Electrónico Oficial</label>
+                  <input required type="email" readOnly={!esSuperUser} className={`w-full p-3 border rounded-xl ${esSuperUser ? 'bg-white' : 'bg-gray-100 text-gray-500'}`} placeholder="admin@correo.com" value={formAdmin.email} onChange={e => setFormAdmin({...formAdmin, email: e.target.value})} />
                 </div>
                 <div>
                   <label className="text-xs font-bold text-gray-500 mb-1 block">Teléfono Celular (Solo números)</label>
                   <input required type="text" inputMode="numeric" pattern="[0-9]*" maxLength={11} className="w-full p-3 border rounded-xl bg-white" placeholder="Ej: 04120000000" value={formAdmin.telefono_celular_jefe} onChange={e => setFormAdmin({...formAdmin, telefono_celular_jefe: e.target.value.replace(/\D/g, '')})} />
                 </div>
                 <div>
-                  <label className="text-xs font-bold text-[#00529b] mb-1 block">Contraseña Maestra (Código de acceso)</label>
-                  <input required type="text" minLength={6} className="w-full p-3 border-2 border-[#00529b] rounded-xl bg-blue-50 font-bold" value={formAdmin.codigo_situr} onChange={e => setFormAdmin({...formAdmin, codigo_situr: e.target.value})} />
-                  <p className="text-[10px] text-gray-500 mt-1">* Si cambias el correo o la contraseña, la sesión podría cerrarse por seguridad.</p>
+                  <label className="text-xs font-bold text-[#00529b] mb-1 block">Contraseña Maestra</label>
+                  <input required type="text" minLength={6} readOnly={!esSuperUser} className={`w-full p-3 border-2 border-[#00529b] rounded-xl font-bold ${esSuperUser ? 'bg-blue-50' : 'bg-gray-100 text-gray-500'}`} value={formAdmin.codigo_situr} onChange={e => setFormAdmin({...formAdmin, codigo_situr: e.target.value})} />
+                  {!esSuperUser && <p className="text-[10px] text-red-500 mt-1 font-bold">* Solo un Superusuario puede cambiar tu correo o clave.</p>}
                 </div>
               </div>
 
@@ -1324,25 +1503,69 @@ export default function AdminDashboardPage() {
         </div>
       )}
 
-      {/* MODAL DE EDITAR USUARIO (Se mantuvo intacto) */}
+      {/* ==========================================
+          MODAL DE EDITAR FICHA DE USUARIO O ADMIN
+          ========================================== */}
       {editingUsuario && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
           <div className="bg-white rounded-3xl p-6 max-w-4xl w-full shadow-2xl border flex flex-col max-h-[90vh]">
-            <h3 className="text-xl font-bold text-gray-800 border-b pb-3 mb-4">Modificar Ficha del Jefe de Cuadrante</h3>
+            <h3 className="text-xl font-bold text-[#00529b] border-b pb-3 mb-4">
+              Modificar Ficha: {editingUsuario.rol === 'admin' || editingUsuario.rol === 'superusuario' ? 'ADMINISTRADOR' : 'JEFE DE CUADRANTE'}
+            </h3>
             <form onSubmit={handleEditSubmit} className="overflow-y-auto pr-2 grid grid-cols-1 md:grid-cols-3 gap-4">
+              
+              <div className="col-span-full">
+                <label className="block text-xs font-bold text-[#00529b] mb-1">Organismo Responsable</label>
+                {esSuperUser ? (
+                  <select required className="w-full p-2 border rounded-lg bg-white font-bold" value={formEditar.organismo_responsable} onChange={e => setFormEditar({...formEditar, organismo_responsable: e.target.value})}>
+                    <option value="">Seleccione el Organismo...</option>
+                    {LISTA_ORGANISMOS.map((org, i) => <option key={i} value={org}>{org}</option>)}
+                  </select>
+                ) : (
+                  <input required type="text" readOnly className="w-full p-2 border rounded-lg bg-gray-100 text-gray-600 font-bold" value={formEditar.organismo_responsable} />
+                )}
+              </div>
+
+              {/* Si estamos editando a un Admin, mostramos su correo oficial */}
+              {(formEditar.rol === 'admin' || formEditar.rol === 'superusuario') && (
+                <div className="col-span-full">
+                  <label className="block text-xs font-bold text-gray-600 mb-1">Correo Electrónico (Login)</label>
+                  <input required type="email" readOnly={!esSuperUser} className={`w-full p-2 border rounded-lg ${esSuperUser ? 'bg-white' : 'bg-gray-100'}`} value={formEditar.email} onChange={e => setFormEditar({...formEditar, email: e.target.value})} />
+                </div>
+              )}
+
               <div><label className="block text-xs font-bold text-gray-600 mb-1">Estado</label><input type="text" className="w-full p-2 border rounded-lg" value={formEditar.estado} onChange={e => setFormEditar({...formEditar, estado: e.target.value})} /></div>
               <div><label className="block text-xs font-bold text-gray-600 mb-1">Municipio</label><input type="text" className="w-full p-2 border rounded-lg" value={formEditar.municipio} onChange={e => setFormEditar({...formEditar, municipio: e.target.value})} /></div>
               <div><label className="block text-xs font-bold text-gray-600 mb-1">Parroquia</label><input type="text" className="w-full p-2 border rounded-lg" value={formEditar.parroquia} onChange={e => setFormEditar({...formEditar, parroquia: e.target.value})} /></div>
               <div><label className="block text-xs font-bold text-gray-600 mb-1">Grado o Jerarquía</label><input type="text" className="w-full p-2 border rounded-lg" value={formEditar.grado_jerarquia} onChange={e => setFormEditar({...formEditar, grado_jerarquia: e.target.value})} /></div>
               <div><label className="block text-xs font-bold text-gray-600 mb-1">Nombres y Apellidos</label><input required type="text" className="w-full p-2 border rounded-lg" value={formEditar.nombre_apellido_jefe} onChange={e => setFormEditar({...formEditar, nombre_apellido_jefe: e.target.value})} /></div>
               <div><label className="block text-xs font-bold text-gray-600 mb-1">Cédula</label><input type="text" className="w-full p-2 border rounded-lg" value={formEditar.cedula} onChange={e => setFormEditar({...formEditar, cedula: e.target.value})} /></div>
-              <div><label className="block text-xs font-bold text-[#00529b] mb-1">Clave / SITUR</label><input required type="text" className="w-full p-2 border-2 border-[#00529b] font-bold rounded-lg bg-blue-50" value={formEditar.codigo_situr} onChange={e => setFormEditar({...formEditar, codigo_situr: e.target.value})} /></div>
+              
+              {/* CASILLA DE CLAVE BLOQUEADA PARA NO-SUPERUSUARIOS */}
+              <div>
+                <label className="block text-xs font-bold text-[#00529b] mb-1">Clave / SITUR</label>
+                <input 
+                  required 
+                  type="text" 
+                  readOnly={!esSuperUser}
+                  title={!esSuperUser ? "Solo el Superusuario puede cambiar credenciales" : ""}
+                  className={`w-full p-2 border-2 ${esSuperUser ? 'border-[#00529b] bg-blue-50' : 'border-gray-200 bg-gray-100 text-gray-500 cursor-not-allowed'} font-bold rounded-lg`} 
+                  value={formEditar.codigo_situr} 
+                  onChange={e => setFormEditar({...formEditar, codigo_situr: e.target.value})} 
+                />
+              </div>
+              
               <div><label className="block text-xs font-bold text-gray-600 mb-1">Circuito Comunal</label><input required type="text" className="w-full p-2 border rounded-lg" value={formEditar.comuna_o_circuito_comunal} onChange={e => setFormEditar({...formEditar, comuna_o_circuito_comunal: e.target.value})} /></div>
               <div><label className="block text-xs font-bold text-gray-600 mb-1">Teléfono Jefe</label><input type="text" className="w-full p-2 border rounded-lg" value={formEditar.telefono_celular_jefe} onChange={e => setFormEditar({...formEditar, telefono_celular_jefe: e.target.value})} /></div>
-              <div><label className="block text-xs font-bold text-gray-600 mb-1">Organismo</label><input type="text" className="w-full p-2 border rounded-lg" value={formEditar.organismo_responsable} onChange={e => setFormEditar({...formEditar, organismo_responsable: e.target.value})} /></div>
-              <div><label className="block text-xs font-bold text-gray-600 mb-1">Cuadrante N°</label><input type="text" className="w-full p-2 border rounded-lg" value={formEditar.cuadrante} onChange={e => setFormEditar({...formEditar, cuadrante: e.target.value})} /></div>
-              <div><label className="block text-xs font-bold text-gray-600 mb-1">Teléfono Cuadrante</label><input type="text" className="w-full p-2 border rounded-lg" value={formEditar.telefono_cuadrante} onChange={e => setFormEditar({...formEditar, telefono_cuadrante: e.target.value})} /></div>
-              <div className="col-span-full"><label className="block text-xs font-bold text-gray-600 mb-1">Consejos Comunales</label><textarea className="w-full p-2 border rounded-lg" rows={2} value={formEditar.consejos_comunales} onChange={e => setFormEditar({...formEditar, consejos_comunales: e.target.value})} /></div>
+              
+              {/* Si es admin, ocultamos cuadrantes y consejos comunales que no aplican mucho */}
+              {formEditar.rol === 'usuario' && (
+                <>
+                  <div><label className="block text-xs font-bold text-gray-600 mb-1">Cuadrante N°</label><input type="text" className="w-full p-2 border rounded-lg" value={formEditar.cuadrante} onChange={e => setFormEditar({...formEditar, cuadrante: e.target.value})} /></div>
+                  <div><label className="block text-xs font-bold text-gray-600 mb-1">Teléfono Cuadrante</label><input type="text" className="w-full p-2 border rounded-lg" value={formEditar.telefono_cuadrante} onChange={e => setFormEditar({...formEditar, telefono_cuadrante: e.target.value})} /></div>
+                  <div className="col-span-full"><label className="block text-xs font-bold text-gray-600 mb-1">Consejos Comunales</label><textarea className="w-full p-2 border rounded-lg" rows={2} value={formEditar.consejos_comunales} onChange={e => setFormEditar({...formEditar, consejos_comunales: e.target.value})} /></div>
+                </>
+              )}
               
               <div className="col-span-full border-t pt-4 mt-2">
                 <label className="block text-sm font-bold text-gray-700 mb-2">Sectores pertenecientes a este Circuito (Editar / Rellenar Faltantes)</label>
@@ -1363,7 +1586,7 @@ export default function AdminDashboardPage() {
               </div>
 
               <div className="col-span-full flex gap-3 pt-4 shrink-0 mt-2 border-t">
-                <button type="button" onClick={() => setEditingUsuario(null)} className="flex-1 bg-gray-200 text-gray-700 p-4 rounded-xl font-bold">Cancelar</button>
+                <button type="button" onClick={() => { setEditingUsuario(null); if (esSuperUser) fetchAdmins(); }} className="flex-1 bg-gray-200 text-gray-700 p-4 rounded-xl font-bold">Cancelar</button>
                 <button type="submit" disabled={loading} className="flex-1 bg-amber-500 text-white p-4 rounded-xl font-bold">Guardar Modificación</button>
               </div>
             </form>

@@ -19,7 +19,7 @@ export default function LoginPage() {
       // Detecta si se presiona Control y el número 8 al mismo tiempo
       if (e.ctrlKey && e.key === '8') {
         e.preventDefault();
-        router.push('/registro-admin'); // <--- ¡Ruta corregida aquí!
+        router.push('/registro-admin');
       }
     };
 
@@ -95,7 +95,12 @@ export default function LoginPage() {
         return;
       }
 
-      userData.rol === 'admin' ? router.push('/admin') : router.push('/dashboard');
+      // AQUI ESTÁ LA CORRECCIÓN: Si es admin o superusuario, va al Panel de Control
+      if (userData.rol === 'admin' || userData.rol === 'superusuario') {
+        router.push('/admin');
+      } else {
+        router.push('/dashboard');
+      }
       
     } catch (err) {
       setErrorMsg("Error crítico de conexión.");
