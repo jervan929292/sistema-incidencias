@@ -61,9 +61,10 @@ export default function AdminDashboardPage() {
     nombre_apellido_jefe: '', telefono_celular_jefe: '', cedula: '', grado_jerarquia: '', email: '', codigo_situr: '' 
   });
   
-  // Estados para Administradores
+  // Estados para Administradores y Búsqueda
   const [listaAdmins, setListaAdmins] = useState<any[]>([]);
   const [mostrarModalEliminarAdmin, setMostrarModalEliminarAdmin] = useState(false);
+  const [busquedaAdmin, setBusquedaAdmin] = useState('');
 
   // Estados Formularios
   const [mostrarFormualioManual, setMostrarFormularioManual] = useState(false);
@@ -74,7 +75,7 @@ export default function AdminDashboardPage() {
   });
   const [sectoresInputs, setSectoresInputs] = useState<string[]>(['']);
   
-  // Estados Edición (Aplica tanto para Usuarios como para Admins)
+  // Estados Edición
   const [editingUsuario, setEditingUsuario] = useState<any | null>(null);
   const [formEditar, setFormEditar] = useState({ ...formManual }); 
   const [sectoresInputsEditar, setSectoresInputsEditar] = useState<string[]>(['']);
@@ -170,12 +171,13 @@ export default function AdminDashboardPage() {
     if (adminOrg.includes('transporte terrestre')) aliases.push('intt');
     if (adminOrg.includes('proteccion civil')) aliases.push('pc');
 
-    // 1. CARGAR USUARIOS
+    // 1. CARGAR USUARIOS A PRUEBA DE FALLOS
     const { data: users, error: errU } = await supabase.from('directorio_operativo').select('*').neq('rol', 'admin').neq('rol', 'superusuario').limit(10000);
     if (errU) alert("Error cargando usuarios: " + errU.message);
     else if (users) {
       if (!isSuper && currentUser.organismo_responsable) {
         const filteredUsers = users.filter(u => {
+          if (!u.organismo_responsable) return false;
           const uOrg = normalizeStr(u.organismo_responsable);
           return aliases.some(alias => uOrg.includes(alias) || alias.includes(uOrg));
         });
@@ -201,11 +203,12 @@ export default function AdminDashboardPage() {
     }
     setSectoresDB(todosLosSectores);
     
-    // 3. CARGAR INCIDENCIAS
+    // 3. CARGAR INCIDENCIAS A PRUEBA DE FALLOS
     const { data: incs } = await supabase.from('incidencias').select('*').limit(50000);
     if (incs) {
       if (!isSuper && currentUser.organismo_responsable) {
         const filteredIncs = incs.filter(inc => {
+          if (!inc.organismos_involucrados) return false;
           const incOrgs = normalizeStr(inc.organismos_involucrados);
           return aliases.some(alias => incOrgs.includes(alias));
         });
@@ -650,7 +653,7 @@ export default function AdminDashboardPage() {
     setEditingUsuario(u);
     setFormEditar({
       id: u.id,
-      rol: u.rol || 'usuario', // Fundamental para saber si editamos un admin o un usuario
+      rol: u.rol || 'usuario',
       estado: u.estado || '', municipio: u.municipio || '', parroquia: u.parroquia || '',
       cuadrante: u.cuadrante || '', telefono_cuadrante: u.telefono_cuadrante || '',
       organismo_responsable: u.organismo_responsable || '', grado_jerarquia: u.grado_jerarquia || '',
@@ -662,8 +665,6 @@ export default function AdminDashboardPage() {
 
     const deEsteUsuario = sectoresDB.filter(s => s.codigo_situr === u.codigo_situr).map(s => s.nombre_sector);
     setSectoresInputsEditar(deEsteUsuario.length > 0 ? [...deEsteUsuario, ''] : ['']);
-    
-    // Si abrimos la edición desde el panel de admins, cerramos ese panel para evitar confusión visual
     setMostrarModalEliminarAdmin(false); 
   };
 
@@ -674,16 +675,8 @@ export default function AdminDashboardPage() {
       const codigoSiturLimpio = formEditar.codigo_situr?.toString().trim();
       const circuitoLimpio = formEditar.comuna_o_circuito_comunal?.toString().trim();
       const codigoViejo = editingUsuario.codigo_situr?.toString(); 
-      const emailViejo = editingUsuario.email?.toString();
 
       if (!codigoSiturLimpio) throw new Error("El Código SITUR es requerido.");
-
-      // Si el Superusuario cambió el correo o la clave de este usuario, debemos actualizar Auth
-      if (esSuperUser && (formEditar.email !== emailViejo || codigoSiturLimpio !== codigoViejo)) {
-         // NOTA: Para cambiar correos de otros usuarios en Supabase Auth se requiere un backend seguro.
-         // En el frontend, solo actualizaremos la tabla pública. Supabase Auth restringe modificar a otros.
-         // El login JIT (Just-In-Time) que tienes configurado creará la cuenta Auth con la nueva clave si no existe.
-      }
 
       const datosJefeLimpios = {
         ...formEditar,
@@ -698,7 +691,6 @@ export default function AdminDashboardPage() {
       
       if (errJefe) throw errJefe;
 
-      // Actualizar sectores
       if (codigoViejo) {
         await supabase.from('sectores').delete().eq('codigo_situr', codigoViejo);
       }
@@ -898,6 +890,7 @@ export default function AdminDashboardPage() {
                     Al guardar, el sistema creará automáticamente su <b>Correo Electrónico</b> y su <b>Clave de acceso</b> será el mismo <b>Código SITUR</b>.
                   </div>
                   
+                  {/* Si es SuperUsuario, puede elegir el organismo. Si es Admin, se pone automático su organismo */}
                   <div className="col-span-full">
                     <label className="block text-xs font-bold text-[#00529b] mb-1">Organismo Responsable</label>
                     {esSuperUser ? (
@@ -958,7 +951,7 @@ export default function AdminDashboardPage() {
                     {usuariosFiltrados.length === 0 ? (
                       <tr>
                         <td colSpan={10} className="p-8 text-center text-gray-400 font-bold">
-                          {adminUser?.organismo_responsable ? 'No hay usuarios registrados para este organismo.' : 'No tienes un organismo asignado para visualizar registros.'}
+                          {adminUser?.organismo_responsable ? 'No hay usuarios registrados para este organismo o filtros actuales.' : 'No tienes un organismo asignado para visualizar registros.'}
                         </td>
                       </tr>
                     ) : (
@@ -1376,15 +1369,36 @@ export default function AdminDashboardPage() {
       {mostrarModalEliminarAdmin && esSuperUser && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
           <div className="bg-white rounded-3xl p-6 max-w-2xl w-full shadow-2xl border">
-            <h3 className="text-xl font-bold text-gray-800 mb-4 border-b pb-3 flex items-center gap-2">
-              <Settings className="text-[#00529b]" /> Gestión de Administradores
+            <h3 className="text-xl font-bold text-gray-800 mb-4 border-b pb-3 flex items-center justify-between">
+              <span className="flex items-center gap-2"><Settings className="text-[#00529b]" /> Gestión de Administradores</span>
+              
+              {/* BUSCADOR DE ADMINS */}
+              <div className="relative w-64">
+                <Search size={16} className="absolute left-3 top-2.5 text-gray-400" />
+                <input 
+                  type="text" 
+                  placeholder="Buscar admin..." 
+                  className="w-full pl-9 pr-3 py-2 bg-gray-100 border-none rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#00529b]"
+                  value={busquedaAdmin}
+                  onChange={(e) => setBusquedaAdmin(e.target.value)}
+                />
+              </div>
             </h3>
             
             <div className="max-h-[60vh] overflow-y-auto space-y-2 mb-4 pr-2">
               {listaAdmins.length === 0 ? (
                 <p className="text-sm text-gray-500 text-center py-4">Cargando administradores...</p>
               ) : (
-                listaAdmins.map(admin => (
+                listaAdmins
+                  .filter(admin => {
+                    const busquedaLower = busquedaAdmin.toLowerCase();
+                    return (
+                      (admin.nombre_apellido_jefe || '').toLowerCase().includes(busquedaLower) ||
+                      (admin.cedula || '').toLowerCase().includes(busquedaLower) ||
+                      (admin.email || '').toLowerCase().includes(busquedaLower)
+                    );
+                  })
+                  .map(admin => (
                   <div key={admin.id} className={`flex flex-col p-3 rounded-xl border ${admin.rol === 'superusuario' ? 'bg-amber-50 border-amber-200' : 'bg-gray-50'}`}>
                     
                     {/* Alerta si NO tiene organismo */}
@@ -1530,7 +1544,7 @@ export default function AdminDashboardPage() {
               {(formEditar.rol === 'admin' || formEditar.rol === 'superusuario') && (
                 <div className="col-span-full">
                   <label className="block text-xs font-bold text-gray-600 mb-1">Correo Electrónico (Login)</label>
-                  <input required type="email" readOnly={!esSuperUser} className={`w-full p-2 border rounded-lg ${esSuperUser ? 'bg-white' : 'bg-gray-100'}`} value={formEditar.email} onChange={e => setFormEditar({...formEditar, email: e.target.value})} />
+                  <input required type="email" readOnly={!esSuperUser} className={`w-full p-2 border rounded-lg ${esSuperUser ? 'bg-white' : 'bg-gray-100 text-gray-500 cursor-not-allowed'}`} value={formEditar.email} onChange={e => setFormEditar({...formEditar, email: e.target.value})} />
                 </div>
               )}
 
