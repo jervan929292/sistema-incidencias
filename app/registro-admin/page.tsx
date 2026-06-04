@@ -8,7 +8,7 @@ import { ShieldCheck, UserPlus, Building2 } from 'lucide-react';
 // LISTA DE ORGANISMOS (INCLUYE VEN 911)
 // ==========================================
 const LISTA_ORGANISMOS = [
-  "VEN 911", // Agregado para los Superusuarios
+  "VEN 911",
   "Cuerpo de Investigaciones Científicas Penales y Criminalísticas",
   "Dirección de Atención Integral Penitenciaria",
   "Dirección General de Bomberos y Bomberas",
@@ -43,22 +43,34 @@ export default function RegistroAdminPage() {
     password: '', 
     cargo: '', 
     cedula: '',
-    organismo: '' // Nuevo campo requerido
+    organismo: '' 
   });
   const [loading, setLoading] = useState(false);
+  const [vieneDeAdmin, setVieneDeAdmin] = useState(false);
   const router = useRouter();
 
-  // --- INICIO DEL ATAJO SECRETO CTRL + 8 (PARA VOLVER AL LOGIN) ---
+  // --- VERIFICAR SI YA ESTÁ LOGUEADO COMO ADMIN ---
+  useEffect(() => {
+    const verificarSesion = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        setVieneDeAdmin(true);
+      }
+    };
+    verificarSesion();
+  }, []);
+
+  // --- INICIO DEL ATAJO SECRETO CTRL + 8 (PARA VOLVER RÁPIDO) ---
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.key === '8') {
         e.preventDefault();
-        router.push('/');
+        router.push(vieneDeAdmin ? '/admin' : '/');
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [router]);
+  }, [router, vieneDeAdmin]);
   // --- FIN DEL ATAJO SECRETO ---
 
   const handleRegister = async (e: React.FormEvent) => {
@@ -75,7 +87,6 @@ export default function RegistroAdminPage() {
       if (authError) throw new Error("Error de Autenticación: " + authError.message);
 
       // 2. Guardar datos en la base de datos
-      // NOTA CRÍTICA: Todos nacen como 'admin' regular. El Superusuario los debe promover.
       const { error: dbError } = await supabase.from('directorio_operativo').insert([{
         id: auth.user?.id, 
         nombre_apellido_jefe: formData.nombre, 
@@ -83,15 +94,17 @@ export default function RegistroAdminPage() {
         telefono_celular_jefe: formData.telefono,
         cedula: formData.cedula,
         grado_jerarquia: formData.cargo,
-        organismo_responsable: formData.organismo, // Guardamos a qué institución pertenece
+        organismo_responsable: formData.organismo,
         rol: 'admin', // Nace como administrador regular de su institución
         codigo_situr: formData.password
       }]);
       
       if (dbError) throw new Error("Error guardando en la tabla: " + dbError.message);
 
-      alert("¡Administrador registrado correctamente! Ya puedes iniciar sesión.");
-      router.push('/');
+      alert("¡Administrador registrado correctamente!");
+      
+      // Si venía del panel, lo regresamos al panel. Si no, lo mandamos al login.
+      router.push(vieneDeAdmin ? '/admin' : '/');
       
     } catch (err: any) {
       alert("❌ " + err.message);
@@ -168,9 +181,14 @@ export default function RegistroAdminPage() {
           </div>
 
           <div className="col-span-full flex flex-col sm:flex-row gap-3 pt-6 border-t mt-4">
-            <button type="button" onClick={() => router.push('/')} className="flex-1 bg-gray-200 text-gray-700 p-4 rounded-xl font-bold hover:bg-gray-300 transition-all text-center shadow-sm">
-              Volver al Login
+            <button 
+              type="button" 
+              onClick={() => router.push(vieneDeAdmin ? '/admin' : '/')} 
+              className="flex-1 bg-gray-200 text-gray-700 p-4 rounded-xl font-bold hover:bg-gray-300 transition-all text-center shadow-sm"
+            >
+              {vieneDeAdmin ? 'Volver al Panel Admin' : 'Volver al Login'}
             </button>
+            
             <button type="submit" disabled={loading} className="flex-1 bg-[#00529b] text-white p-4 rounded-xl font-bold hover:bg-[#003d73] transition-all shadow-md flex items-center justify-center gap-2">
               {loading ? 'Procesando...' : <><UserPlus size={20} /> Solicitar Registro</>}
             </button>
