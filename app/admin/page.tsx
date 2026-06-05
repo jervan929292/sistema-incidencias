@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { SquarePen, Calendar, Search, FileSpreadsheet, FileText, Filter, ShieldAlert, Activity, ShieldCheck, Siren, Target, Award, TrendingUp, Settings, Plus, Trash2, Edit3, ChevronRight, UserPlus, UserMinus, User, Star, AlertCircle } from 'lucide-react'
+import { SquarePen, Calendar, Search, FileSpreadsheet, FileText, Filter, ShieldAlert, Activity, ShieldCheck, Siren, Target, Award, TrendingUp, Settings, Plus, Trash2, Edit3, ChevronRight, UserPlus, UserMinus, User, Star, AlertCircle, Eye, X } from 'lucide-react'
 import * as XLSX from 'xlsx';
 import Link from 'next/link';
 
@@ -85,7 +85,7 @@ export default function AdminDashboardPage() {
   // Estados de Admin y Permisos
   const [adminUser, setAdminUser] = useState<any>(null);
   const [esSuperUser, setEsSuperUser] = useState(false);
-  const [isReadOnlyVen911, setIsReadOnlyVen911] = useState(false); // NUEVO ESTADO: SOLO LECTURA
+  const [isReadOnlyVen911, setIsReadOnlyVen911] = useState(false);
   
   const [mostrarModalAdmin, setMostrarModalAdmin] = useState(false);
   const [formAdmin, setFormAdmin] = useState({ 
@@ -121,6 +121,9 @@ export default function AdminDashboardPage() {
   const [filtroIncidenciaTipo, setFiltroIncidenciaTipo] = useState('');
   const [filtroIncidenciaOrganismo, setFiltroIncidenciaOrganismo] = useState('');
 
+  // ESTADO REPORTE MODAL (OJITO)
+  const [incidenciaSeleccionada, setIncidenciaSeleccionada] = useState<any | null>(null);
+
   // ESTADOS PANEL DE REPORTES Y ESTADÍSTICAS
   const [fechaRepDesde, setFechaRepDesde] = useState('');
   const [fechaRepHasta, setFechaRepHasta] = useState('');
@@ -147,7 +150,7 @@ export default function AdminDashboardPage() {
       if (adminData?.rol === 'admin' || adminData?.rol === 'superusuario') {
         setAdminUser(adminData); 
         setEsSuperUser(adminData.rol === 'superusuario');
-        setIsReadOnlyVen911(adminData.organismo_responsable === 'VEN 911' && adminData.rol !== 'superusuario'); // VERIFICAR SI ES VEN 911 DE SOLO LECTURA
+        setIsReadOnlyVen911(adminData.organismo_responsable === 'VEN 911' && adminData.rol !== 'superusuario');
         setVerificando(false);
         fetchDatos(adminData);
         if (adminData.rol === 'superusuario') {
@@ -175,7 +178,7 @@ export default function AdminDashboardPage() {
   const fetchDatos = async (currentUser: any) => {
     const isSuper = currentUser.rol === 'superusuario';
     const isReadVen911 = currentUser.organismo_responsable === 'VEN 911' && !isSuper;
-    const veTodo = isSuper || isReadVen911; // Superusuarios y Ven911 ven toda la tabla
+    const veTodo = isSuper || isReadVen911;
 
     if (!veTodo && (!currentUser.organismo_responsable || currentUser.organismo_responsable.trim() === '')) {
       setUsuarios([]);
@@ -257,40 +260,26 @@ export default function AdminDashboardPage() {
     if (!esSuperUser) return;
     const nuevoRol = rolActual === 'superusuario' ? 'admin' : 'superusuario';
     const accion = rolActual === 'superusuario' ? 'quitarle' : 'otorgarle';
-    
     if (!window.confirm(`¿Quiere ${accion} el rol de SUPER USUARIO a "${nombreUsuario}"?`)) return;
-
     setLoading(true);
     try {
       const { error } = await supabase.from('directorio_operativo').update({ rol: nuevoRol }).eq('id', idUsuario);
       if (error) throw error;
       alert(`Privilegios actualizados correctamente.`);
       fetchAdmins();
-    } catch (error: any) {
-      alert("Error al actualizar rol: " + error.message);
-    } finally {
-      setLoading(false);
-    }
+    } catch (error: any) { alert("Error al actualizar rol: " + error.message); } finally { setLoading(false); }
   };
 
   const handleEliminarAdmin = async (idAEliminar: string, nombreAdmin: string) => {
-    if (idAEliminar === adminUser?.id) {
-      alert("No puedes eliminar tu propia cuenta mientras estás conectado.");
-      return;
-    }
+    if (idAEliminar === adminUser?.id) { alert("No puedes eliminar tu propia cuenta mientras estás conectado."); return; }
     if (!window.confirm(`⚠️ ADVERTENCIA: ¿Estás completamente seguro de que deseas eliminar al administrador "${nombreAdmin}"?`)) return;
-
     setLoading(true);
     try {
       const { error } = await supabase.from('directorio_operativo').delete().eq('id', idAEliminar);
       if (error) throw error;
       alert(`El administrador ${nombreAdmin} fue eliminado correctamente.`);
       fetchAdmins(); 
-    } catch (error: any) {
-      alert("Error al eliminar administrador: " + error.message);
-    } finally {
-      setLoading(false);
-    }
+    } catch (error: any) { alert("Error al eliminar administrador: " + error.message); } finally { setLoading(false); }
   };
 
   const agregarCatalogo = async (tabla: string, payload: any, setterInput: Function) => {
@@ -419,6 +408,141 @@ export default function AdminDashboardPage() {
     .slice(0, 5) || [];
     
   const maxCircuitoValor = topCircuitos[0]?.[1] || 1;
+
+  // EXPORTAR EXCEL INCIDENCIAS
+  const handleGenerarExcelIncidencias = () => {
+    if (incidenciasFiltradas.length === 0) {
+      alert("No hay registros para exportar con los filtros actuales.");
+      return;
+    }
+    const dataExcel = incidenciasFiltradas.map(inc => {
+      const jefe = usuarios.find(u => u.comuna_o_circuito_comunal === inc.circuito_comunal);
+      return {
+        'FECHA / HORA': new Date(inc.fecha_registro).toLocaleString(),
+        'ESTADO': jefe?.estado || 'N/A',
+        'MUNICIPIO': jefe?.municipio || 'N/A',
+        'PARROQUIA': jefe?.parroquia || 'N/A',
+        'CIRCUITO COMUNAL': inc.circuito_comunal || 'N/A',
+        'CLASIFICACIÓN': inc.clasificacion || 'N/A',
+        'INCIDENCIA': inc.incidencia || 'N/A',
+        'ACTIVIDAD DETALLADA': inc.actividad || 'N/A',
+        'CANTIDAD': inc.cantidad || 0,
+        'ORGANISMOS INVOLUCRADOS': inc.organismos_involucrados || 'N/A',
+        'ID DESPACHADOR': inc.usuario_id || 'N/A'
+      };
+    });
+
+    const ws = XLSX.utils.json_to_sheet(dataExcel);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Reporte_Incidencias');
+    XLSX.writeFile(wb, 'Reporte_Incidencias_VEN911.xlsx');
+  };
+
+  // EXPORTAR PDF INCIDENCIAS (CON LOGOS)
+  const handleGenerarPDFIncidencias = () => {
+    if (incidenciasFiltradas.length === 0) {
+      alert("No hay registros para exportar con los filtros actuales.");
+      return;
+    }
+
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+
+    const baseUrl = window.location.origin;
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html lang="es">
+      <head>
+        <meta charset="UTF-8">
+        <title>Reporte de Incidencias VEN 911</title>
+        <style>
+          body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; color: #333; }
+          .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 3px solid #00529b; padding-bottom: 15px; margin-bottom: 20px; }
+          .header img { height: 65px; object-fit: contain; }
+          .title-container { text-align: center; flex-grow: 1; padding: 0 20px; }
+          .title-container h2 { margin: 0; color: #00529b; font-size: 18px; text-transform: uppercase; letter-spacing: 1px; }
+          .title-container h3 { margin: 5px 0 0 0; color: #555; font-size: 14px; font-weight: normal; }
+          .filters-box { background-color: #f8fafc; border: 1px solid #e2e8f0; padding: 12px; border-radius: 8px; margin-bottom: 20px; font-size: 11px; }
+          .filters-box p { margin: 4px 0; color: #475569; }
+          .filters-box strong { color: #1e293b; }
+          table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 10px; }
+          th, td { border: 1px solid #cbd5e1; padding: 6px 8px; text-align: left; }
+          th { background-color: #00529b; color: white; font-weight: bold; text-transform: uppercase; font-size: 9px; }
+          tr:nth-child(even) { background-color: #f8fafc; }
+          .footer { margin-top: 30px; text-align: center; font-size: 9px; color: #64748b; border-top: 1px solid #cbd5e1; padding-top: 10px; }
+          @media print {
+            @page { margin: 1cm; size: landscape; }
+            body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <img src="${baseUrl}/logo1.png" alt="Logo Gran Misión" />
+          <div class="title-container">
+            <h2>Reporte General de Incidencias Operativas</h2>
+            <h3>Centro de Inteligencia Analítica - Estado Falcón</h3>
+          </div>
+          <img src="${baseUrl}/logo2.png" alt="Logo Justicia y Paz" />
+        </div>
+        
+        <div class="filters-box">
+          <p><strong>Rango de Fechas:</strong> ${fechaDesde ? new Date(fechaDesde).toLocaleDateString() : 'Inicio'} al ${fechaHasta ? new Date(fechaHasta).toLocaleDateString() : 'Día de Hoy'}</p>
+          <p><strong>Filtros Geográficos:</strong> Municipio: ${filtroIncidenciaMuni || 'Todos'} | Parroquia: ${filtroIncidenciaParro || 'Todas'}</p>
+          <p><strong>Filtros Operativos:</strong> Clasificación: ${filtroIncidenciaClasificacion || 'Todas'} | Incidencia: ${filtroIncidenciaTipo || 'Todas'} | Organismo: ${filtroIncidenciaOrganismo || 'Todos'}</p>
+          <p style="margin-top: 8px; font-size: 12px; font-weight: bold; color: #0f172a;">
+            Total de Registros Encontrados: ${incidenciasFiltradas.length} | Actividades Computadas: ${totalActividades}
+          </p>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 10%">FECHA / HORA</th>
+              <th style="width: 15%">CIRCUITO COMUNAL</th>
+              <th style="width: 15%">MUNICIPIO / PARROQUIA</th>
+              <th style="width: 12%">CLASIFICACIÓN</th>
+              <th style="width: 18%">INCIDENCIA</th>
+              <th style="width: 5%; text-align: center;">CANT.</th>
+              <th style="width: 25%">ORGANISMOS INVOLUCRADOS</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${incidenciasFiltradas.map(inc => {
+              const jefe = usuarios.find(u => u.comuna_o_circuito_comunal === inc.circuito_comunal);
+              return `
+              <tr>
+                <td>${new Date(inc.fecha_registro).toLocaleString()}</td>
+                <td><strong>${inc.circuito_comunal}</strong></td>
+                <td>${jefe?.municipio || 'N/A'} / ${jefe?.parroquia || 'N/A'}</td>
+                <td>${inc.clasificacion}</td>
+                <td>${inc.incidencia}</td>
+                <td style="text-align: center; font-weight: bold;">${inc.cantidad}</td>
+                <td>${inc.organismos_involucrados}</td>
+              </tr>
+            `}).join('')}
+          </tbody>
+        </table>
+        
+        <div class="footer">
+          Documento generado por el Sistema Automático VEN 911 - Falcón el ${new Date().toLocaleString()}<br>
+          Usuario Generador: ${adminUser?.nombre_apellido_jefe} (${adminUser?.organismo_responsable})
+        </div>
+
+        <script>
+          // Se espera a que carguen las imágenes y luego se lanza la impresión
+          setTimeout(() => {
+            window.print();
+            window.close();
+          }, 1000);
+        </script>
+      </body>
+      </html>
+    `;
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+  };
 
   const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.checked) setSelectedIds(usuariosFiltrados.map(u => u.id));
@@ -751,6 +875,89 @@ export default function AdminDashboardPage() {
               <div className="bg-amber-500 h-4 rounded-full transition-all duration-300 ease-out" style={{ width: `${uploadProgress}%` }}></div>
             </div>
             <p className="text-sm font-bold text-gray-500">{Math.round(uploadProgress)}%</p>
+          </div>
+        </div>
+      )}
+
+      {/* ==========================================
+          MODAL DE VISTA DETALLADA DEL REPORTE (OJITO)
+          ========================================== */}
+      {incidenciaSeleccionada && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
+          <div className="bg-white rounded-[2rem] p-6 max-w-3xl w-full shadow-2xl border flex flex-col max-h-[90vh] overflow-hidden relative">
+            
+            {/* Header del Modal */}
+            <div className="flex justify-between items-start border-b pb-4 mb-4">
+              <div>
+                <h3 className="text-xl font-black text-[#00529b] flex items-center gap-2">
+                  <ShieldAlert size={24} className="text-amber-500" />
+                  Detalles del Reporte Operativo
+                </h3>
+                <p className="text-xs text-gray-500 mt-1 font-bold">
+                  Registrado el {new Date(incidenciaSeleccionada.fecha_registro).toLocaleString()}
+                </p>
+              </div>
+              <button 
+                onClick={() => setIncidenciaSeleccionada(null)} 
+                className="text-gray-400 hover:text-red-500 bg-gray-100 hover:bg-red-50 p-2 rounded-full transition-all"
+                title="Cerrar Reporte"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Contenido Scrolleable del Modal */}
+            <div className="overflow-y-auto pr-2 space-y-4">
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100">
+                  <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider mb-1">Clasificación</p>
+                  <p className="text-base font-black text-gray-800">{incidenciaSeleccionada.clasificacion}</p>
+                </div>
+                <div className="bg-amber-50/50 p-4 rounded-xl border border-amber-100">
+                  <p className="text-[10px] font-bold text-amber-600 uppercase tracking-wider mb-1">Tipo de Incidencia</p>
+                  <p className="text-base font-black text-gray-800">{incidenciaSeleccionada.incidencia}</p>
+                </div>
+              </div>
+
+              <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
+                <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">Actividad Específica y Cantidad</p>
+                <div className="flex justify-between items-center bg-white p-3 rounded-lg border">
+                  <p className="text-sm font-bold text-gray-700">{incidenciaSeleccionada.actividad}</p>
+                  <span className="bg-[#00529b] text-white px-4 py-1.5 rounded-lg font-black text-sm shadow-inner">
+                    {incidenciaSeleccionada.cantidad}
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
+                  <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Ubicación / Circuito Comunal</p>
+                  <p className="text-sm font-bold text-gray-800 mb-1">{incidenciaSeleccionada.circuito_comunal}</p>
+                  <p className="text-xs text-gray-500 flex flex-col gap-0.5">
+                    <span><strong>Municipio:</strong> {usuarios.find(u => u.comuna_o_circuito_comunal === incidenciaSeleccionada.circuito_comunal)?.municipio || 'N/A'}</span>
+                    <span><strong>Parroquia:</strong> {usuarios.find(u => u.comuna_o_circuito_comunal === incidenciaSeleccionada.circuito_comunal)?.parroquia || 'N/A'}</span>
+                  </p>
+                </div>
+                
+                <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
+                  <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Organismos Involucrados</p>
+                  <div className="flex gap-2 flex-wrap mt-2">
+                    {incidenciaSeleccionada.organismos_involucrados?.split(',').map((org: string, i: number) => (
+                      <span key={i} className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2.5 py-1 rounded-md border border-emerald-200 uppercase tracking-wide">
+                        {org.trim()}
+                      </span>
+                    )) || <span className="text-xs font-bold text-gray-400">Ninguno especificado</span>}
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-gray-100 p-4 rounded-xl border border-gray-300 border-dashed">
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Información de Sistema</p>
+                <p className="text-xs font-mono text-gray-500">ID Despachador: {incidenciaSeleccionada.usuario_id}</p>
+              </div>
+
+            </div>
           </div>
         </div>
       )}
@@ -1113,8 +1320,8 @@ export default function AdminDashboardPage() {
                 </div>
 
                 <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t border-gray-200">
-                  <button className="bg-emerald-500 text-white px-6 py-2 rounded-lg font-bold shadow-sm hover:bg-emerald-600 transition-all flex items-center justify-center gap-2"><FileSpreadsheet size={18} /> Generar Excel</button>
-                  <button className="bg-red-500 text-white px-6 py-2 rounded-lg font-bold shadow-sm hover:bg-red-600 transition-all flex items-center justify-center gap-2"><FileText size={18} /> Generar PDF</button>
+                  <button onClick={handleGenerarExcelIncidencias} className="bg-emerald-500 text-white px-6 py-2 rounded-lg font-bold shadow-sm hover:bg-emerald-600 transition-all flex items-center justify-center gap-2"><FileSpreadsheet size={18} /> Generar Excel</button>
+                  <button onClick={handleGenerarPDFIncidencias} className="bg-red-500 text-white px-6 py-2 rounded-lg font-bold shadow-sm hover:bg-red-600 transition-all flex items-center justify-center gap-2"><FileText size={18} /> Generar PDF</button>
                 </div>
               </div>
 
@@ -1123,6 +1330,7 @@ export default function AdminDashboardPage() {
                 <table className="w-full min-w-max text-left text-xs">
                   <thead className="text-gray-700 uppercase tracking-wider text-[10px]">
                     <tr>
+                      <th className="p-3 sticky left-0 top-0 bg-gray-200 z-30 font-bold w-12 text-center shadow-[0_1px_0_0_#e5e7eb]">Ver</th>
                       <th className="p-3 sticky top-0 bg-gray-100 z-20 font-bold w-32 shadow-[0_1px_0_0_#e5e7eb]">Fecha / Hora</th>
                       <th className="p-3 sticky top-0 bg-amber-100 text-amber-800 z-20 font-bold shadow-[0_1px_0_0_#e5e7eb]">Circuito Comunal</th>
                       <th className="p-3 sticky top-0 bg-gray-100 z-20 font-bold shadow-[0_1px_0_0_#e5e7eb]">Municipio / Parr.</th>
@@ -1131,13 +1339,17 @@ export default function AdminDashboardPage() {
                       <th className="p-3 sticky top-0 bg-gray-100 z-20 font-bold shadow-[0_1px_0_0_#e5e7eb]">Actividad Detallada</th>
                       <th className="p-3 sticky top-0 bg-blue-100 text-blue-800 z-20 font-bold text-center shadow-[0_1px_0_0_#e5e7eb]">Cant.</th>
                       <th className="p-3 sticky top-0 bg-gray-100 z-20 font-bold shadow-[0_1px_0_0_#e5e7eb]">Organismos</th>
-                      <th className="p-3 sticky top-0 bg-gray-100 z-20 font-bold shadow-[0_1px_0_0_#e5e7eb]">Registrado Por</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {incidenciasFiltradas.length > 0 ? (
                       incidenciasFiltradas.map((incidencia, index) => (
                         <tr key={index} className="hover:bg-gray-50 transition-colors">
+                          <td className="p-3 text-center sticky left-0 bg-white z-10">
+                            <button onClick={() => setIncidenciaSeleccionada(incidencia)} className="bg-blue-100 text-[#00529b] p-1.5 rounded-lg hover:bg-[#00529b] hover:text-white transition-all shadow-sm">
+                              <Eye size={16} />
+                            </button>
+                          </td>
                           <td className="p-3">{new Date(incidencia.fecha_registro).toLocaleString()}</td>
                           <td className="p-3 font-bold text-gray-800">{incidencia.circuito_comunal}</td>
                           <td className="p-3 text-gray-600">
@@ -1148,7 +1360,6 @@ export default function AdminDashboardPage() {
                           <td className="p-3 text-gray-600 max-w-[200px] truncate" title={incidencia.actividad}>{incidencia.actividad}</td>
                           <td className="p-3 text-center font-bold text-blue-700 bg-blue-50/50">{incidencia.cantidad}</td>
                           <td className="p-3 text-gray-600">{incidencia.organismos_involucrados}</td>
-                          <td className="p-3 text-gray-600">Despachador ID: {incidencia.usuario_id?.substring(0,6)}...</td>
                         </tr>
                       ))
                     ) : (
