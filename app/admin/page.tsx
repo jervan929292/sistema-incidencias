@@ -1371,7 +1371,14 @@ export default function AdminDashboardPage() {
                             </button>
                           </td>
                           <td className="p-3">{new Date(incidencia.fecha_registro).toLocaleString()}</td>
-                          <td className="p-3 font-bold text-gray-800">{incidencia.circuito_comunal}</td>
+                          <td className="p-3 font-bold text-gray-800">
+                            <div className="flex flex-col">
+                              <span>{incidencia.circuito_comunal}</span>
+                              <span className="text-[9px] font-black text-[#00529b] uppercase tracking-wider">
+                                {usuarios.find(u => u.comuna_o_circuito_comunal === incidencia.circuito_comunal)?.organismo_responsable ? getSiglas(usuarios.find(u => u.comuna_o_circuito_comunal === incidencia.circuito_comunal)!.organismo_responsable) : 'N/A'}
+                              </span>
+                            </div>
+                          </td>
                           <td className="p-3 text-gray-600">
                             {usuarios.find(u => u.comuna_o_circuito_comunal === incidencia.circuito_comunal)?.municipio || 'N/A'} / {usuarios.find(u => u.comuna_o_circuito_comunal === incidencia.circuito_comunal)?.parroquia || 'N/A'}
                           </td>
@@ -1497,11 +1504,20 @@ export default function AdminDashboardPage() {
                     {topCircuitos?.length > 0 ? (
                       topCircuitos.map(([circuito, valor], idx) => {
                         const porcentajeCircuito = Math.round(((valor as number) / maxCircuitoValor) * 100);
+                        const jefeCircuito = usuarios.find(u => u.comuna_o_circuito_comunal === circuito);
+                        const organismo = jefeCircuito?.organismo_responsable ? getSiglas(jefeCircuito.organismo_responsable) : 'N/A';
+                        
                         return (
                           <div key={idx} className="flex items-center gap-3">
                             <span className="text-xs font-black text-gray-400 w-5">#{idx + 1}</span>
                             <div className="flex-1 space-y-1">
-                              <div className="flex justify-between text-[11px] font-bold text-gray-700"><span className="truncate max-w-[220px]">{circuito}</span><span className="text-gray-900 font-extrabold">{valor as number} act.</span></div>
+                              <div className="flex justify-between items-end">
+                                <div className="flex flex-col">
+                                  <span className="text-[11px] font-bold text-gray-700 truncate max-w-[200px]">{circuito}</span>
+                                  <span className="text-[9px] font-black text-[#00529b] uppercase tracking-wider">{organismo}</span>
+                                </div>
+                                <span className="text-[11px] text-gray-900 font-extrabold">{valor as number} act.</span>
+                              </div>
                               <div className="w-full bg-gray-100 rounded-md h-2 overflow-hidden border"><div className="bg-gradient-to-r from-[#00529b] to-blue-500 h-2 rounded-md transition-all duration-500" style={{ width: `${porcentajeCircuito}%` }}></div></div>
                             </div>
                           </div>
