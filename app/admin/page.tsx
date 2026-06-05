@@ -34,6 +34,37 @@ const LISTA_ORGANISMOS = [
   "Otros"
 ];
 
+// DICCIONARIO PARA OBTENER LAS SIGLAS DEL ORGANISMO
+const getSiglas = (organismo: string) => {
+  const mapa: { [key: string]: string } = {
+    "VEN 911": "VEN 911",
+    "Cuerpo de Investigaciones Científicas Penales y Criminalísticas": "CICPC",
+    "Dirección de Atención Integral Penitenciaria": "DAIP",
+    "Dirección General de Bomberos y Bomberas": "BOMBEROS",
+    "Direccion General de Cuadrantes de Paz": "DGCP",
+    "Dirección General de los Centros de Comando, Control y Telecomunicaciones": "CCCT VEN 911",
+    "Dirección General de Prevención del Delito": "DPD",
+    "Guardia Nacional bolivariana": "GNB",
+    "Instituto Nacional Contra la Discriminación Racial": "INCODIR",
+    "Instituto Nacional de Meteorología e Hidrología": "INAMEH",
+    "Instituto Nacional de Transporte Terrestre": "INTT",
+    "Oficina Nacional Contra la Delincuencia Organizada y Financiamiento al Terrorismo": "ONCDOFT",
+    "Oficina Nacional para La Atención Integral de las Victimas": "ONAIV",
+    "Policía Estadal": "POLIFALCÓN",
+    "Policía Municipal Miranda": "POLIMIRANDA",
+    "Policía Municipal Carirubana": "POLICARIRUBANA",
+    "Policía Nacional Bolivariana": "CPNB",
+    "Protección Civil y Administración de Desastre": "PC",
+    "Servicio Autónomo de Identificación, Migración y Extranjería": "SAIME",
+    "Servicio Autónomo de Registros y Notarias": "SAREN",
+    "Servicio Nacional para el Desarme": "SENADES",
+    "Sistema Nacional de Medicina Forense": "SENAMECF",
+    "Superintendencia Nacional Antidrogas": "SUNAD",
+    "Universidad Nacional Experimental de la Seguridad": "UNES"
+  };
+  return mapa[organismo] || organismo || 'SIN ORGANISMO';
+};
+
 export default function AdminDashboardPage() {
   const [activeTab, setActiveTab] = useState('directorio'); 
   const [usuarios, setUsuarios] = useState<any[]>([]);
@@ -233,20 +264,6 @@ export default function AdminDashboardPage() {
       fetchAdmins();
     } catch (error: any) {
       alert("Error al actualizar rol: " + error.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const asignarOrganismoAdmin = async (idUsuario: string, nuevoOrganismo: string) => {
-    if (!nuevoOrganismo) return;
-    setLoading(true);
-    try {
-      const { error } = await supabase.from('directorio_operativo').update({ organismo_responsable: nuevoOrganismo }).eq('id', idUsuario);
-      if (error) throw error;
-      fetchAdmins();
-    } catch (error: any) {
-      alert("Error al asignar organismo: " + error.message);
     } finally {
       setLoading(false);
     }
@@ -677,7 +694,7 @@ export default function AdminDashboardPage() {
       const { error: errJefe } = await supabase.from('directorio_operativo')
         .update(datosJefeLimpios)
         .eq('id', editingUsuario.id);
-      
+        
       if (errJefe) throw errJefe;
 
       if (codigoViejo) {
@@ -748,10 +765,17 @@ export default function AdminDashboardPage() {
               <div className={`h-10 w-10 rounded-full overflow-hidden bg-white border-2 flex items-center justify-center shrink-0 ${esSuperUser ? 'border-amber-500' : 'border-[#00529b]'}`}>
                 {esSuperUser ? <Star size={20} className="text-amber-500" /> : <User size={24} className="text-[#00529b]" />}
               </div>
-              <div className="text-left hidden sm:block pr-2 border-r border-gray-300">
-                <p className="text-sm font-bold text-gray-800">{adminUser?.nombre_apellido_jefe || 'Administrador'}</p>
-                <p className={`text-xs font-bold ${esSuperUser ? 'text-amber-600' : 'text-blue-600'}`}>
-                  {esSuperUser ? 'SUPERUSUARIO - ' : ''} {adminUser?.organismo_responsable || 'SIN ORGANISMO ASIGNADO'}
+              <div className="text-left hidden sm:block pr-4 border-r border-gray-300">
+                <p className="text-sm font-bold text-gray-800 flex items-center gap-2 uppercase">
+                  {adminUser?.nombre_apellido_jefe || 'Administrador'}
+                  {adminUser?.grado_jerarquia && (
+                    <span className="text-[10px] font-black bg-gray-200 text-gray-600 px-2 py-0.5 rounded uppercase tracking-wider">
+                      {adminUser.grado_jerarquia}
+                    </span>
+                  )}
+                </p>
+                <p className={`text-[11px] font-black uppercase tracking-wider mt-0.5 ${esSuperUser ? 'text-amber-600' : 'text-blue-600'}`}>
+                  {esSuperUser ? 'SUPERUSUARIO - ' : ''} {getSiglas(adminUser?.organismo_responsable)}
                 </p>
               </div>
             </div>
