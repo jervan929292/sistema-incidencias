@@ -56,6 +56,7 @@ const getSiglas = (organismo: string) => {
   if (orgLow.includes('miranda')) return 'POLIMIRANDA';
   if (orgLow.includes('carirubana')) return 'POLICARIRUBANA';
   if (orgLow.includes('municipal')) return 'POLICÍA MUNICIPAL';
+  // SEPARACIÓN ESTRICTA DE LA PNB
   if (orgLow.includes('policia nacional') || orgLow.includes('pnb') || orgLow.includes('cpnb')) return 'CPNB';
   if (orgLow.includes('proteccion civil') || orgLow.includes('desastre')) return 'PC';
   if (orgLow.includes('identificacion, migracion')) return 'SAIME';
@@ -197,10 +198,10 @@ export default function AdminDashboardPage() {
     const normalizeStr = (str: string) => (str || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
     const adminOrg = normalizeStr(currentUser.organismo_responsable);
     
-    // SISTEMA MEJORADO DE ALIAS (Para atrapar nombres compuestos en la BD)
+    // SISTEMA MEJORADO Y CORREGIDO DE ALIAS
     const aliases = [adminOrg];
     if (adminOrg.includes('estadal') || adminOrg.includes('estado')) aliases.push('estadal', 'estado', 'polifalcon');
-    if (adminOrg.includes('policia nacional') || adminOrg.includes('pnb') || adminOrg.includes('cpnb')) {aliases.push('policia nacional', 'pnb', 'cpnb');
+    if (adminOrg.includes('policia nacional') || adminOrg.includes('pnb') || adminOrg.includes('cpnb')) aliases.push('policia nacional', 'pnb', 'cpnb');
     if (adminOrg.includes('guardia nacional') || adminOrg.includes('gnb')) aliases.push('guardia', 'gnb');
     if (adminOrg.includes('bomberos')) aliases.push('bombero');
     if (adminOrg.includes('cientificas') || adminOrg.includes('cicpc')) aliases.push('cientifica', 'cicpc');
@@ -215,7 +216,6 @@ export default function AdminDashboardPage() {
         const filteredUsers = users.filter(u => {
           if (!u.organismo_responsable) return false;
           const uOrg = normalizeStr(u.organismo_responsable);
-          // Validacion cruzada fuerte: Revisa si el alias esta en el nombre de la BD o viceversa
           return aliases.some(alias => uOrg.includes(alias) || alias.includes(uOrg));
         });
         setUsuarios(filteredUsers);
@@ -835,7 +835,7 @@ export default function AdminDashboardPage() {
       const { error: errJefe } = await supabase.from('directorio_operativo')
         .update(datosJefeLimpios)
         .eq('id', editingUsuario.id);
-      
+        
       if (errJefe) throw errJefe;
 
       if (codigoViejo) {
