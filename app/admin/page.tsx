@@ -428,6 +428,7 @@ export default function AdminDashboardPage() {
         'ACTIVIDAD DETALLADA': inc.actividad || 'N/A',
         'CANTIDAD': inc.cantidad || 0,
         'ORGANISMOS INVOLUCRADOS': inc.organismos_involucrados || 'N/A',
+        'RESEÑA INFORMATIVA': inc.observaciones || inc.observacion || inc.resena_informativa || inc.resena || 'N/A',
         'ID DESPACHADOR': inc.usuario_id || 'N/A'
       };
     });
@@ -466,11 +467,12 @@ export default function AdminDashboardPage() {
           .filters-box { background-color: #f8fafc; border: 1px solid #e2e8f0; padding: 12px; border-radius: 8px; margin-bottom: 20px; font-size: 11px; }
           .filters-box p { margin: 4px 0; color: #475569; }
           .filters-box strong { color: #1e293b; }
-          table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 10px; }
-          th, td { border: 1px solid #cbd5e1; padding: 6px 8px; text-align: left; }
-          th { background-color: #00529b; color: white; font-weight: bold; text-transform: uppercase; font-size: 9px; }
+          table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 9px; }
+          th, td { border: 1px solid #cbd5e1; padding: 6px 8px; text-align: left; vertical-align: top; }
+          th { background-color: #00529b; color: white; font-weight: bold; text-transform: uppercase; font-size: 8px; }
           tr:nth-child(even) { background-color: #f8fafc; }
           .footer { margin-top: 30px; text-align: center; font-size: 9px; color: #64748b; border-top: 1px solid #cbd5e1; padding-top: 10px; }
+          .resena-text { max-width: 250px; word-wrap: break-word; }
           @media print {
             @page { margin: 1cm; size: landscape; }
             body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -500,17 +502,19 @@ export default function AdminDashboardPage() {
           <thead>
             <tr>
               <th style="width: 10%">FECHA / HORA</th>
-              <th style="width: 15%">CIRCUITO COMUNAL</th>
-              <th style="width: 15%">MUNICIPIO / PARROQUIA</th>
-              <th style="width: 12%">CLASIFICACIÓN</th>
-              <th style="width: 18%">INCIDENCIA</th>
-              <th style="width: 5%; text-align: center;">CANT.</th>
-              <th style="width: 25%">ORGANISMOS INVOLUCRADOS</th>
+              <th style="width: 12%">CIRCUITO COMUNAL</th>
+              <th style="width: 12%">MUNI. / PARROQ.</th>
+              <th style="width: 10%">CLASIFICACIÓN</th>
+              <th style="width: 12%">INCIDENCIA</th>
+              <th style="width: 3%; text-align: center;">C.</th>
+              <th style="width: 15%">ORGANISMOS</th>
+              <th style="width: 26%">RESEÑA INFORMATIVA / OBSERV.</th>
             </tr>
           </thead>
           <tbody>
             ${incidenciasFiltradas.map(inc => {
               const jefe = usuarios.find(u => u.comuna_o_circuito_comunal === inc.circuito_comunal);
+              const resena = inc.observaciones || inc.observacion || inc.resena_informativa || inc.resena || 'N/A';
               return `
               <tr>
                 <td>${new Date(inc.fecha_registro).toLocaleString()}</td>
@@ -520,6 +524,7 @@ export default function AdminDashboardPage() {
                 <td>${inc.incidencia}</td>
                 <td style="text-align: center; font-weight: bold;">${inc.cantidad}</td>
                 <td>${inc.organismos_involucrados}</td>
+                <td class="resena-text">${resena}</td>
               </tr>
             `}).join('')}
           </tbody>
@@ -927,6 +932,14 @@ export default function AdminDashboardPage() {
                   <span className="bg-[#00529b] text-white px-4 py-1.5 rounded-lg font-black text-sm shadow-inner">
                     {incidenciaSeleccionada.cantidad}
                   </span>
+                </div>
+              </div>
+
+              {/* NUEVO BLOQUE: RESEÑA INFORMATIVA */}
+              <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
+                <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">Reseña Informativa / Observaciones</p>
+                <div className="bg-white p-4 rounded-lg border text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">
+                  {incidenciaSeleccionada.observaciones || incidenciaSeleccionada.observacion || incidenciaSeleccionada.resena_informativa || incidenciaSeleccionada.resena || 'Sin reseña o información adicional registrada.'}
                 </div>
               </div>
 
@@ -1339,6 +1352,7 @@ export default function AdminDashboardPage() {
                       <th className="p-3 sticky top-0 bg-gray-100 z-20 font-bold shadow-[0_1px_0_0_#e5e7eb]">Actividad Detallada</th>
                       <th className="p-3 sticky top-0 bg-blue-100 text-blue-800 z-20 font-bold text-center shadow-[0_1px_0_0_#e5e7eb]">Cant.</th>
                       <th className="p-3 sticky top-0 bg-gray-100 z-20 font-bold shadow-[0_1px_0_0_#e5e7eb]">Organismos</th>
+                      <th className="p-3 sticky top-0 bg-gray-100 z-20 font-bold shadow-[0_1px_0_0_#e5e7eb]">Reseña / Observ.</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -1360,11 +1374,14 @@ export default function AdminDashboardPage() {
                           <td className="p-3 text-gray-600 max-w-[200px] truncate" title={incidencia.actividad}>{incidencia.actividad}</td>
                           <td className="p-3 text-center font-bold text-blue-700 bg-blue-50/50">{incidencia.cantidad}</td>
                           <td className="p-3 text-gray-600">{incidencia.organismos_involucrados}</td>
+                          <td className="p-3 text-gray-600 max-w-[200px] truncate" title={incidencia.observaciones || incidencia.observacion || incidencia.resena_informativa || incidencia.resena}>
+                            {incidencia.observaciones || incidencia.observacion || incidencia.resena_informativa || incidencia.resena || 'N/A'}
+                          </td>
                         </tr>
                       ))
                     ) : (
                       <tr>
-                        <td colSpan={9} className="p-16 text-center">
+                        <td colSpan={10} className="p-16 text-center">
                           <div className="flex flex-col items-center justify-center text-gray-400">
                             <ShieldAlert size={56} className="mb-4 opacity-20" />
                             <p className="text-lg font-bold text-gray-500">No hay incidencias que coincidan con los filtros</p>
