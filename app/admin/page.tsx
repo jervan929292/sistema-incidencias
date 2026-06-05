@@ -85,6 +85,7 @@ export default function AdminDashboardPage() {
   // Estados de Admin y Permisos
   const [adminUser, setAdminUser] = useState<any>(null);
   const [esSuperUser, setEsSuperUser] = useState(false);
+  const [isReadOnlyVen911, setIsReadOnlyVen911] = useState(false); // NUEVO ESTADO: SOLO LECTURA
   
   const [mostrarModalAdmin, setMostrarModalAdmin] = useState(false);
   const [formAdmin, setFormAdmin] = useState({ 
@@ -146,6 +147,7 @@ export default function AdminDashboardPage() {
       if (adminData?.rol === 'admin' || adminData?.rol === 'superusuario') {
         setAdminUser(adminData); 
         setEsSuperUser(adminData.rol === 'superusuario');
+        setIsReadOnlyVen911(adminData.organismo_responsable === 'VEN 911' && adminData.rol !== 'superusuario'); // VERIFICAR SI ES VEN 911 DE SOLO LECTURA
         setVerificando(false);
         fetchDatos(adminData);
         if (adminData.rol === 'superusuario') {
@@ -172,8 +174,10 @@ export default function AdminDashboardPage() {
 
   const fetchDatos = async (currentUser: any) => {
     const isSuper = currentUser.rol === 'superusuario';
+    const isReadVen911 = currentUser.organismo_responsable === 'VEN 911' && !isSuper;
+    const veTodo = isSuper || isReadVen911; // Superusuarios y Ven911 ven toda la tabla
 
-    if (!isSuper && (!currentUser.organismo_responsable || currentUser.organismo_responsable.trim() === '')) {
+    if (!veTodo && (!currentUser.organismo_responsable || currentUser.organismo_responsable.trim() === '')) {
       setUsuarios([]);
       setSectoresDB([]);
       setIncidenciasDB([]);
@@ -198,7 +202,7 @@ export default function AdminDashboardPage() {
     const { data: users, error: errU } = await supabase.from('directorio_operativo').select('*').neq('rol', 'admin').neq('rol', 'superusuario').limit(10000);
     if (errU) alert("Error cargando usuarios: " + errU.message);
     else if (users) {
-      if (!isSuper && currentUser.organismo_responsable) {
+      if (!veTodo && currentUser.organismo_responsable) {
         const filteredUsers = users.filter(u => {
           if (!u.organismo_responsable) return false;
           const uOrg = normalizeStr(u.organismo_responsable);
@@ -227,7 +231,7 @@ export default function AdminDashboardPage() {
     
     const { data: incs } = await supabase.from('incidencias').select('*').limit(50000);
     if (incs) {
-      if (!isSuper && currentUser.organismo_responsable) {
+      if (!veTodo && currentUser.organismo_responsable) {
         const filteredIncs = incs.filter(inc => {
           if (!inc.organismos_involucrados) return false;
           const incOrgs = normalizeStr(inc.organismos_involucrados);
@@ -776,14 +780,17 @@ export default function AdminDashboardPage() {
                 </p>
                 <p className={`text-[11px] font-black uppercase tracking-wider mt-0.5 ${esSuperUser ? 'text-amber-600' : 'text-blue-600'}`}>
                   {esSuperUser ? 'SUPERUSUARIO - ' : ''} {getSiglas(adminUser?.organismo_responsable)}
+                  {isReadOnlyVen911 && <span className="ml-1 text-gray-500">(Solo Lectura)</span>}
                 </p>
               </div>
             </div>
             
             <div className="flex items-center gap-2">
-              <Link href="/registro-admin" title="Registrar Nuevo Administrador" className="bg-blue-100 text-[#00529b] p-2 rounded-xl text-sm font-bold hover:bg-blue-200 transition-all shadow-sm flex items-center gap-1">
-                <UserPlus size={18} />
-              </Link>
+              {!isReadOnlyVen911 && (
+                <Link href="/registro-admin" title="Registrar Nuevo Administrador" className="bg-blue-100 text-[#00529b] p-2 rounded-xl text-sm font-bold hover:bg-blue-200 transition-all shadow-sm flex items-center gap-1">
+                  <UserPlus size={18} />
+                </Link>
+              )}
               
               {esSuperUser && (
                 <button 
@@ -838,13 +845,13 @@ export default function AdminDashboardPage() {
               <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
                 <div className="flex items-center gap-3">
                   <h2 className="text-2xl font-bold text-gray-800">
-                    Gestión de Usuarios {esSuperUser ? '(Todos los Organismos)' : `(${adminUser?.organismo_responsable || 'SIN ORGANISMO ASIGNADO'})`}
+                    Gestión de Usuarios {(esSuperUser || isReadOnlyVen911) ? '(Todos los Organismos)' : `(${adminUser?.organismo_responsable || 'SIN ORGANISMO ASIGNADO'})`}
                   </h2>
                   <span className="bg-blue-100 text-blue-800 text-sm font-bold px-3 py-1 rounded-full">{usuariosFiltrados?.length || 0} Mostrando</span>
                 </div>
                 
                 <div className="flex flex-wrap gap-3 justify-end">
-                  {selectedIds.length > 0 && (
+                  {selectedIds.length > 0 && !isReadOnlyVen911 && (
                     <button onClick={handleDeleteSelected} disabled={loading} className="bg-red-600 text-white px-6 py-3 rounded-xl font-bold shadow-md hover:bg-red-700 transition-all">
                       {loading ? 'Eliminando...' : `🗑️ Eliminar (${selectedIds.length})`}
                     </button>
@@ -852,9 +859,13 @@ export default function AdminDashboardPage() {
                   <button onClick={handleDescargarCredenciales} className="bg-emerald-600 text-white px-5 py-3 rounded-xl font-bold shadow-md hover:bg-emerald-700 transition-all flex items-center gap-2">
                     <FileSpreadsheet size={18} /> DESCARGAR CREDENCIALES
                   </button>
-                  <button onClick={() => setMostrarFormularioManual(!mostrarFormualioManual)} className="bg-gray-800 text-white px-6 py-3 rounded-xl font-bold shadow-md hover:bg-gray-700 transition-all">
-                    {mostrarFormualioManual ? '- CERRAR FORMULARIO' : '+ AGREGAR MANUAL'}
-                  </button>
+                  
+                  {!isReadOnlyVen911 && (
+                    <button onClick={() => setMostrarFormularioManual(!mostrarFormualioManual)} className="bg-gray-800 text-white px-6 py-3 rounded-xl font-bold shadow-md hover:bg-gray-700 transition-all">
+                      {mostrarFormualioManual ? '- CERRAR FORMULARIO' : '+ AGREGAR MANUAL'}
+                    </button>
+                  )}
+                  
                   {esSuperUser && (
                     <label className="bg-[#00529b] text-white px-6 py-3 rounded-xl cursor-pointer hover:bg-[#003d73] transition-all font-bold shadow-md whitespace-nowrap">
                       {loading ? 'Procesando...' : '+ SUBIR EXCEL'}
@@ -893,7 +904,7 @@ export default function AdminDashboardPage() {
               </div>
 
               {/* FORMULARIO MANUAL */}
-              {mostrarFormualioManual && (
+              {mostrarFormualioManual && !isReadOnlyVen911 && (
                 <form onSubmit={handleManualSubmit} className="bg-gray-50 p-6 rounded-2xl border border-gray-200 mb-8 grid grid-cols-1 md:grid-cols-3 gap-4 animate-fade-in">
                   <div className="col-span-full border-b pb-2 mb-2 flex justify-between items-end">
                     <span className="font-bold text-xl text-[#00529b]">Registro de Nuevo Jefe de Cuadrante</span>
@@ -947,8 +958,8 @@ export default function AdminDashboardPage() {
                 <table className="w-full min-w-max text-left bg-white text-xs">
                   <thead className="text-gray-700 uppercase tracking-wider text-[10px]">
                     <tr>
-                      <th className="p-2 sticky left-0 top-0 bg-gray-200 z-30 w-10 text-center">Sel</th>
-                      <th className="p-2 sticky left-10 top-0 bg-gray-200 z-30 w-12">Edit</th>
+                      {!isReadOnlyVen911 && <th className="p-2 sticky left-0 top-0 bg-gray-200 z-30 w-10 text-center">Sel</th>}
+                      {!isReadOnlyVen911 && <th className="p-2 sticky left-10 top-0 bg-gray-200 z-30 w-12">Edit</th>}
                       <th className="p-2 sticky top-0 bg-gray-100 z-20 w-40">Ubicación</th>
                       <th className="p-2 sticky top-0 bg-amber-100 text-amber-800 z-20 w-24">SITUR</th>
                       <th className="p-2 sticky top-0 bg-gray-100 z-20 w-32">Circuito</th>
@@ -962,7 +973,7 @@ export default function AdminDashboardPage() {
                   <tbody className="divide-y divide-gray-100">
                     {usuariosFiltrados.length === 0 ? (
                       <tr>
-                        <td colSpan={10} className="p-8 text-center text-gray-400 font-bold">
+                        <td colSpan={isReadOnlyVen911 ? 8 : 10} className="p-8 text-center text-gray-400 font-bold">
                           {adminUser?.organismo_responsable ? 'No hay usuarios registrados para este organismo o filtros actuales.' : 'No tienes un organismo asignado para visualizar registros.'}
                         </td>
                       </tr>
@@ -970,8 +981,8 @@ export default function AdminDashboardPage() {
                       usuariosFiltrados.map((u) => {
                         return (
                           <tr key={u.id} className="hover:bg-gray-50">
-                            <td className="p-2 text-center sticky left-0 bg-white z-10"><input type="checkbox" onChange={() => handleSelectOne(u.id)} /></td>
-                            <td className="p-2 sticky left-10 bg-white z-10"><button onClick={() => abrirEditar(u)} className="bg-amber-500 text-white px-2 py-1 rounded"><SquarePen size={14}/></button></td>
+                            {!isReadOnlyVen911 && <td className="p-2 text-center sticky left-0 bg-white z-10"><input type="checkbox" onChange={() => handleSelectOne(u.id)} /></td>}
+                            {!isReadOnlyVen911 && <td className="p-2 sticky left-10 bg-white z-10"><button onClick={() => abrirEditar(u)} className="bg-amber-500 text-white px-2 py-1 rounded"><SquarePen size={14}/></button></td>}
                             <td className="p-2 truncate max-w-[160px]" title={`${u.estado} - ${u.municipio} - ${u.parroquia}`}>{u.municipio} - {u.parroquia}</td>
                             <td className="p-2 font-mono font-bold text-amber-700">{u.codigo_situr}</td>
                             <td className="p-2 truncate max-w-[130px]" title={u.comuna_o_circuito_comunal}>{u.comuna_o_circuito_comunal}</td>
@@ -1084,7 +1095,7 @@ export default function AdminDashboardPage() {
                     </select>
                   </div>
                   
-                  {esSuperUser && (
+                  {(esSuperUser || isReadOnlyVen911) && (
                     <div className="lg:col-span-1">
                       <label className="block text-xs font-bold text-gray-500 mb-1">Filtrar por Organismos</label>
                       <select className="w-full p-2 border rounded-lg bg-white text-sm outline-none shadow-sm cursor-pointer" value={filtroIncidenciaOrganismo} onChange={e => setFiltroIncidenciaOrganismo(e.target.value)}>
