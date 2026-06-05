@@ -14,13 +14,14 @@ const LISTA_ORGANISMOS = [
   "Direccion General de Cuadrantes de Paz",
   "Dirección General de los Centros de Comando, Control y Telecomunicaciones",
   "Dirección General de Prevención del Delito",
-  "Guardia Nacional bolivariana",
+  "Guardia Nacional Bolivariana",
   "Instituto Nacional Contra la Discriminación Racial",
   "Instituto Nacional de Meteorología e Hidrología",
   "Instituto Nacional de Transporte Terrestre",
   "Oficina Nacional Contra la Delincuencia Organizada y Financiamiento al Terrorismo",
   "Oficina Nacional para La Atención Integral de las Victimas",
   "Policía Estadal",
+  "Policía Municipal",
   "Policía Municipal Miranda",
   "Policía Municipal Carirubana",
   "Policía Nacional Bolivariana",
@@ -36,33 +37,35 @@ const LISTA_ORGANISMOS = [
 
 // DICCIONARIO PARA OBTENER LAS SIGLAS DEL ORGANISMO
 const getSiglas = (organismo: string) => {
-  const mapa: { [key: string]: string } = {
-    "VEN 911": "VEN 911",
-    "Cuerpo de Investigaciones Científicas Penales y Criminalísticas": "CICPC",
-    "Dirección de Atención Integral Penitenciaria": "DAIP",
-    "Dirección General de Bomberos y Bomberas": "BOMBEROS",
-    "Direccion General de Cuadrantes de Paz": "DGCP",
-    "Dirección General de los Centros de Comando, Control y Telecomunicaciones": "CCCT VEN 911",
-    "Dirección General de Prevención del Delito": "DPD",
-    "Guardia Nacional bolivariana": "GNB",
-    "Instituto Nacional Contra la Discriminación Racial": "INCODIR",
-    "Instituto Nacional de Meteorología e Hidrología": "INAMEH",
-    "Instituto Nacional de Transporte Terrestre": "INTT",
-    "Oficina Nacional Contra la Delincuencia Organizada y Financiamiento al Terrorismo": "ONCDOFT",
-    "Oficina Nacional para La Atención Integral de las Victimas": "ONAIV",
-    "Policía Estadal": "POLIFALCÓN",
-    "Policía Municipal Miranda": "POLIMIRANDA",
-    "Policía Municipal Carirubana": "POLICARIRUBANA",
-    "Policía Nacional Bolivariana": "CPNB",
-    "Protección Civil y Administración de Desastre": "PC",
-    "Servicio Autónomo de Identificación, Migración y Extranjería": "SAIME",
-    "Servicio Autónomo de Registros y Notarias": "SAREN",
-    "Servicio Nacional para el Desarme": "SENADES",
-    "Sistema Nacional de Medicina Forense": "SENAMECF",
-    "Superintendencia Nacional Antidrogas": "SUNAD",
-    "Universidad Nacional Experimental de la Seguridad": "UNES"
-  };
-  return mapa[organismo] || organismo || 'SIN ORGANISMO';
+  const orgLow = (organismo || '').toLowerCase();
+  
+  if (orgLow.includes('ven 911')) return 'VEN 911';
+  if (orgLow.includes('cientificas') || orgLow.includes('cicpc')) return 'CICPC';
+  if (orgLow.includes('penitenciaria')) return 'DAIP';
+  if (orgLow.includes('bombero')) return 'BOMBEROS';
+  if (orgLow.includes('cuadrantes de paz') && !orgLow.includes('guardia')) return 'DGCP';
+  if (orgLow.includes('comando, control')) return 'CCCT VEN 911';
+  if (orgLow.includes('prevencion del delito')) return 'DPD';
+  if (orgLow.includes('guardia nacional') || orgLow.includes('gnb')) return 'GNB';
+  if (orgLow.includes('discriminacion racial')) return 'INCODIR';
+  if (orgLow.includes('meteorologia')) return 'INAMEH';
+  if (orgLow.includes('transporte terrestre')) return 'INTT';
+  if (orgLow.includes('delincuencia organizada')) return 'ONCDOFT';
+  if (orgLow.includes('atencion integral de las victimas')) return 'ONAIV';
+  if (orgLow.includes('estadal') || orgLow.includes('estado')) return 'POLIFALCÓN';
+  if (orgLow.includes('miranda')) return 'POLIMIRANDA';
+  if (orgLow.includes('carirubana')) return 'POLICARIRUBANA';
+  if (orgLow.includes('municipal')) return 'POLICÍA MUNICIPAL';
+  if (orgLow.includes('bolivariana') || orgLow.includes('pnb') || orgLow.includes('cpnb')) return 'CPNB';
+  if (orgLow.includes('proteccion civil') || orgLow.includes('desastre')) return 'PC';
+  if (orgLow.includes('identificacion, migracion')) return 'SAIME';
+  if (orgLow.includes('registros y notarias')) return 'SAREN';
+  if (orgLow.includes('desarme')) return 'SENADES';
+  if (orgLow.includes('medicina forense')) return 'SENAMECF';
+  if (orgLow.includes('antidrogas')) return 'SUNAD';
+  if (orgLow.includes('experimental de la seguridad')) return 'UNES';
+  
+  return organismo || 'SIN ORGANISMO';
 };
 
 export default function AdminDashboardPage() {
@@ -190,17 +193,20 @@ export default function AdminDashboardPage() {
       return; 
     }
     
+    // Normalizador de strings avanzado para busquedas difusas
     const normalizeStr = (str: string) => (str || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
     const adminOrg = normalizeStr(currentUser.organismo_responsable);
     
+    // SISTEMA MEJORADO DE ALIAS (Para atrapar nombres compuestos en la BD)
     const aliases = [adminOrg];
-    if (adminOrg.includes('estadal')) aliases.push('estado', 'polifalcon');
-    if (adminOrg.includes('bolivariana')) aliases.push('pnb', 'cpnb');
-    if (adminOrg.includes('guardia nacional')) aliases.push('gnb');
+    if (adminOrg.includes('estadal') || adminOrg.includes('estado')) aliases.push('estadal', 'estado', 'polifalcon');
+    if (adminOrg.includes('bolivariana') || adminOrg.includes('pnb')) aliases.push('bolivariana', 'pnb', 'cpnb');
+    if (adminOrg.includes('guardia nacional') || adminOrg.includes('gnb')) aliases.push('guardia', 'gnb');
     if (adminOrg.includes('bomberos')) aliases.push('bombero');
-    if (adminOrg.includes('cientificas')) aliases.push('cicpc');
-    if (adminOrg.includes('transporte terrestre')) aliases.push('intt');
-    if (adminOrg.includes('proteccion civil')) aliases.push('pc');
+    if (adminOrg.includes('cientificas') || adminOrg.includes('cicpc')) aliases.push('cientifica', 'cicpc');
+    if (adminOrg.includes('transporte terrestre')) aliases.push('transporte', 'intt');
+    if (adminOrg.includes('proteccion civil') || adminOrg.includes('desastre')) aliases.push('proteccion', 'civil', 'pc');
+    if (adminOrg.includes('municipal')) aliases.push('municipal');
 
     const { data: users, error: errU } = await supabase.from('directorio_operativo').select('*').neq('rol', 'admin').neq('rol', 'superusuario').limit(10000);
     if (errU) alert("Error cargando usuarios: " + errU.message);
@@ -209,6 +215,7 @@ export default function AdminDashboardPage() {
         const filteredUsers = users.filter(u => {
           if (!u.organismo_responsable) return false;
           const uOrg = normalizeStr(u.organismo_responsable);
+          // Validacion cruzada fuerte: Revisa si el alias esta en el nombre de la BD o viceversa
           return aliases.some(alias => uOrg.includes(alias) || alias.includes(uOrg));
         });
         setUsuarios(filteredUsers);
@@ -828,7 +835,7 @@ export default function AdminDashboardPage() {
       const { error: errJefe } = await supabase.from('directorio_operativo')
         .update(datosJefeLimpios)
         .eq('id', editingUsuario.id);
-        
+      
       if (errJefe) throw errJefe;
 
       if (codigoViejo) {
@@ -1082,16 +1089,16 @@ export default function AdminDashboardPage() {
                       {loading ? 'Eliminando...' : `🗑️ Eliminar (${selectedIds.length})`}
                     </button>
                   )}
-                  <button onClick={handleDescargarCredenciales} className="bg-emerald-600 text-white px-5 py-3 rounded-xl font-bold shadow-md hover:bg-emerald-700 transition-all flex items-center gap-2">
-                    <FileSpreadsheet size={18} /> DESCARGAR CREDENCIALES
-                  </button>
-                  
+                  {esSuperUser && (
+                    <button onClick={handleDescargarCredenciales} className="bg-emerald-600 text-white px-5 py-3 rounded-xl font-bold shadow-md hover:bg-emerald-700 transition-all flex items-center gap-2">
+                      <FileSpreadsheet size={18} /> DESCARGAR CREDENCIALES
+                    </button>
+                  )}
                   {!isReadOnlyVen911 && (
                     <button onClick={() => setMostrarFormularioManual(!mostrarFormualioManual)} className="bg-gray-800 text-white px-6 py-3 rounded-xl font-bold shadow-md hover:bg-gray-700 transition-all">
                       {mostrarFormualioManual ? '- CERRAR FORMULARIO' : '+ AGREGAR MANUAL'}
                     </button>
                   )}
-                  
                   {esSuperUser && (
                     <label className="bg-[#00529b] text-white px-6 py-3 rounded-xl cursor-pointer hover:bg-[#003d73] transition-all font-bold shadow-md whitespace-nowrap">
                       {loading ? 'Procesando...' : '+ SUBIR EXCEL'}
@@ -1853,7 +1860,7 @@ export default function AdminDashboardPage() {
               )}
               
               <div className="col-span-full border-t pt-4 mt-2">
-                <label className="block text-sm font-bold text-gray-700 mb-2">Sectores pertenecientes a este Circuito</label>
+                <label className="block text-sm font-bold text-gray-700 mb-2">Sectores pertenecientes a este Circuito (Editar / Rellenar Faltantes)</label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
                   {sectoresInputsEditar.map((sectorValue, index) => (
                     <div key={index} className="relative flex items-center">
