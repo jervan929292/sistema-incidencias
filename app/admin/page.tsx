@@ -56,7 +56,7 @@ const getSiglas = (organismo: string) => {
   if (orgLow.includes('miranda')) return 'POLIMIRANDA';
   if (orgLow.includes('carirubana')) return 'POLICARIRUBANA';
   if (orgLow.includes('municipal')) return 'POLICÍA MUNICIPAL';
-  if (orgLow.includes('bolivariana') || orgLow.includes('pnb') || orgLow.includes('cpnb')) return 'CPNB';
+  if (orgLow.includes('policia nacional') || orgLow.includes('pnb') || orgLow.includes('cpnb')) return 'CPNB';
   if (orgLow.includes('proteccion civil') || orgLow.includes('desastre')) return 'PC';
   if (orgLow.includes('identificacion, migracion')) return 'SAIME';
   if (orgLow.includes('registros y notarias')) return 'SAREN';
@@ -200,7 +200,7 @@ export default function AdminDashboardPage() {
     // SISTEMA MEJORADO DE ALIAS (Para atrapar nombres compuestos en la BD)
     const aliases = [adminOrg];
     if (adminOrg.includes('estadal') || adminOrg.includes('estado')) aliases.push('estadal', 'estado', 'polifalcon');
-    if (adminOrg.includes('bolivariana') || adminOrg.includes('pnb')) aliases.push('bolivariana', 'pnb', 'cpnb');
+    if (adminOrg.includes('policia nacional') || adminOrg.includes('pnb') || adminOrg.includes('cpnb')) {aliases.push('policia nacional', 'pnb', 'cpnb');
     if (adminOrg.includes('guardia nacional') || adminOrg.includes('gnb')) aliases.push('guardia', 'gnb');
     if (adminOrg.includes('bomberos')) aliases.push('bombero');
     if (adminOrg.includes('cientificas') || adminOrg.includes('cicpc')) aliases.push('cientifica', 'cicpc');
