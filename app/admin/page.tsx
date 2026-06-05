@@ -426,9 +426,9 @@ export default function AdminDashboardPage() {
         'CLASIFICACIÓN': inc.clasificacion || 'N/A',
         'INCIDENCIA': inc.incidencia || 'N/A',
         'ACTIVIDAD DETALLADA': inc.actividad || 'N/A',
-        'CANTIDAD': inc.cantidad || 0,
         'ORGANISMOS INVOLUCRADOS': inc.organismos_involucrados || 'N/A',
-        'RESEÑA INFORMATIVA': inc.observaciones || inc.observacion || inc.resena_informativa || inc.resena || 'N/A',
+        'RESEÑA INFORMATIVA': inc.resena_informativa || inc.resena || 'N/A',
+        'OBSERVACIONES': inc.observaciones || inc.observacion || 'No aplica',
         'ID DESPACHADOR': inc.usuario_id || 'N/A'
       };
     });
@@ -472,7 +472,7 @@ export default function AdminDashboardPage() {
           th { background-color: #00529b; color: white; font-weight: bold; text-transform: uppercase; font-size: 8px; }
           tr:nth-child(even) { background-color: #f8fafc; }
           .footer { margin-top: 30px; text-align: center; font-size: 9px; color: #64748b; border-top: 1px solid #cbd5e1; padding-top: 10px; }
-          .resena-text { max-width: 250px; word-wrap: break-word; }
+          .resena-text { word-wrap: break-word; }
           @media print {
             @page { margin: 1cm; size: landscape; }
             body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -506,15 +506,16 @@ export default function AdminDashboardPage() {
               <th style="width: 12%">MUNI. / PARROQ.</th>
               <th style="width: 10%">CLASIFICACIÓN</th>
               <th style="width: 12%">INCIDENCIA</th>
-              <th style="width: 3%; text-align: center;">C.</th>
-              <th style="width: 15%">ORGANISMOS</th>
-              <th style="width: 26%">RESEÑA INFORMATIVA / OBSERV.</th>
+              <th style="width: 12%">ORGANISMOS</th>
+              <th style="width: 16%">RESEÑA INFORMATIVA</th>
+              <th style="width: 16%">OBSERVACIONES</th>
             </tr>
           </thead>
           <tbody>
             ${incidenciasFiltradas.map(inc => {
               const jefe = usuarios.find(u => u.comuna_o_circuito_comunal === inc.circuito_comunal);
-              const resena = inc.observaciones || inc.observacion || inc.resena_informativa || inc.resena || 'N/A';
+              const resena = inc.resena_informativa || inc.resena || 'N/A';
+              const obs = inc.observaciones || inc.observacion || 'No aplica';
               return `
               <tr>
                 <td>${new Date(inc.fecha_registro).toLocaleString()}</td>
@@ -522,9 +523,9 @@ export default function AdminDashboardPage() {
                 <td>${jefe?.municipio || 'N/A'} / ${jefe?.parroquia || 'N/A'}</td>
                 <td>${inc.clasificacion}</td>
                 <td>${inc.incidencia}</td>
-                <td style="text-align: center; font-weight: bold;">${inc.cantidad}</td>
                 <td>${inc.organismos_involucrados}</td>
                 <td class="resena-text">${resena}</td>
+                <td class="resena-text">${obs}</td>
               </tr>
             `}).join('')}
           </tbody>
@@ -926,20 +927,25 @@ export default function AdminDashboardPage() {
               </div>
 
               <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
-                <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">Actividad Específica y Cantidad</p>
-                <div className="flex justify-between items-center bg-white p-3 rounded-lg border">
+                <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">Actividad Específica</p>
+                <div className="bg-white p-3 rounded-lg border">
                   <p className="text-sm font-bold text-gray-700">{incidenciaSeleccionada.actividad}</p>
-                  <span className="bg-[#00529b] text-white px-4 py-1.5 rounded-lg font-black text-sm shadow-inner">
-                    {incidenciaSeleccionada.cantidad}
-                  </span>
                 </div>
               </div>
 
-              {/* NUEVO BLOQUE: RESEÑA INFORMATIVA */}
-              <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
-                <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">Reseña Informativa / Observaciones</p>
-                <div className="bg-white p-4 rounded-lg border text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">
-                  {incidenciaSeleccionada.observaciones || incidenciaSeleccionada.observacion || incidenciaSeleccionada.resena_informativa || incidenciaSeleccionada.resena || 'Sin reseña o información adicional registrada.'}
+              {/* BLOQUE: RESEÑA INFORMATIVA Y OBSERVACIONES */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
+                  <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">Reseña Informativa</p>
+                  <div className="bg-white p-4 rounded-lg border text-sm text-gray-700 whitespace-pre-wrap leading-relaxed h-[120px] overflow-y-auto">
+                    {incidenciaSeleccionada.resena_informativa || incidenciaSeleccionada.resena || 'Sin reseña informativa registrada.'}
+                  </div>
+                </div>
+                <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
+                  <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">Observaciones</p>
+                  <div className="bg-white p-4 rounded-lg border text-sm text-gray-700 whitespace-pre-wrap leading-relaxed h-[120px] overflow-y-auto">
+                    {incidenciaSeleccionada.observaciones || incidenciaSeleccionada.observacion || 'No aplica'}
+                  </div>
                 </div>
               </div>
 
@@ -1350,9 +1356,9 @@ export default function AdminDashboardPage() {
                       <th className="p-3 sticky top-0 bg-gray-100 z-20 font-bold shadow-[0_1px_0_0_#e5e7eb]">Clasificación</th>
                       <th className="p-3 sticky top-0 bg-gray-100 z-20 font-bold shadow-[0_1px_0_0_#e5e7eb]">Incidencia</th>
                       <th className="p-3 sticky top-0 bg-gray-100 z-20 font-bold shadow-[0_1px_0_0_#e5e7eb]">Actividad Detallada</th>
-                      <th className="p-3 sticky top-0 bg-blue-100 text-blue-800 z-20 font-bold text-center shadow-[0_1px_0_0_#e5e7eb]">Cant.</th>
                       <th className="p-3 sticky top-0 bg-gray-100 z-20 font-bold shadow-[0_1px_0_0_#e5e7eb]">Organismos</th>
-                      <th className="p-3 sticky top-0 bg-gray-100 z-20 font-bold shadow-[0_1px_0_0_#e5e7eb]">Reseña / Observ.</th>
+                      <th className="p-3 sticky top-0 bg-gray-100 z-20 font-bold shadow-[0_1px_0_0_#e5e7eb]">Reseña Informativa</th>
+                      <th className="p-3 sticky top-0 bg-gray-100 z-20 font-bold shadow-[0_1px_0_0_#e5e7eb]">Observaciones</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -1372,10 +1378,12 @@ export default function AdminDashboardPage() {
                           <td className="p-3 text-gray-700">{incidencia.clasificacion}</td>
                           <td className="p-3 text-gray-700">{incidencia.incidencia}</td>
                           <td className="p-3 text-gray-600 max-w-[200px] truncate" title={incidencia.actividad}>{incidencia.actividad}</td>
-                          <td className="p-3 text-center font-bold text-blue-700 bg-blue-50/50">{incidencia.cantidad}</td>
                           <td className="p-3 text-gray-600">{incidencia.organismos_involucrados}</td>
-                          <td className="p-3 text-gray-600 max-w-[200px] truncate" title={incidencia.observaciones || incidencia.observacion || incidencia.resena_informativa || incidencia.resena}>
-                            {incidencia.observaciones || incidencia.observacion || incidencia.resena_informativa || incidencia.resena || 'N/A'}
+                          <td className="p-3 text-gray-600 max-w-[200px] truncate" title={incidencia.resena_informativa || incidencia.resena}>
+                            {incidencia.resena_informativa || incidencia.resena || 'N/A'}
+                          </td>
+                          <td className="p-3 text-gray-600 max-w-[200px] truncate" title={incidencia.observaciones || incidencia.observacion}>
+                            {incidencia.observaciones || incidencia.observacion || 'No aplica'}
                           </td>
                         </tr>
                       ))
