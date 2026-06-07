@@ -72,7 +72,7 @@ export default function UserDashboardPage() {
     cantidad: 1, 
     circuito_comunal: '',
     sector_especifico: '',
-    organismo_responsable: [] as string[],
+    organismos_involucrados: [] as string[],
     lugar_actividad: '',
     resena: '',
     observacion: ''
@@ -183,11 +183,11 @@ export default function UserDashboardPage() {
 
   const toggleOrganismo = (org: string) => {
     setForm(prev => {
-      const actual = prev.organismo_responsable;
+      const actual = prev.organismos_involucrados;
       if (actual.includes(org)) {
-        return { ...prev, organismo_responsable: actual.filter(o => o !== org) };
+        return { ...prev, organismos_involucrados: actual.filter(o => o !== org) };
       } else {
-        return { ...prev, organismo_responsable: [...actual, org] };
+        return { ...prev, organismos_involucrados: [...actual, org] };
       }
     });
   };
@@ -207,8 +207,8 @@ export default function UserDashboardPage() {
     try {
       const lugarCompleto = `${form.lugar_actividad} (Sector: ${form.sector_especifico})`;
       // Si no seleccionaron ninguno de apoyo, pasamos "NINGUNO" o vacío
-      const organismosTexto = form.organismo_responsable.length > 0 
-        ? form.organismo_responsable.join(' - ').toUpperCase() 
+      const organismosTexto = form.organismos_involucrados.length > 0 
+        ? form.organismos_involucrados.join(' - ').toUpperCase() 
         : 'NINGUNO';
 
       const payload = {
@@ -224,7 +224,7 @@ export default function UserDashboardPage() {
         organismo_responsable: usuarioLogueado.organismo_responsable,
         
         // Y guardamos quiénes apoyaron:
-        organismo_responsable: organismosTexto,
+        organismos_involucrados: organismosTexto,
         
         lugar_actividad: lugarCompleto,
         resena: form.resena,
@@ -247,7 +247,7 @@ export default function UserDashboardPage() {
         cantidad: 1, 
         circuito_comunal: usuarioLogueado.comuna_o_circuito_comunal || '',
         sector_especifico: '',
-        organismo_responsable: [],
+        organismos_involucrados: [],
         lugar_actividad: '',
         resena: '',
         observacion: ''
@@ -466,11 +466,11 @@ export default function UserDashboardPage() {
               
               <div 
                 onClick={() => setDropdownOrganismosAbierto(!dropdownOrganismosAbierto)}
-                className={`w-full p-2.5 border rounded-lg bg-white text-sm font-bold cursor-pointer flex justify-between items-center transition-all ${dropdownOrganismosAbierto ? 'ring-2 ring-[#00529b] border-[#00529b]' : 'border-gray-300'} ${form.organismo_responsable.length > 0 ? 'text-[#00529b]' : 'text-gray-500'}`}
+                className={`w-full p-2.5 border rounded-lg bg-white text-sm font-bold cursor-pointer flex justify-between items-center transition-all ${dropdownOrganismosAbierto ? 'ring-2 ring-[#00529b] border-[#00529b]' : 'border-gray-300'} ${form.organismos_involucrados.length > 0 ? 'text-[#00529b]' : 'text-gray-500'}`}
               >
                 <span className="truncate">
-                  {form.organismo_responsable.length > 0 
-                    ? `${form.organismo_responsable.length} Organismo(s) de apoyo seleccionado(s)` 
+                  {form.organismos_involucrados.length > 0 
+                    ? `${form.organismos_involucrados.length} Organismo(s) de apoyo seleccionado(s)` 
                     : "Seleccione si hubo otras instituciones presentes..."}
                 </span>
                 <ChevronDown size={18} className={`transition-transform duration-200 ${dropdownOrganismosAbierto ? 'rotate-180 text-[#00529b]' : 'text-gray-400'}`} />
@@ -484,7 +484,7 @@ export default function UserDashboardPage() {
                         <input 
                           type="checkbox" 
                           className="w-4 h-4 accent-[#00529b] cursor-pointer rounded border-gray-300"
-                          checked={form.organismo_responsable.includes(org)}
+                          checked={form.organismos_involucrados.includes(org)}
                           onChange={() => toggleOrganismo(org)}
                         />
                         <span className="text-[11px] font-bold text-gray-700 group-hover:text-[#00529b] leading-tight">{org}</span>

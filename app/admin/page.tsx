@@ -213,10 +213,10 @@ export default function AdminDashboardPage() {
     const { data: users, error: errU } = await supabase.from('directorio_operativo').select('*').neq('rol', 'admin').neq('rol', 'superusuario').limit(10000);
     if (errU) alert("Error cargando usuarios: " + errU.message);
     else if (users) {
-      if (!veTodo && currentUser.organismos_involucrados) {
+      if (!veTodo && currentUser.organismo_responsable) {
         const filteredUsers = users.filter(u => {
-          if (!u.organismos_involucrados) return false;
-          const uOrg = normalizeStr(u.organismos_involucrados);
+          if (!u.organismo_responsable) return false;
+          const uOrg = normalizeStr(u.organismo_responsable);
           return aliases.some(alias => uOrg.includes(alias) || alias.includes(uOrg));
         });
         setUsuarios(filteredUsers);
@@ -245,7 +245,7 @@ export default function AdminDashboardPage() {
       if (!veTodo && currentUser.organismo_responsable) {
         const filteredIncs = incs.filter(inc => {
           const repOrg = normalizeStr(inc.organismo_reportante || '');
-          const invOrgs = normalizeStr(inc.organismo_responsable || '');
+          const invOrgs = normalizeStr(inc.organismos_involucrados || '');
           return aliases.some(alias => repOrg.includes(alias) || invOrgs.includes(alias));
         });
         setIncidenciasDB(filteredIncs);
@@ -405,7 +405,7 @@ export default function AdminDashboardPage() {
     if (filtroIncidenciaOrganismo) {
       const normalizeStr = (str: string) => (str || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
       const repOrg = normalizeStr(inc.organismo_reportante || '');
-      const invOrgs = normalizeStr(inc.organismo_responsable || '');
+      const invOrgs = normalizeStr(inc.organismos_involucrados || '');
       const filtroLow = normalizeStr(filtroIncidenciaOrganismo);
       
       let keywords = [filtroLow];
@@ -476,7 +476,7 @@ export default function AdminDashboardPage() {
         'INCIDENCIA': inc.incidencia || 'N/A',
         'ACTIVIDAD DETALLADA': inc.actividad || 'N/A',
         'ORGANISMO REPORTANTE': inc.organismo_reportante || 'N/A',
-        'APOYO / INVOLUCRADOS': inc.organismo_responsable || 'NINGUNO',
+        'APOYO / INVOLUCRADOS': inc.organismos_involucrados || 'NINGUNO',
         'RESEÑA INFORMATIVA': inc.resena_informativa || inc.resena || 'N/A',
         'OBSERVACIONES': inc.observaciones || inc.observacion || 'No aplica',
         'ID DESPACHADOR': inc.usuario_id || 'N/A'
@@ -512,7 +512,7 @@ export default function AdminDashboardPage() {
         <td>${jefe?.municipio || 'N/A'} / ${jefe?.parroquia || 'N/A'}</td>
         <td>${inc.clasificacion}</td>
         <td>${inc.incidencia}</td>
-        <td><b>${inc.organismo_reportante || 'N/A'}</b><br/><span style="color:#666; font-size:8px;">Apoyo: ${inc.organismo_responsable || 'Ninguno'}</span></td>
+        <td><b>${inc.organismo_reportante || 'N/A'}</b><br/><span style="color:#666; font-size:8px;">Apoyo: ${inc.organismos_involucrados || 'Ninguno'}</span></td>
         <td class="resena-text">${resena}</td>
         <td class="resena-text">${obs}</td>
       </tr>
@@ -1017,8 +1017,8 @@ export default function AdminDashboardPage() {
                   <p className="text-sm font-black text-[#00529b] mb-2">{incidenciaSeleccionada.organismo_reportante || 'N/A'}</p>
                   <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Apoyo / Involucrados</p>
                   <div className="flex gap-2 flex-wrap mt-1">
-                    {incidenciaSeleccionada.organismo_responsable && incidenciaSeleccionada.organismo_responsable !== 'NINGUNO' ? (
-                      incidenciaSeleccionada.organismo_responsable.split('-').map((org: string, i: number) => (
+                    {incidenciaSeleccionada.organismos_involucrados && incidenciaSeleccionada.organismos_involucrados !== 'NINGUNO' ? (
+                      incidenciaSeleccionada.organismos_involucrados.split('-').map((org: string, i: number) => (
                         <span key={i} className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2.5 py-1 rounded-md border border-emerald-200 uppercase tracking-wide">
                           {org.trim()}
                         </span>
@@ -1478,8 +1478,8 @@ export default function AdminDashboardPage() {
                               <span className="font-bold text-[#00529b] text-[11px] leading-tight">
                                 {incidencia.organismo_reportante || 'N/A'}
                               </span>
-                              {incidencia.organismo_responsable && incidencia.organismo_responsable !== 'NINGUNO' && (
-                                <span className="text-[9px] text-gray-500 mt-0.5 leading-tight">Apoyo: {incidencia.organismo_responsable}</span>
+                              {incidencia.organismos_involucrados && incidencia.organismos_involucrados !== 'NINGUNO' && (
+                                <span className="text-[9px] text-gray-500 mt-0.5 leading-tight">Apoyo: {incidencia.organismos_involucrados}</span>
                               )}
                             </div>
                           </td>
