@@ -213,10 +213,10 @@ export default function AdminDashboardPage() {
     const { data: users, error: errU } = await supabase.from('directorio_operativo').select('*').neq('rol', 'admin').neq('rol', 'superusuario').limit(10000);
     if (errU) alert("Error cargando usuarios: " + errU.message);
     else if (users) {
-      if (!veTodo && currentUser.organismo_responsable) {
+      if (!veTodo && currentUser.organismos_involucrados) {
         const filteredUsers = users.filter(u => {
-          if (!u.organismo_responsable) return false;
-          const uOrg = normalizeStr(u.organismo_responsable);
+          if (!u.organismos_involucrados) return false;
+          const uOrg = normalizeStr(u.organismos_involucrados);
           return aliases.some(alias => uOrg.includes(alias) || alias.includes(uOrg));
         });
         setUsuarios(filteredUsers);
