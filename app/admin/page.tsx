@@ -440,147 +440,6 @@ export default function AdminDashboardPage() {
     
   const maxCircuitoValor = topCircuitos[0]?.[1] || 1;
 
-  // EXPORTAR EXCEL INCIDENCIAS
-  const handleGenerarExcelIncidencias = () => {
-    if (incidenciasFiltradas.length === 0) {
-      alert("No hay registros para exportar con los filtros actuales.");
-      return;
-    }
-    const dataExcel = incidenciasFiltradas.map(inc => {
-      const jefe = usuarios.find(u => u.comuna_o_circuito_comunal === inc.circuito_comunal);
-      return {
-        'FECHA / HORA': new Date(inc.fecha_registro).toLocaleString(),
-        'ESTADO': jefe?.estado || 'N/A',
-        'MUNICIPIO': jefe?.municipio || 'N/A',
-        'PARROQUIA': jefe?.parroquia || 'N/A',
-        'CIRCUITO COMUNAL': inc.circuito_comunal || 'N/A',
-        'CLASIFICACIÓN': inc.clasificacion || 'N/A',
-        'INCIDENCIA': inc.incidencia || 'N/A',
-        'ACTIVIDAD DETALLADA': inc.actividad || 'N/A',
-        'ORGANISMOS INVOLUCRADOS': inc.organismos_involucrados || 'N/A',
-        'RESEÑA INFORMATIVA': inc.resena_informativa || inc.resena || 'N/A',
-        'OBSERVACIONES': inc.observaciones || inc.observacion || 'No aplica',
-        'ID DESPACHADOR': inc.usuario_id || 'N/A'
-      };
-    });
-
-    const ws = XLSX.utils.json_to_sheet(dataExcel);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Reporte_Incidencias');
-    XLSX.writeFile(wb, 'Reporte_Incidencias_VEN911.xlsx');
-  };
-
-  // EXPORTAR PDF INCIDENCIAS (CON LOGOS)
-  const handleGenerarPDFIncidencias = () => {
-    if (incidenciasFiltradas.length === 0) {
-      alert("No hay registros para exportar con los filtros actuales.");
-      return;
-    }
-
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) return;
-
-    const baseUrl = window.location.origin;
-
-    const htmlContent = `
-      <!DOCTYPE html>
-      <html lang="es">
-      <head>
-        <meta charset="UTF-8">
-        <title>Reporte de Incidencias VEN 911</title>
-        <style>
-          body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; color: #333; }
-          .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 3px solid #00529b; padding-bottom: 15px; margin-bottom: 20px; }
-          .header img { height: 65px; object-fit: contain; }
-          .title-container { text-align: center; flex-grow: 1; padding: 0 20px; }
-          .title-container h2 { margin: 0; color: #00529b; font-size: 18px; text-transform: uppercase; letter-spacing: 1px; }
-          .title-container h3 { margin: 5px 0 0 0; color: #555; font-size: 14px; font-weight: normal; }
-          .filters-box { background-color: #f8fafc; border: 1px solid #e2e8f0; padding: 12px; border-radius: 8px; margin-bottom: 20px; font-size: 11px; }
-          .filters-box p { margin: 4px 0; color: #475569; }
-          .filters-box strong { color: #1e293b; }
-          table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 9px; }
-          th, td { border: 1px solid #cbd5e1; padding: 6px 8px; text-align: left; vertical-align: top; }
-          th { background-color: #00529b; color: white; font-weight: bold; text-transform: uppercase; font-size: 8px; }
-          tr:nth-child(even) { background-color: #f8fafc; }
-          .footer { margin-top: 30px; text-align: center; font-size: 9px; color: #64748b; border-top: 1px solid #cbd5e1; padding-top: 10px; }
-          .resena-text { word-wrap: break-word; }
-          @media print {
-            @page { margin: 1cm; size: landscape; }
-            body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-          }
-        </style>
-      </head>
-      <body>
-        <div class="header">
-          <img src="${baseUrl}/logo1.png" alt="Logo Gran Misión" />
-          <div class="title-container">
-            <h2>Reporte General de Incidencias Operativas</h2>
-            <h3>Centro de Inteligencia Analítica - Estado Falcón</h3>
-          </div>
-          <img src="${baseUrl}/logo2.png" alt="Logo Justicia y Paz" />
-        </div>
-        
-        <div class="filters-box">
-          <p><strong>Rango de Fechas:</strong> ${fechaDesde ? new Date(fechaDesde).toLocaleDateString() : 'Inicio'} al ${fechaHasta ? new Date(fechaHasta).toLocaleDateString() : 'Día de Hoy'}</p>
-          <p><strong>Filtros Geográficos:</strong> Municipio: ${filtroIncidenciaMuni || 'Todos'} | Parroquia: ${filtroIncidenciaParro || 'Todas'} | Circuito: ${filtroIncidenciaCircuito || 'Todos'}</p>
-          <p><strong>Filtros Operativos:</strong> Clasificación: ${filtroIncidenciaClasificacion || 'Todas'} | Incidencia: ${filtroIncidenciaTipo || 'Todas'} | Organismo: ${filtroIncidenciaOrganismo || 'Todos'}</p>
-          <p style="margin-top: 8px; font-size: 12px; font-weight: bold; color: #0f172a;">
-            Total de Registros Encontrados: ${incidenciasFiltradas.length} | Actividades Computadas: ${totalActividades}
-          </p>
-        </div>
-
-        <table>
-          <thead>
-            <tr>
-              <th style="width: 10%">FECHA / HORA</th>
-              <th style="width: 12%">CIRCUITO COMUNAL</th>
-              <th style="width: 12%">MUNI. / PARROQ.</th>
-              <th style="width: 10%">CLASIFICACIÓN</th>
-              <th style="width: 12%">INCIDENCIA</th>
-              <th style="width: 12%">ORGANISMOS</th>
-              <th style="width: 16%">RESEÑA INFORMATIVA</th>
-              <th style="width: 16%">OBSERVACIONES</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${incidenciasFiltradas.map(inc => {
-              const jefe = usuarios.find(u => u.comuna_o_circuito_comunal === inc.circuito_comunal);
-              const resena = inc.resena_informativa || inc.resena || 'N/A';
-              const obs = inc.observaciones || inc.observacion || 'No aplica';
-              return `
-              <tr>
-                <td>${new Date(inc.fecha_registro).toLocaleString()}</td>
-                <td><strong>${inc.circuito_comunal}</strong></td>
-                <td>${jefe?.municipio || 'N/A'} / ${jefe?.parroquia || 'N/A'}</td>
-                <td>${inc.clasificacion}</td>
-                <td>${inc.incidencia}</td>
-                <td>${inc.organismos_involucrados}</td>
-                <td class="resena-text">${resena}</td>
-                <td class="resena-text">${obs}</td>
-              </tr>
-            `}).join('')}
-          </tbody>
-        </table>
-        
-        <div class="footer">
-          Documento generado por el Sistema Automático VEN 911 - Falcón el ${new Date().toLocaleString()}<br>
-          Usuario Generador: ${adminUser?.nombre_apellido_jefe} (${adminUser?.organismo_responsable})
-        </div>
-
-        <script>
-          // Se espera a que carguen las imágenes y luego se lanza la impresión
-          setTimeout(() => {
-            window.print();
-            window.close();
-          }, 1000);
-        </script>
-      </body>
-      </html>
-    `;
-    printWindow.document.write(htmlContent);
-    printWindow.document.close();
-  };
-
   const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.checked) setSelectedIds(usuariosFiltrados.map(u => u.id));
     else setSelectedIds([]);
@@ -1382,9 +1241,9 @@ export default function AdminDashboardPage() {
                     </select>
                   </div>
                   
-                  {(esSuperUser || isReadOnlyVen911) && (
-                    <div>
-                      <label className="block text-xs font-bold text-gray-500 mb-1">Organismos</label>
+                  {esSuperUser && (
+                    <div className="lg:col-span-1">
+                      <label className="block text-xs font-bold text-gray-500 mb-1">Filtrar por Organismos</label>
                       <select className="w-full p-2 border rounded-lg bg-white text-sm outline-none shadow-sm cursor-pointer" value={filtroIncidenciaOrganismo} onChange={e => setFiltroIncidenciaOrganismo(e.target.value)}>
                         <option value="">Todos</option>
                         {organismosUnicos.map((o, i) => <option key={i} value={o as string}>{o}</option>)}
