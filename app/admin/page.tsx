@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { SquarePen, Calendar, Search, FileSpreadsheet, FileText, Filter, ShieldAlert, Activity, ShieldCheck, Siren, Target, Award, TrendingUp, Settings, Plus, Trash2, Edit3, ChevronRight, UserPlus, UserMinus, User, Star, AlertCircle, Eye, X } from 'lucide-react'
+import { SquarePen, Calendar, Search, FileSpreadsheet, FileText, Filter, ShieldAlert, Activity, ShieldCheck, Siren, Target, Award, TrendingUp, Settings, Plus, Trash2, Edit3, ChevronRight, UserPlus, UserMinus, User, Star, AlertCircle, Eye, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import Link from 'next/link';
 
@@ -85,7 +85,7 @@ export default function AdminDashboardPage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [filtroMunicipio, setFiltroMunicipio] = useState('');
   const [filtroParroquia, setFiltroParroquia] = useState('');
-  const [filtroCircuito, setFiltroCircuito] = useState(''); // <-- NUEVO ESTADO FILTRO CIRCUITO
+  const [filtroCircuito, setFiltroCircuito] = useState(''); 
 
   // Estados de Admin y Permisos
   const [adminUser, setAdminUser] = useState<any>(null);
@@ -122,7 +122,7 @@ export default function AdminDashboardPage() {
   const [fechaHasta, setFechaHasta] = useState('');
   const [filtroIncidenciaMuni, setFiltroIncidenciaMuni] = useState('');
   const [filtroIncidenciaParro, setFiltroIncidenciaParro] = useState('');
-  const [filtroIncidenciaCircuito, setFiltroIncidenciaCircuito] = useState(''); // <-- NUEVO ESTADO FILTRO INCIDENCIAS CIRCUITO
+  const [filtroIncidenciaCircuito, setFiltroIncidenciaCircuito] = useState(''); 
   const [filtroIncidenciaClasificacion, setFiltroIncidenciaClasificacion] = useState('');
   const [filtroIncidenciaTipo, setFiltroIncidenciaTipo] = useState('');
   const [filtroIncidenciaOrganismo, setFiltroIncidenciaOrganismo] = useState('');
@@ -245,9 +245,9 @@ export default function AdminDashboardPage() {
     if (incs) {
       if (!veTodo && currentUser.organismo_responsable) {
         const filteredIncs = incs.filter(inc => {
-          if (!inc.organismos_involucrados) return false;
-          const incOrgs = normalizeStr(inc.organismos_involucrados);
-          return aliases.some(alias => incOrgs.includes(alias));
+          const repOrg = normalizeStr(inc.organismo_reportante || '');
+          const invOrgs = normalizeStr(inc.organismos_involucrados || '');
+          return aliases.some(alias => repOrg.includes(alias) || invOrgs.includes(alias));
         });
         setIncidenciasDB(filteredIncs);
       } else {
@@ -331,7 +331,6 @@ export default function AdminDashboardPage() {
     new Set(usuarios.filter(u => filtroMunicipio === '' || u.municipio === filtroMunicipio).map(u => u.parroquia))
   ).filter(Boolean).sort();
   
-  // NUEVO: OBTENER CIRCUITOS ÚNICOS BASADOS EN EL MUNICIPIO Y PARROQUIA SELECCIONADOS
   const circuitosUnicos = Array.from(
     new Set(usuarios.filter(u => 
       (filtroMunicipio === '' || u.municipio === filtroMunicipio) && 
@@ -376,7 +375,6 @@ export default function AdminDashboardPage() {
     new Set(usuarios.filter(u => filtroIncidenciaMuni === '' || u.municipio === filtroIncidenciaMuni).map(u => u.parroquia))
   ).filter(Boolean).sort();
 
-  // NUEVO: OBTENER CIRCUITOS ÚNICOS PARA LAS INCIDENCIAS
   const circuitosIncidenciaUnicos = Array.from(
     new Set(usuarios.filter(u => 
       (filtroIncidenciaMuni === '' || u.municipio === filtroIncidenciaMuni) && 
@@ -385,7 +383,12 @@ export default function AdminDashboardPage() {
   ).filter(Boolean).sort();
 
   const incidenciasTipoUnicas = Array.from(new Set(incidenciasDB.map(i => i.incidencia))).filter(Boolean).sort();
-  const organismosUnicos = Array.from(new Set(incidenciasDB.map(i => i.organismos_involucrados))).filter(Boolean).sort();
+  
+  // Organismos para el filtro de incidencias (ahora usando LISTA_ORGANISMOS que es estática y limpia)
+  const organismosUnicos = Array.from(new Set([
+    ...incidenciasDB.map(i => i.organismo_reportante),
+    ...LISTA_ORGANISMOS
+  ])).filter(Boolean).sort();
 
   const incidenciasFiltradas = (incidenciasDB || []).filter(inc => {
     const incDate = inc.fecha_registro ? new Date(inc.fecha_registro).toISOString().split('T')[0] : '';
@@ -395,13 +398,28 @@ export default function AdminDashboardPage() {
     const jefe = usuarios.find(u => u.comuna_o_circuito_comunal === inc.circuito_comunal);
     if (filtroIncidenciaMuni && jefe?.municipio !== filtroIncidenciaMuni) return false;
     if (filtroIncidenciaParro && jefe?.parroquia !== filtroIncidenciaParro) return false;
-    
-    // FILTRO CIRCUITO EN INCIDENCIAS
     if (filtroIncidenciaCircuito && inc.circuito_comunal !== filtroIncidenciaCircuito) return false;
-
     if (filtroIncidenciaClasificacion && inc.clasificacion !== filtroIncidenciaClasificacion) return false;
     if (filtroIncidenciaTipo && inc.incidencia !== filtroIncidenciaTipo) return false;
-    if (filtroIncidenciaOrganismo && !inc.organismos_involucrados?.includes(filtroIncidenciaOrganismo)) return false;
+    
+    // Búsqueda Inteligente por Organismo (Reportante o Apoyo)
+    if (filtroIncidenciaOrganismo) {
+      const normalizeStr = (str: string) => (str || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      const repOrg = normalizeStr(inc.organismo_reportante || '');
+      const invOrgs = normalizeStr(inc.organismos_involucrados || '');
+      const filtroLow = normalizeStr(filtroIncidenciaOrganismo);
+      
+      let keywords = [filtroLow];
+      if (filtroLow.includes('estadal') || filtroLow.includes('estado')) keywords.push('estadal', 'estado', 'polifalcon');
+      if (filtroLow.includes('bolivariana') || filtroLow.includes('pnb')) keywords.push('bolivariana', 'pnb', 'cpnb');
+      if (filtroLow.includes('guardia nacional') || filtroLow.includes('gnb')) keywords.push('guardia', 'gnb');
+      if (filtroLow.includes('bomberos')) keywords.push('bombero');
+      if (filtroLow.includes('cientificas') || filtroLow.includes('cicpc')) keywords.push('cientifica', 'cicpc');
+      if (filtroLow.includes('municipal')) keywords.push('municipal');
+
+      const coincides = keywords.some(k => repOrg.includes(k) || invOrgs.includes(k));
+      if (!coincides) return false;
+    }
 
     return true;
   });
@@ -439,6 +457,151 @@ export default function AdminDashboardPage() {
     .slice(0, 5) || [];
     
   const maxCircuitoValor = topCircuitos[0]?.[1] || 1;
+
+  // EXPORTAR EXCEL INCIDENCIAS
+  const handleGenerarExcelIncidencias = () => {
+    if (incidenciasFiltradas.length === 0) {
+      alert("No hay registros para exportar con los filtros actuales.");
+      return;
+    }
+    const dataExcel = incidenciasFiltradas.map(inc => {
+      const jefe = usuarios.find(u => u.comuna_o_circuito_comunal === inc.circuito_comunal);
+      return {
+        'FECHA / HORA': new Date(inc.fecha_registro).toLocaleString(),
+        'ESTADO': jefe?.estado || 'N/A',
+        'MUNICIPIO': jefe?.municipio || 'N/A',
+        'PARROQUIA': jefe?.parroquia || 'N/A',
+        'CIRCUITO COMUNAL': inc.circuito_comunal || 'N/A',
+        'CLASIFICACIÓN': inc.clasificacion || 'N/A',
+        'INCIDENCIA': inc.incidencia || 'N/A',
+        'ACTIVIDAD DETALLADA': inc.actividad || 'N/A',
+        'ORGANISMO REPORTANTE': inc.organismo_reportante || 'N/A',
+        'APOYO / INVOLUCRADOS': inc.organismos_involucrados || 'NINGUNO',
+        'RESEÑA INFORMATIVA': inc.resena_informativa || inc.resena || 'N/A',
+        'OBSERVACIONES': inc.observaciones || inc.observacion || 'No aplica',
+        'ID DESPACHADOR': inc.usuario_id || 'N/A'
+      };
+    });
+
+    const ws = XLSX.utils.json_to_sheet(dataExcel);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Reporte_Incidencias');
+    XLSX.writeFile(wb, 'Reporte_Incidencias_VEN911.xlsx');
+  };
+
+  // EXPORTAR PDF INCIDENCIAS (CON LOGOS)
+  const handleGenerarPDFIncidencias = () => {
+    if (incidenciasFiltradas.length === 0) {
+      alert("No hay registros para exportar con los filtros actuales.");
+      return;
+    }
+
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+
+    const baseUrl = window.location.origin;
+
+    const filasHtml = incidenciasFiltradas.map(inc => {
+      const jefe = usuarios.find(u => u.comuna_o_circuito_comunal === inc.circuito_comunal);
+      const resena = inc.resena_informativa || inc.resena || 'N/A';
+      const obs = inc.observaciones || inc.observacion || 'No aplica';
+      return `
+      <tr>
+        <td>${new Date(inc.fecha_registro).toLocaleString()}</td>
+        <td><strong>${inc.circuito_comunal}</strong></td>
+        <td>${jefe?.municipio || 'N/A'} / ${jefe?.parroquia || 'N/A'}</td>
+        <td>${inc.clasificacion}</td>
+        <td>${inc.incidencia}</td>
+        <td><b>${inc.organismo_reportante || 'N/A'}</b><br/><span style="color:#666; font-size:8px;">Apoyo: ${inc.organismos_involucrados || 'Ninguno'}</span></td>
+        <td class="resena-text">${resena}</td>
+        <td class="resena-text">${obs}</td>
+      </tr>
+      `
+    }).join('');
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html lang="es">
+      <head>
+        <meta charset="UTF-8">
+        <title>Reporte de Incidencias VEN 911</title>
+        <style>
+          body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; color: #333; }
+          .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 3px solid #00529b; padding-bottom: 15px; margin-bottom: 20px; }
+          .header img { height: 65px; object-fit: contain; }
+          .title-container { text-align: center; flex-grow: 1; padding: 0 20px; }
+          .title-container h2 { margin: 0; color: #00529b; font-size: 18px; text-transform: uppercase; letter-spacing: 1px; }
+          .title-container h3 { margin: 5px 0 0 0; color: #555; font-size: 14px; font-weight: normal; }
+          .filters-box { background-color: #f8fafc; border: 1px solid #e2e8f0; padding: 12px; border-radius: 8px; margin-bottom: 20px; font-size: 11px; }
+          .filters-box p { margin: 4px 0; color: #475569; }
+          .filters-box strong { color: #1e293b; }
+          table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 9px; }
+          th, td { border: 1px solid #cbd5e1; padding: 6px 8px; text-align: left; vertical-align: top; }
+          th { background-color: #00529b; color: white; font-weight: bold; text-transform: uppercase; font-size: 8px; }
+          tr:nth-child(even) { background-color: #f8fafc; }
+          .footer { margin-top: 30px; text-align: center; font-size: 9px; color: #64748b; border-top: 1px solid #cbd5e1; padding-top: 10px; }
+          .resena-text { word-wrap: break-word; }
+          @media print {
+            @page { margin: 1cm; size: landscape; }
+            body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <img src="${baseUrl}/logo1.png" alt="Logo Gran Misión" />
+          <div class="title-container">
+            <h2>Reporte General de Incidencias Operativas</h2>
+            <h3>Centro de Inteligencia Analítica - Estado Falcón</h3>
+          </div>
+          <img src="${baseUrl}/logo2.png" alt="Logo Justicia y Paz" />
+        </div>
+        
+        <div class="filters-box">
+          <p><strong>Rango de Fechas:</strong> ${fechaDesde ? new Date(fechaDesde).toLocaleDateString() : 'Inicio'} al ${fechaHasta ? new Date(fechaHasta).toLocaleDateString() : 'Día de Hoy'}</p>
+          <p><strong>Filtros Geográficos:</strong> Municipio: ${filtroIncidenciaMuni || 'Todos'} | Parroquia: ${filtroIncidenciaParro || 'Todas'} | Circuito: ${filtroIncidenciaCircuito || 'Todos'}</p>
+          <p><strong>Filtros Operativos:</strong> Clasificación: ${filtroIncidenciaClasificacion || 'Todas'} | Incidencia: ${filtroIncidenciaTipo || 'Todas'} | Organismo: ${filtroIncidenciaOrganismo || 'Todos'}</p>
+          <p style="margin-top: 8px; font-size: 12px; font-weight: bold; color: #0f172a;">
+            Total de Registros Encontrados: ${incidenciasFiltradas.length} | Actividades Computadas: ${totalActividades}
+          </p>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 10%">FECHA / HORA</th>
+              <th style="width: 12%">CIRCUITO COMUNAL</th>
+              <th style="width: 12%">MUNI. / PARROQ.</th>
+              <th style="width: 10%">CLASIFICACIÓN</th>
+              <th style="width: 12%">INCIDENCIA</th>
+              <th style="width: 12%">ORGANISMOS</th>
+              <th style="width: 16%">RESEÑA INFORMATIVA</th>
+              <th style="width: 16%">OBSERVACIONES</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${filasHtml}
+          </tbody>
+        </table>
+        
+        <div class="footer">
+          Documento generado por el Sistema Automático VEN 911 - Falcón el ${new Date().toLocaleString()}<br>
+          Usuario Generador: ${adminUser?.nombre_apellido_jefe} (${adminUser?.organismo_responsable})
+        </div>
+
+        <script>
+          // Se espera a que carguen las imágenes y luego se lanza la impresión
+          setTimeout(() => {
+            window.print();
+            window.close();
+          }, 1000);
+        </script>
+      </body>
+      </html>
+    `;
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+  };
 
   const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.checked) setSelectedIds(usuariosFiltrados.map(u => u.id));
@@ -567,7 +730,7 @@ export default function AdminDashboardPage() {
           sectoresString.split(/[,;\n|]+/).forEach((sector: string) => {
             const nombreLimpio = sector.replace(/["']/g, '').trim();
             if (!nombreLimpio) return; 
-
+            
             const sectorKey = `${nombreLimpio.toLowerCase()}|${codigoSitur}`; 
             
             if (!sectoresExistentes.has(sectorKey)) {
@@ -718,7 +881,7 @@ export default function AdminDashboardPage() {
       const { error: errJefe } = await supabase.from('directorio_operativo')
         .update(datosJefeLimpios)
         .eq('id', editingUsuario.id);
-        
+      
       if (errJefe) throw errJefe;
 
       if (codigoViejo) {
@@ -850,13 +1013,19 @@ export default function AdminDashboardPage() {
                 </div>
                 
                 <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
-                  <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Organismos Involucrados</p>
-                  <div className="flex gap-2 flex-wrap mt-2">
-                    {incidenciaSeleccionada.organismos_involucrados?.split(',').map((org: string, i: number) => (
-                      <span key={i} className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2.5 py-1 rounded-md border border-emerald-200 uppercase tracking-wide">
-                        {org.trim()}
-                      </span>
-                    )) || <span className="text-xs font-bold text-gray-400">Ninguno especificado</span>}
+                  <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Organismo Reportante</p>
+                  <p className="text-sm font-black text-[#00529b] mb-2">{incidenciaSeleccionada.organismo_reportante || 'N/A'}</p>
+                  <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Apoyo / Involucrados</p>
+                  <div className="flex gap-2 flex-wrap mt-1">
+                    {incidenciaSeleccionada.organismos_involucrados && incidenciaSeleccionada.organismos_involucrados !== 'NINGUNO' ? (
+                      incidenciaSeleccionada.organismos_involucrados.split('-').map((org: string, i: number) => (
+                        <span key={i} className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2.5 py-1 rounded-md border border-emerald-200 uppercase tracking-wide">
+                          {org.trim()}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="text-xs font-bold text-gray-400">Ninguno especificado</span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1185,33 +1354,33 @@ export default function AdminDashboardPage() {
                   Filtros de Búsqueda y Estadísticas
                 </div>
                 
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4 mb-5">
-                  <div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-5">
+                  <div className="lg:col-span-1">
                     <label className="block text-xs font-bold text-gray-500 mb-1">Desde</label>
                     <input type="date" className="w-full p-2 border rounded-lg bg-white text-sm outline-none shadow-sm cursor-text" value={fechaDesde} onChange={e => setFechaDesde(e.target.value)} />
                   </div>
-                  <div>
+                  <div className="lg:col-span-1">
                     <label className="block text-xs font-bold text-gray-500 mb-1">Hasta</label>
                     <input type="date" className="w-full p-2 border rounded-lg bg-white text-sm outline-none shadow-sm cursor-text" value={fechaHasta} onChange={e => setFechaHasta(e.target.value)} />
                   </div>
-                  <div>
-                    <label className="block text-xs font-bold text-gray-500 mb-1">Municipio</label>
+                  <div className="lg:col-span-1">
+                    <label className="block text-xs font-bold text-gray-500 mb-1">Filtrar por Municipio</label>
                     <select className="w-full p-2 border rounded-lg bg-white text-sm outline-none shadow-sm cursor-pointer" value={filtroIncidenciaMuni} onChange={e => { setFiltroIncidenciaMuni(e.target.value); setFiltroIncidenciaParro(''); setFiltroIncidenciaCircuito(''); }}>
                       <option value="">Todos los Municipios</option>
                       {municipiosUnicos.map((m,i) => <option key={i} value={m as string}>{m}</option>)}
                     </select>
                   </div>
-                  <div>
-                    <label className="block text-xs font-bold text-gray-500 mb-1">Parroquias</label>
+                  <div className="lg:col-span-1">
+                    <label className="block text-xs font-bold text-gray-500 mb-1">Filtrar por Parroquias</label>
                     <select className="w-full p-2 border rounded-lg bg-white text-sm outline-none shadow-sm cursor-pointer disabled:bg-gray-100" value={filtroIncidenciaParro} onChange={e => { setFiltroIncidenciaParro(e.target.value); setFiltroIncidenciaCircuito(''); }} disabled={!filtroIncidenciaMuni}>
                       <option value="">Todas las Parroquias</option>
                       {parroquiasIncidenciaUnicas.map((p,i) => <option key={i} value={p as string}>{p}</option>)}
                     </select>
                   </div>
                   
-                  {/* NUEVO FILTRO DE CIRCUITO COMUNAL */}
-                  <div>
-                    <label className="block text-xs font-bold text-gray-500 mb-1">Circuito</label>
+                  {/* NUEVO FILTRO DE CIRCUITO COMUNAL EN INCIDENCIAS */}
+                  <div className="lg:col-span-1">
+                    <label className="block text-xs font-bold text-gray-500 mb-1">Filtrar por Circuito</label>
                     <select 
                       className="w-full p-2 border rounded-lg bg-white text-sm outline-none shadow-sm cursor-pointer disabled:bg-gray-100" 
                       value={filtroIncidenciaCircuito} 
@@ -1223,8 +1392,8 @@ export default function AdminDashboardPage() {
                     </select>
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-bold text-gray-500 mb-1">Clasificación</label>
+                  <div className="lg:col-span-1">
+                    <label className="block text-xs font-bold text-gray-500 mb-1">Filtrar por Clasificación</label>
                     <select className="w-full p-2 border rounded-lg bg-white text-sm outline-none shadow-sm cursor-pointer" value={filtroIncidenciaClasificacion} onChange={e => setFiltroIncidenciaClasificacion(e.target.value)}>
                       <option value="">Todas</option>
                       <option value="PREVENTIVA">PREVENTIVA</option>
@@ -1232,28 +1401,27 @@ export default function AdminDashboardPage() {
                       <option value="OPERATIVIDAD Y RENDIMIENTO OPERATIVO">EFECTIVIDAD Y RENDIMIENTO OPERATIVO</option>
                     </select>
                   </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-gray-500 mb-1">Incidencia</label>
+                  <div className="lg:col-span-1">
+                    <label className="block text-xs font-bold text-gray-500 mb-1">Filtrar por Incidencia</label>
                     <select className="w-full p-2 border rounded-lg bg-white text-sm outline-none shadow-sm cursor-pointer" value={filtroIncidenciaTipo} onChange={e => setFiltroIncidenciaTipo(e.target.value)}>
                       <option value="">Todas</option>
                       {incidenciasTipoUnicas.map((t, i) => <option key={i} value={t as string}>{t}</option>)}
                     </select>
                   </div>
                   
-                  {esSuperUser && (
+                  {(esSuperUser || isReadOnlyVen911) && (
                     <div className="lg:col-span-1">
                       <label className="block text-xs font-bold text-gray-500 mb-1">Filtrar por Organismos</label>
                       <select className="w-full p-2 border rounded-lg bg-white text-sm outline-none shadow-sm cursor-pointer" value={filtroIncidenciaOrganismo} onChange={e => setFiltroIncidenciaOrganismo(e.target.value)}>
                         <option value="">Todos</option>
-                        {organismosUnicos.map((o, i) => <option key={i} value={o as string}>{o}</option>)}
+                        {LISTA_ORGANISMOS.map((org, i) => <option key={i} value={org}>{org}</option>)}
                       </select>
                     </div>
                   )}
 
-                  <div className="flex items-end">
+                  <div className="lg:col-span-2 flex items-end">
                     <button className="w-full bg-[#00529b] text-white px-4 py-2 h-[38px] rounded-lg font-bold shadow-sm hover:bg-[#003d73] transition-all flex items-center justify-center gap-2">
-                      <Search size={16} /> Buscar
+                      <Search size={16} /> Buscar Registros
                     </button>
                   </div>
                 </div>
@@ -1277,8 +1445,6 @@ export default function AdminDashboardPage() {
                       <th className="p-3 sticky top-0 bg-gray-100 z-20 font-bold shadow-[0_1px_0_0_#e5e7eb]">Incidencia</th>
                       <th className="p-3 sticky top-0 bg-gray-100 z-20 font-bold shadow-[0_1px_0_0_#e5e7eb]">Actividad Detallada</th>
                       <th className="p-3 sticky top-0 bg-gray-100 z-20 font-bold shadow-[0_1px_0_0_#e5e7eb]">Organismos</th>
-                      <th className="p-3 sticky top-0 bg-gray-100 z-20 font-bold shadow-[0_1px_0_0_#e5e7eb]">Reseña Informativa</th>
-                      <th className="p-3 sticky top-0 bg-gray-100 z-20 font-bold shadow-[0_1px_0_0_#e5e7eb]">Observaciones</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -1305,18 +1471,24 @@ export default function AdminDashboardPage() {
                           <td className="p-3 text-gray-700">{incidencia.clasificacion}</td>
                           <td className="p-3 text-gray-700">{incidencia.incidencia}</td>
                           <td className="p-3 text-gray-600 max-w-[200px] truncate" title={incidencia.actividad}>{incidencia.actividad}</td>
-                          <td className="p-3 text-gray-600">{incidencia.organismos_involucrados}</td>
-                          <td className="p-3 text-gray-600 max-w-[200px] truncate" title={incidencia.resena_informativa || incidencia.resena}>
-                            {incidencia.resena_informativa || incidencia.resena || 'N/A'}
+                          
+                          {/* CELDA DE ORGANISMOS ACTUALIZADA */}
+                          <td className="p-3">
+                            <div className="flex flex-col">
+                              <span className="font-bold text-[#00529b] text-[11px] leading-tight">
+                                {incidencia.organismo_reportante || 'N/A'}
+                              </span>
+                              {incidencia.organismos_involucrados && incidencia.organismos_involucrados !== 'NINGUNO' && (
+                                <span className="text-[9px] text-gray-500 mt-0.5 leading-tight">Apoyo: {incidencia.organismos_involucrados}</span>
+                              )}
+                            </div>
                           </td>
-                          <td className="p-3 text-gray-600 max-w-[200px] truncate" title={incidencia.observaciones || incidencia.observacion}>
-                            {incidencia.observaciones || incidencia.observacion || 'No aplica'}
-                          </td>
+
                         </tr>
                       ))
                     ) : (
                       <tr>
-                        <td colSpan={10} className="p-16 text-center">
+                        <td colSpan={8} className="p-16 text-center">
                           <div className="flex flex-col items-center justify-center text-gray-400">
                             <ShieldAlert size={56} className="mb-4 opacity-20" />
                             <p className="text-lg font-bold text-gray-500">No hay incidencias que coincidan con los filtros</p>

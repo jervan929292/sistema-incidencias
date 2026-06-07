@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import { ShieldCheck, Loader2, AlertCircle, CheckCircle2, MapPin, FileText, Users, HelpCircle, ChevronDown, Activity, Edit3, Trash2, Plus } from 'lucide-react';
+import { ShieldCheck, Loader2, AlertCircle, CheckCircle2, MapPin, FileText, Users, HelpCircle, ChevronDown, Activity, Edit3, Trash2, Plus, Building2 } from 'lucide-react';
 
 // ==========================================
 // LISTA EXTRAÍDA DE TU ARCHIVO EXCEL
@@ -14,7 +14,7 @@ const LISTA_ORGANISMOS = [
   "Direccion General de Cuadrantes de Paz",
   "Dirección General de los Centros de Comando, Control y Telecomunicaciones",
   "Dirección General de Prevención del Delito",
-  "Guardia Nacional bolivariana",
+  "Guardia Nacional Bolivariana",
   "Instituto Nacional Contra la Discriminación Racial",
   "Instituto Nacional de Meteorología e Hidrología",
   "Instituto Nacional de Transporte Terrestre",
@@ -31,7 +31,7 @@ const LISTA_ORGANISMOS = [
   "Sistema Nacional de Medicina Forense",
   "Superintendencia Nacional Antidrogas",
   "Universidad Nacional Experimental de la Seguridad"
-];
+].sort();
 
 export default function UserDashboardPage() {
   const router = useRouter();
@@ -48,9 +48,7 @@ export default function UserDashboardPage() {
   const [allActividades, setAllActividades] = useState<any[]>([]);
   const [misSectores, setMisSectores] = useState<any[]>([]);
 
-  // ==========================================
-  // NUEVOS ESTADOS: GESTIÓN DE MIS SECTORES
-  // ==========================================
+  // GESTIÓN DE MIS SECTORES
   const [mostrarModalSectores, setMostrarModalSectores] = useState(false);
   const [nuevoSector, setNuevoSector] = useState('');
   const [guardandoSector, setGuardandoSector] = useState(false);
@@ -70,7 +68,7 @@ export default function UserDashboardPage() {
     clasificacion: '',
     incidencia: '',
     actividad: '',
-    cantidad: 1, // Se mantiene interno en 1 para la BD
+    cantidad: 1, 
     circuito_comunal: '',
     sector_especifico: '',
     organismos_involucrados: [] as string[],
@@ -106,8 +104,6 @@ export default function UserDashboardPage() {
       const { data: catClas } = await supabase.from('catalogo_clasificacion').select('*').order('nombre', { ascending: true });
       const { data: catInc } = await supabase.from('catalogo_incidencia').select('*').order('nombre', { ascending: true });
       const { data: catAct } = await supabase.from('catalogo_actividad').select('*').order('nombre', { ascending: true });
-      
-      // Descargar sectores asignados a este SITUR
       const { data: secs } = await supabase.from('sectores').select('*').eq('codigo_situr', userData.codigo_situr);
 
       if (catClas) setClasificaciones(catClas);
@@ -121,9 +117,6 @@ export default function UserDashboardPage() {
     initDashboard();
   }, [router]);
 
-  // ==========================================
-  // FUNCIONES PARA GESTIONAR MIS SECTORES
-  // ==========================================
   const agregarSector = async () => {
     if (!nuevoSector.trim()) return;
     setGuardandoSector(true);
@@ -137,7 +130,6 @@ export default function UserDashboardPage() {
       if (error) throw error;
       
       setNuevoSector('');
-      // Refrescar lista de sectores
       const { data: secs } = await supabase.from('sectores').select('*').eq('codigo_situr', usuarioLogueado.codigo_situr);
       if (secs) setMisSectores(secs);
     } catch (err: any) {
@@ -153,11 +145,9 @@ export default function UserDashboardPage() {
       const { error } = await supabase.from('sectores').delete().eq('id', id);
       if (error) throw error;
       
-      // Refrescar lista de sectores
       const { data: secs } = await supabase.from('sectores').select('*').eq('codigo_situr', usuarioLogueado.codigo_situr);
       if (secs) {
         setMisSectores(secs);
-        // Si el usuario tenía seleccionado este sector en el formulario, lo limpiamos
         if (form.sector_especifico === nombre) setForm(prev => ({ ...prev, sector_especifico: '' }));
       }
     } catch (err: any) {
@@ -165,9 +155,6 @@ export default function UserDashboardPage() {
     }
   };
 
-  // ==========================================
-  // MANEJADORES DE CASCADA (FILTRADO DINÁMICO)
-  // ==========================================
   const handleClasificacionChange = (valor: string) => {
     const selectedClas = clasificaciones.find(c => c.nombre === valor);
     setForm(prev => ({ ...prev, clasificacion: valor, incidencia: '', actividad: '' }));
@@ -204,9 +191,6 @@ export default function UserDashboardPage() {
     });
   };
 
-  // ==========================================
-  // ENVÍO DEL REPORTE DIARIO A SUPABASE
-  // ==========================================
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setEnviando(true);
@@ -219,24 +203,28 @@ export default function UserDashboardPage() {
       return;
     }
 
-    if (form.organismos_involucrados.length === 0) {
-      setErrorMsg("Debe seleccionar al menos un Organismo Involucrado en la lista desplegable.");
-      setEnviando(false);
-      return;
-    }
-
     try {
       const lugarCompleto = `${form.lugar_actividad} (Sector: ${form.sector_especifico})`;
-      const organismosTexto = form.organismos_involucrados.join(' - ').toUpperCase();
+      // Si no seleccionaron ninguno de apoyo, pasamos "NINGUNO" o vacío
+      const organismosTexto = form.organismos_involucrados.length > 0 
+        ? form.organismos_involucrados.join(' - ').toUpperCase() 
+        : 'NINGUNO';
 
       const payload = {
         usuario_id: usuarioLogueado.id,
         clasificacion: form.clasificacion,
         incidencia: form.incidencia,
         actividad: form.actividad,
-        cantidad: form.cantidad, // Se envía 1 automáticamente
+        cantidad: form.cantidad,
         circuito_comunal: form.circuito_comunal.toUpperCase().trim(),
+        
+        // ¡LA MAGIA OCURRE AQUÍ!
+        // Guardamos explícitamente quién es el dueño del reporte:
+        organismo_responsable: usuarioLogueado.organismo_responsable,
+        
+        // Y guardamos quiénes apoyaron:
         organismos_involucrados: organismosTexto,
+        
         lugar_actividad: lugarCompleto,
         resena: form.resena,
         observacion: form.observacion
@@ -255,7 +243,7 @@ export default function UserDashboardPage() {
         clasificacion: '',
         incidencia: '',
         actividad: '',
-        cantidad: 1, // Se reinicia siempre a 1
+        cantidad: 1, 
         circuito_comunal: usuarioLogueado.comuna_o_circuito_comunal || '',
         sector_especifico: '',
         organismos_involucrados: [],
@@ -367,6 +355,22 @@ export default function UserDashboardPage() {
           {/* CUERPO DEL FORMULARIO */}
           <form onSubmit={handleSubmit} className="space-y-6">
             
+            {/* NUEVO: BANNER VISUAL DEL ORGANISMO RESPONSABLE */}
+            <div className="bg-[#f8fafc] p-4 rounded-2xl border border-gray-200 flex items-center justify-between">
+              <div>
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Organismo que registra y cierra el caso:</p>
+                <p className="text-lg font-black text-[#00529b] flex items-center gap-2">
+                  <Building2 size={20} />
+                  {usuarioLogueado?.organismo_responsable || 'SIN ORGANISMO'}
+                </p>
+              </div>
+              <div className="hidden sm:block">
+                <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-3 py-1 rounded-full border border-emerald-200">
+                  Responsable Oficial
+                </span>
+              </div>
+            </div>
+
             {/* BLOQUE TERRITORIAL */}
             <div className="p-4 bg-slate-50 border rounded-2xl grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -455,9 +459,9 @@ export default function UserDashboardPage() {
               </div>
             </div>
 
-            {/* ORGANISMOS MULTI-SELECCIÓN */}
+            {/* ORGANISMOS MULTI-SELECCIÓN (AHORA SON DE APOYO) */}
             <div className="relative">
-              <label className="block text-xs font-bold text-gray-600 mb-1">Organismos Involucrados</label>
+              <label className="block text-xs font-bold text-gray-600 mb-1">Organismos de Apoyo / Presentes (Opcional)</label>
               
               <div 
                 onClick={() => setDropdownOrganismosAbierto(!dropdownOrganismosAbierto)}
@@ -465,8 +469,8 @@ export default function UserDashboardPage() {
               >
                 <span className="truncate">
                   {form.organismos_involucrados.length > 0 
-                    ? `${form.organismos_involucrados.length} Organismo(s) seleccionado(s)` 
-                    : "Seleccione organismos (Obligatorio)..."}
+                    ? `${form.organismos_involucrados.length} Organismo(s) de apoyo seleccionado(s)` 
+                    : "Seleccione si hubo otras instituciones presentes..."}
                 </span>
                 <ChevronDown size={18} className={`transition-transform duration-200 ${dropdownOrganismosAbierto ? 'rotate-180 text-[#00529b]' : 'text-gray-400'}`} />
               </div>
@@ -474,7 +478,7 @@ export default function UserDashboardPage() {
               {dropdownOrganismosAbierto && (
                 <div className="absolute z-50 w-full mt-2 bg-white border border-gray-200 rounded-xl shadow-[0_10px_40px_rgba(0,0,0,0.1)] overflow-hidden">
                   <div className="max-h-56 overflow-y-auto p-1 divide-y divide-gray-50">
-                    {LISTA_ORGANISMOS.map((org, idx) => (
+                    {LISTA_ORGANISMOS.filter(org => org !== usuarioLogueado?.organismo_responsable).map((org, idx) => (
                       <label key={idx} className="flex items-center gap-3 p-3 hover:bg-blue-50 cursor-pointer transition-colors group">
                         <input 
                           type="checkbox" 
@@ -539,7 +543,7 @@ export default function UserDashboardPage() {
                 rows={2} 
                 required={reporteEspecial}
                 placeholder={reporteEspecial ? "Escriba aquí la justificación (Ej: Por orden del Comisario Garcés en apoyo al circuito vecino...)" : "Notas u observaciones adicionales (Opcional)..."}
-                className={`w-full p-2.5 border rounded-lg bg-white text-sm font-medium text-gray-800 focus:ring-2 outline-none transition-all ${reporteEspecial ? 'border-amber-400 focus:ring-amber-500 bg-amber-50/20' : 'focus:ring--[#00529b]'}`}
+                className={`w-full p-2.5 border rounded-lg bg-white text-sm font-medium text-gray-800 focus:ring-2 outline-none transition-all ${reporteEspecial ? 'border-amber-400 focus:ring-amber-500 bg-amber-50/20' : 'focus:ring-[#00529b]'}`}
                 value={form.observacion}
                 onChange={e => setForm({ ...form, observacion: e.target.value })}
               />
@@ -629,7 +633,6 @@ export default function UserDashboardPage() {
           </div>
         </div>
       )}
-
     </div>
   );
 }
