@@ -21,10 +21,9 @@ const LISTA_ORGANISMOS = [
   "Oficina Nacional Contra la Delincuencia Organizada y Financiamiento al Terrorismo",
   "Oficina Nacional para La Atención Integral de las Victimas",
   "Policía Estadal",
-  "Policía Municipal",
   "Policía Municipal Miranda",
   "Policía Municipal Carirubana",
-  "Policía Nacional Bolivariana",
+  "Cuerpo De Policia Nacional Bolivariana",
   "Protección Civil y Administración de Desastre",
   "Servicio Autónomo de Identificación, Migración y Extranjería",
   "Servicio Autónomo de Registros y Notarias",
@@ -55,8 +54,7 @@ const getSiglas = (organismo: string) => {
   if (orgLow.includes('estadal') || orgLow.includes('estado')) return 'POLIFALCÓN';
   if (orgLow.includes('miranda')) return 'POLIMIRANDA';
   if (orgLow.includes('carirubana')) return 'POLICARIRUBANA';
-  if (orgLow.includes('municipal')) return 'POLICÍA MUNICIPAL';
-  // SEPARACIÓN ESTRICTA DE LA PNB
+    // SEPARACIÓN ESTRICTA DE LA PNB
   if (orgLow.includes('policia nacional') || orgLow.includes('pnb') || orgLow.includes('cpnb')) return 'CPNB';
   if (orgLow.includes('proteccion civil') || orgLow.includes('desastre')) return 'PC';
   if (orgLow.includes('identificacion, migracion')) return 'SAIME';
@@ -209,7 +207,8 @@ export default function AdminDashboardPage() {
     if (adminOrg.includes('cientificas') || adminOrg.includes('cicpc')) aliases.push('cientifica', 'cicpc');
     if (adminOrg.includes('transporte terrestre')) aliases.push('transporte', 'intt');
     if (adminOrg.includes('proteccion civil') || adminOrg.includes('desastre')) aliases.push('proteccion', 'civil', 'pc');
-    if (adminOrg.includes('municipal')) aliases.push('municipal');
+    if (adminOrg.includes('miranda')) aliases.push('miranda');
+    if (adminOrg.includes('carirubana')) aliases.push('carirubana');
 
     const { data: users, error: errU } = await supabase.from('directorio_operativo').select('*').neq('rol', 'admin').neq('rol', 'superusuario').limit(10000);
     if (errU) alert("Error cargando usuarios: " + errU.message);
@@ -411,11 +410,12 @@ export default function AdminDashboardPage() {
       
       let keywords = [filtroLow];
       if (filtroLow.includes('estadal') || filtroLow.includes('estado')) keywords.push('estadal', 'estado', 'polifalcon');
-      if (filtroLow.includes('bolivariana') || filtroLow.includes('pnb')) keywords.push('bolivariana', 'pnb', 'cpnb');
+      if (filtroLow.includes('Policia Nacional Bolivariana') || filtroLow.includes('pnb')) keywords.push('Policia Nacional Bolivariana', 'pnb', 'cpnb');
       if (filtroLow.includes('guardia nacional') || filtroLow.includes('gnb')) keywords.push('guardia', 'gnb');
       if (filtroLow.includes('bomberos')) keywords.push('bombero');
       if (filtroLow.includes('cientificas') || filtroLow.includes('cicpc')) keywords.push('cientifica', 'cicpc');
-      if (filtroLow.includes('municipal')) keywords.push('municipal');
+      if (filtroLow.includes('miranda')) keywords.push('miranda');
+      if (filtroLow.includes('carirubana')) keywords.push('carirubana');
 
       const coincides = keywords.some(k => repOrg.includes(k) || invOrgs.includes(k));
       if (!coincides) return false;
