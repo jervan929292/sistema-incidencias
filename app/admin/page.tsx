@@ -85,6 +85,7 @@ export default function AdminDashboardPage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [filtroMunicipio, setFiltroMunicipio] = useState('');
   const [filtroParroquia, setFiltroParroquia] = useState('');
+  const [filtroCircuito, setFiltroCircuito] = useState(''); // <-- NUEVO ESTADO FILTRO CIRCUITO
 
   // Estados de Admin y Permisos
   const [adminUser, setAdminUser] = useState<any>(null);
@@ -121,6 +122,7 @@ export default function AdminDashboardPage() {
   const [fechaHasta, setFechaHasta] = useState('');
   const [filtroIncidenciaMuni, setFiltroIncidenciaMuni] = useState('');
   const [filtroIncidenciaParro, setFiltroIncidenciaParro] = useState('');
+  const [filtroIncidenciaCircuito, setFiltroIncidenciaCircuito] = useState(''); // <-- NUEVO ESTADO FILTRO INCIDENCIAS CIRCUITO
   const [filtroIncidenciaClasificacion, setFiltroIncidenciaClasificacion] = useState('');
   const [filtroIncidenciaTipo, setFiltroIncidenciaTipo] = useState('');
   const [filtroIncidenciaOrganismo, setFiltroIncidenciaOrganismo] = useState('');
@@ -323,6 +325,27 @@ export default function AdminDashboardPage() {
     } catch (err: any) { alert("Error al eliminar: " + err.message); } finally { setLoading(false); }
   };
 
+  // LÓGICA DE FILTROS DIRECTORIO
+  const municipiosUnicos = Array.from(new Set(usuarios.map(u => u.municipio))).filter(Boolean).sort();
+  const parroquiasUnicas = Array.from(
+    new Set(usuarios.filter(u => filtroMunicipio === '' || u.municipio === filtroMunicipio).map(u => u.parroquia))
+  ).filter(Boolean).sort();
+  
+  // NUEVO: OBTENER CIRCUITOS ÚNICOS BASADOS EN EL MUNICIPIO Y PARROQUIA SELECCIONADOS
+  const circuitosUnicos = Array.from(
+    new Set(usuarios.filter(u => 
+      (filtroMunicipio === '' || u.municipio === filtroMunicipio) && 
+      (filtroParroquia === '' || u.parroquia === filtroParroquia)
+    ).map(u => u.comuna_o_circuito_comunal))
+  ).filter(Boolean).sort();
+
+  const usuariosFiltrados = usuarios.filter(u => {
+    const matchMunicipio = filtroMunicipio === '' || u.municipio === filtroMunicipio;
+    const matchParroquia = filtroParroquia === '' || u.parroquia === filtroParroquia;
+    const matchCircuito = filtroCircuito === '' || u.comuna_o_circuito_comunal === filtroCircuito;
+    return matchMunicipio && matchParroquia && matchCircuito;
+  });
+
   const handleDescargarCredenciales = () => {
     if (usuariosFiltrados.length === 0) { alert("No hay registros en la tabla para exportar."); return; }
     const dataCredenciales = usuariosFiltrados.map(u => ({
@@ -348,19 +371,17 @@ export default function AdminDashboardPage() {
     XLSX.writeFile(wb, 'BD_Credenciales_Jefes_Cuadrante.xlsx');
   };
 
-  const municipiosUnicos = Array.from(new Set(usuarios.map(u => u.municipio))).filter(Boolean).sort();
-  const parroquiasUnicas = Array.from(
-    new Set(usuarios.filter(u => filtroMunicipio === '' || u.municipio === filtroMunicipio).map(u => u.parroquia))
-  ).filter(Boolean).sort();
-
-  const usuariosFiltrados = usuarios.filter(u => {
-    const matchMunicipio = filtroMunicipio === '' || u.municipio === filtroMunicipio;
-    const matchParroquia = filtroParroquia === '' || u.parroquia === filtroParroquia;
-    return matchMunicipio && matchParroquia;
-  });
-
+  // LÓGICA DE FILTROS INCIDENCIAS
   const parroquiasIncidenciaUnicas = Array.from(
     new Set(usuarios.filter(u => filtroIncidenciaMuni === '' || u.municipio === filtroIncidenciaMuni).map(u => u.parroquia))
+  ).filter(Boolean).sort();
+
+  // NUEVO: OBTENER CIRCUITOS ÚNICOS PARA LAS INCIDENCIAS
+  const circuitosIncidenciaUnicos = Array.from(
+    new Set(usuarios.filter(u => 
+      (filtroIncidenciaMuni === '' || u.municipio === filtroIncidenciaMuni) && 
+      (filtroIncidenciaParro === '' || u.parroquia === filtroIncidenciaParro)
+    ).map(u => u.comuna_o_circuito_comunal))
   ).filter(Boolean).sort();
 
   const incidenciasTipoUnicas = Array.from(new Set(incidenciasDB.map(i => i.incidencia))).filter(Boolean).sort();
@@ -374,6 +395,9 @@ export default function AdminDashboardPage() {
     const jefe = usuarios.find(u => u.comuna_o_circuito_comunal === inc.circuito_comunal);
     if (filtroIncidenciaMuni && jefe?.municipio !== filtroIncidenciaMuni) return false;
     if (filtroIncidenciaParro && jefe?.parroquia !== filtroIncidenciaParro) return false;
+    
+    // FILTRO CIRCUITO EN INCIDENCIAS
+    if (filtroIncidenciaCircuito && inc.circuito_comunal !== filtroIncidenciaCircuito) return false;
 
     if (filtroIncidenciaClasificacion && inc.clasificacion !== filtroIncidenciaClasificacion) return false;
     if (filtroIncidenciaTipo && inc.incidencia !== filtroIncidenciaTipo) return false;
@@ -498,7 +522,7 @@ export default function AdminDashboardPage() {
         
         <div class="filters-box">
           <p><strong>Rango de Fechas:</strong> ${fechaDesde ? new Date(fechaDesde).toLocaleDateString() : 'Inicio'} al ${fechaHasta ? new Date(fechaHasta).toLocaleDateString() : 'Día de Hoy'}</p>
-          <p><strong>Filtros Geográficos:</strong> Municipio: ${filtroIncidenciaMuni || 'Todos'} | Parroquia: ${filtroIncidenciaParro || 'Todas'}</p>
+          <p><strong>Filtros Geográficos:</strong> Municipio: ${filtroIncidenciaMuni || 'Todos'} | Parroquia: ${filtroIncidenciaParro || 'Todas'} | Circuito: ${filtroIncidenciaCircuito || 'Todos'}</p>
           <p><strong>Filtros Operativos:</strong> Clasificación: ${filtroIncidenciaClasificacion || 'Todas'} | Incidencia: ${filtroIncidenciaTipo || 'Todas'} | Organismo: ${filtroIncidenciaOrganismo || 'Todos'}</p>
           <p style="margin-top: 8px; font-size: 12px; font-weight: bold; color: #0f172a;">
             Total de Registros Encontrados: ${incidenciasFiltradas.length} | Actividades Computadas: ${totalActividades}
@@ -1114,7 +1138,7 @@ export default function AdminDashboardPage() {
                   <label className="text-xs font-bold text-gray-500 mb-1">Filtrar por Municipio</label>
                   <select 
                     value={filtroMunicipio} 
-                    onChange={(e) => { setFiltroMunicipio(e.target.value); setFiltroParroquia(''); }} 
+                    onChange={(e) => { setFiltroMunicipio(e.target.value); setFiltroParroquia(''); setFiltroCircuito(''); }} 
                     className="p-2 border rounded-lg bg-white text-sm outline-none shadow-sm cursor-pointer"
                   >
                     <option value="">Todos los Municipios</option>
@@ -1126,12 +1150,26 @@ export default function AdminDashboardPage() {
                   <label className="text-xs font-bold text-gray-500 mb-1">Filtrar por Parroquia</label>
                   <select 
                     value={filtroParroquia} 
-                    onChange={(e) => setFiltroParroquia(e.target.value)}
-                    disabled={!filtroMunicipio && parroquiasUnicas.length > 30} 
+                    onChange={(e) => { setFiltroParroquia(e.target.value); setFiltroCircuito(''); }}
+                    disabled={!filtroMunicipio} 
                     className="p-2 border rounded-lg bg-white text-sm outline-none shadow-sm cursor-pointer disabled:bg-gray-100"
                   >
                     <option value="">Todas las Parroquias</option>
                     {parroquiasUnicas.map((p, i) => <option key={i} value={p as string}>{p}</option>)}
+                  </select>
+                </div>
+
+                {/* NUEVO FILTRO DE CIRCUITO COMUNAL */}
+                <div className="flex flex-col">
+                  <label className="text-xs font-bold text-gray-500 mb-1">Filtrar por Circuito</label>
+                  <select 
+                    value={filtroCircuito} 
+                    onChange={(e) => setFiltroCircuito(e.target.value)}
+                    disabled={!filtroParroquia} 
+                    className="p-2 border rounded-lg bg-white text-sm outline-none shadow-sm cursor-pointer disabled:bg-gray-100"
+                  >
+                    <option value="">Todos los Circuitos</option>
+                    {circuitosUnicos.map((c, i) => <option key={i} value={c as string}>{c}</option>)}
                   </select>
                 </div>
               </div>
@@ -1288,31 +1326,46 @@ export default function AdminDashboardPage() {
                   Filtros de Búsqueda y Estadísticas
                 </div>
                 
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-5">
-                  <div className="lg:col-span-1">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4 mb-5">
+                  <div>
                     <label className="block text-xs font-bold text-gray-500 mb-1">Desde</label>
                     <input type="date" className="w-full p-2 border rounded-lg bg-white text-sm outline-none shadow-sm cursor-text" value={fechaDesde} onChange={e => setFechaDesde(e.target.value)} />
                   </div>
-                  <div className="lg:col-span-1">
+                  <div>
                     <label className="block text-xs font-bold text-gray-500 mb-1">Hasta</label>
                     <input type="date" className="w-full p-2 border rounded-lg bg-white text-sm outline-none shadow-sm cursor-text" value={fechaHasta} onChange={e => setFechaHasta(e.target.value)} />
                   </div>
-                  <div className="lg:col-span-1">
-                    <label className="block text-xs font-bold text-gray-500 mb-1">Filtrar por Municipio</label>
-                    <select className="w-full p-2 border rounded-lg bg-white text-sm outline-none shadow-sm cursor-pointer" value={filtroIncidenciaMuni} onChange={e => { setFiltroIncidenciaMuni(e.target.value); setFiltroIncidenciaParro(''); }}>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 mb-1">Municipio</label>
+                    <select className="w-full p-2 border rounded-lg bg-white text-sm outline-none shadow-sm cursor-pointer" value={filtroIncidenciaMuni} onChange={e => { setFiltroIncidenciaMuni(e.target.value); setFiltroIncidenciaParro(''); setFiltroIncidenciaCircuito(''); }}>
                       <option value="">Todos los Municipios</option>
                       {municipiosUnicos.map((m,i) => <option key={i} value={m as string}>{m}</option>)}
                     </select>
                   </div>
-                  <div className="lg:col-span-1">
-                    <label className="block text-xs font-bold text-gray-500 mb-1">Filtrar por Parroquias</label>
-                    <select className="w-full p-2 border rounded-lg bg-white text-sm outline-none shadow-sm cursor-pointer disabled:bg-gray-100" value={filtroIncidenciaParro} onChange={e => setFiltroIncidenciaParro(e.target.value)} disabled={!filtroIncidenciaMuni}>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 mb-1">Parroquias</label>
+                    <select className="w-full p-2 border rounded-lg bg-white text-sm outline-none shadow-sm cursor-pointer disabled:bg-gray-100" value={filtroIncidenciaParro} onChange={e => { setFiltroIncidenciaParro(e.target.value); setFiltroIncidenciaCircuito(''); }} disabled={!filtroIncidenciaMuni}>
                       <option value="">Todas las Parroquias</option>
                       {parroquiasIncidenciaUnicas.map((p,i) => <option key={i} value={p as string}>{p}</option>)}
                     </select>
                   </div>
-                  <div className="lg:col-span-1">
-                    <label className="block text-xs font-bold text-gray-500 mb-1">Filtrar por Clasificación</label>
+                  
+                  {/* NUEVO FILTRO DE CIRCUITO COMUNAL */}
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 mb-1">Circuito</label>
+                    <select 
+                      className="w-full p-2 border rounded-lg bg-white text-sm outline-none shadow-sm cursor-pointer disabled:bg-gray-100" 
+                      value={filtroIncidenciaCircuito} 
+                      onChange={e => setFiltroIncidenciaCircuito(e.target.value)} 
+                      disabled={!filtroIncidenciaParro}
+                    >
+                      <option value="">Todos los Circuitos</option>
+                      {circuitosIncidenciaUnicos.map((c, i) => <option key={i} value={c as string}>{c}</option>)}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 mb-1">Clasificación</label>
                     <select className="w-full p-2 border rounded-lg bg-white text-sm outline-none shadow-sm cursor-pointer" value={filtroIncidenciaClasificacion} onChange={e => setFiltroIncidenciaClasificacion(e.target.value)}>
                       <option value="">Todas</option>
                       <option value="PREVENTIVA">PREVENTIVA</option>
@@ -1320,8 +1373,9 @@ export default function AdminDashboardPage() {
                       <option value="OPERATIVIDAD Y RENDIMIENTO OPERATIVO">EFECTIVIDAD Y RENDIMIENTO OPERATIVO</option>
                     </select>
                   </div>
-                  <div className="lg:col-span-1">
-                    <label className="block text-xs font-bold text-gray-500 mb-1">Filtrar por Incidencia</label>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 mb-1">Incidencia</label>
                     <select className="w-full p-2 border rounded-lg bg-white text-sm outline-none shadow-sm cursor-pointer" value={filtroIncidenciaTipo} onChange={e => setFiltroIncidenciaTipo(e.target.value)}>
                       <option value="">Todas</option>
                       {incidenciasTipoUnicas.map((t, i) => <option key={i} value={t as string}>{t}</option>)}
@@ -1329,8 +1383,8 @@ export default function AdminDashboardPage() {
                   </div>
                   
                   {(esSuperUser || isReadOnlyVen911) && (
-                    <div className="lg:col-span-1">
-                      <label className="block text-xs font-bold text-gray-500 mb-1">Filtrar por Organismos</label>
+                    <div>
+                      <label className="block text-xs font-bold text-gray-500 mb-1">Organismos</label>
                       <select className="w-full p-2 border rounded-lg bg-white text-sm outline-none shadow-sm cursor-pointer" value={filtroIncidenciaOrganismo} onChange={e => setFiltroIncidenciaOrganismo(e.target.value)}>
                         <option value="">Todos</option>
                         {organismosUnicos.map((o, i) => <option key={i} value={o as string}>{o}</option>)}
@@ -1338,9 +1392,9 @@ export default function AdminDashboardPage() {
                     </div>
                   )}
 
-                  <div className="lg:col-span-2 flex items-end">
+                  <div className="flex items-end">
                     <button className="w-full bg-[#00529b] text-white px-4 py-2 h-[38px] rounded-lg font-bold shadow-sm hover:bg-[#003d73] transition-all flex items-center justify-center gap-2">
-                      <Search size={16} /> Buscar Registros
+                      <Search size={16} /> Buscar
                     </button>
                   </div>
                 </div>
