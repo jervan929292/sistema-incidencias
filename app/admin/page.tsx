@@ -359,10 +359,26 @@ export default function AdminDashboardPage() {
     ).map(u => u.comuna_o_circuito_comunal))
   ).filter(Boolean).sort();
 
+  // === CORRECCIÓN APLICADA AQUÍ: incidenciasFiltradas ===
   const incidenciasFiltradas = (incidenciasDB || []).filter(inc => {
-    const incDate = inc.fecha_registro ? new Date(inc.fecha_registro).toISOString().split('T')[0] : '';
-    if (fechaDesde && incDate && incDate < fechaDesde) return false;
-    if (fechaHasta && incDate && incDate > fechaHasta) return false;
+    // 1. FILTRO DE FECHAS (Corrección de Zona Horaria)
+    if (fechaDesde || fechaHasta) {
+      if (!inc.fecha_registro) return false;
+      
+      const incTime = new Date(inc.fecha_registro).getTime();
+      
+      if (fechaDesde) {
+        // Añadimos T00:00:00 para forzar el inicio del día en hora local
+        const desdeTime = new Date(`${fechaDesde}T00:00:00`).getTime();
+        if (incTime < desdeTime) return false;
+      }
+      
+      if (fechaHasta) {
+        // Añadimos T23:59:59 para abarcar hasta el último segundo de ese día
+        const hastaTime = new Date(`${fechaHasta}T23:59:59`).getTime();
+        if (incTime > hastaTime) return false;
+      }
+    }
 
     // Buscamos a qué jefe pertenece esta incidencia a través del circuito_comunal
     const jefe = usuarios.find(u => u.comuna_o_circuito_comunal === inc.circuito_comunal);
@@ -391,10 +407,22 @@ export default function AdminDashboardPage() {
   const totalPatrullaje = incidenciasFiltradas.filter(i => i.clasificacion?.toUpperCase().includes('PATRULLAJE')).reduce((sum, item) => sum + (Number(item.cantidad) || 0), 0);
   const totalEfectividad = incidenciasFiltradas.filter(i => i.clasificacion?.toUpperCase().includes('OPERATIVIDAD') || i.clasificacion?.toUpperCase().includes('EFECTIVIDAD')).reduce((sum, item) => sum + (Number(item.cantidad) || 0), 0);
 
+  // === CORRECCIÓN APLICADA AQUÍ: incidenciasReporte ===
   const incidenciasReporte = (incidenciasDB || []).filter(inc => {
-    const incDate = inc.fecha_registro ? new Date(inc.fecha_registro).toISOString().split('T')[0] : '';
-    if (fechaRepDesde && incDate && incDate < fechaRepDesde) return false;
-    if (fechaRepHasta && incDate && incDate > fechaRepHasta) return false;
+    if (fechaRepDesde || fechaRepHasta) {
+      if (!inc.fecha_registro) return false;
+      
+      const incTime = new Date(inc.fecha_registro).getTime();
+      
+      if (fechaRepDesde) {
+        const desdeTime = new Date(`${fechaRepDesde}T00:00:00`).getTime();
+        if (incTime < desdeTime) return false;
+      }
+      if (fechaRepHasta) {
+        const hastaTime = new Date(`${fechaRepHasta}T23:59:59`).getTime();
+        if (incTime > hastaTime) return false;
+      }
+    }
     return true;
   });
 
