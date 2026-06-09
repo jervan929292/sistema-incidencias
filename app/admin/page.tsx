@@ -5,66 +5,45 @@ import { SquarePen, Calendar, Search, FileSpreadsheet, FileText, Filter, ShieldA
 import * as XLSX from 'xlsx';
 import Link from 'next/link';
 
-// LISTA DE ORGANISMOS PARA EL FORMULARIO MANUAL Y FILTROS
+// LISTA ESTRICTA DE ORGANISMOS DEL ESTADO FALCÓN (SOLO LOS 6)
 const LISTA_ORGANISMOS = [
-  "VEN 911",
-  "Cuerpo de Investigaciones Científicas Penales y Criminalísticas",
-  "Dirección de Atención Integral Penitenciaria",
-  "Dirección General de Bomberos y Bomberas",
-  "Direccion General de Cuadrantes de Paz",
-  "Dirección General de los Centros de Comando, Control y Telecomunicaciones",
-  "Dirección General de Prevención del Delito",
-  "Guardia Nacional Bolivariana",
-  "Instituto Nacional Contra la Discriminación Racial",
-  "Instituto Nacional de Meteorología e Hidrología",
-  "Instituto Nacional de Transporte Terrestre",
-  "Oficina Nacional Contra la Delincuencia Organizada y Financiamiento al Terrorismo",
-  "Oficina Nacional para La Atención Integral de las Victimas",
-  "Policía Estadal",
-  "Policía Municipal",
-  "Policía Municipal Miranda",
-  "Policía Municipal Carirubana",
-  "Policía Nacional Bolivariana",
-  "Protección Civil y Administración de Desastre",
-  "Servicio Autónomo de Identificación, Migración y Extranjería",
-  "Servicio Autónomo de Registros y Notarias",
-  "Servicio Nacional para el Desarme",
-  "Sistema Nacional de Medicina Forense",
-  "Superintendencia Nacional Antidrogas",
-  "Universidad Nacional Experimental de la Seguridad",
-  "Otros"
+  "CICPC",
+  "CUERPO DE POLICIA NACIONAL BOLIVARIANA",
+  "GUARDIA NACIONAL BOLIVARIANA",
+  "POLICIA DEL ESTADO FALCON",
+  "POLICIA MUNICIPAL DE CARIRUBANA",
+  "POLICIA MUNICIPAL DE MIRANDA"
 ];
 
-// DICCIONARIO PARA OBTENER LAS SIGLAS DEL ORGANISMO
+// DICCIONARIO PARA OBTENER LAS SIGLAS DEL ORGANISMO (Para mostrar en la interfaz)
 const getSiglas = (organismo: string) => {
-  const orgLow = (organismo || '').toLowerCase();
-  if (orgLow.includes('ven 911')) return 'VEN 911';
-  if (orgLow.includes('cientificas') || orgLow.includes('cicpc')) return 'CICPC';
-  if (orgLow.includes('penitenciaria')) return 'DAIP';
-  if (orgLow.includes('bombero')) return 'BOMBEROS';
-  if (orgLow.includes('cuadrantes de paz') && !orgLow.includes('guardia')) return 'DGCP';
-  if (orgLow.includes('comando, control')) return 'CCCT VEN 911';
-  if (orgLow.includes('prevencion del delito')) return 'DPD';
-  if (orgLow.includes('guardia nacional') || orgLow.includes('gnb')) return 'GNB';
-  if (orgLow.includes('discriminacion racial')) return 'INCODIR';
-  if (orgLow.includes('meteorologia')) return 'INAMEH';
-  if (orgLow.includes('transporte terrestre')) return 'INTT';
-  if (orgLow.includes('delincuencia organizada')) return 'ONCDOFT';
-  if (orgLow.includes('atencion integral de las victimas')) return 'ONAIV';
-  if (orgLow.includes('estadal') || orgLow.includes('estado')) return 'POLIFALCÓN';
-  if (orgLow.includes('miranda')) return 'POLIMIRANDA';
-  if (orgLow.includes('carirubana')) return 'POLICARIRUBANA';
-  if (orgLow.includes('municipal')) return 'POLICÍA MUNICIPAL';
-  if (orgLow.includes('policia nacional') || orgLow.includes('pnb') || orgLow.includes('cpnb')) return 'CPNB';
-  if (orgLow.includes('proteccion civil') || orgLow.includes('desastre')) return 'PC';
-  if (orgLow.includes('identificacion, migracion')) return 'SAIME';
-  if (orgLow.includes('registros y notarias')) return 'SAREN';
-  if (orgLow.includes('desarme')) return 'SENADES';
-  if (orgLow.includes('medicina forense')) return 'SENAMECF';
-  if (orgLow.includes('antidrogas')) return 'SUNAD';
-  if (orgLow.includes('experimental de la seguridad')) return 'UNES';
+  const orgLow = (organismo || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  
+  if (orgLow.includes('cicpc')) return 'CICPC';
+  if (orgLow.includes('cuerpo de policia nacional bolivariana') || orgLow.includes('pnb') || orgLow.includes('cpnb')) return 'CPNB';
+  if (orgLow.includes('guardia nacional bolivariana') || orgLow.includes('gnb')) return 'GNB';
+  if (orgLow.includes('policia del estado falcon') || orgLow.includes('estadal') || orgLow.includes('polifalcon')) return 'POLIFALCÓN';
+  if (orgLow.includes('policia municipal de carirubana')) return 'POLICARIRUBANA';
+  if (orgLow.includes('policia municipal de miranda')) return 'POLIMIRANDA';
+  
   return organismo || 'SIN ORGANISMO';
 };
+
+
+// FILTRO ESTRICTO: Compara el valor de la BD contra la selección
+const matchesOrganismo = (dbValue: string, targetOrg: string) => {
+  if (!targetOrg) return true;
+  
+  // Limpiamos ambos valores para comparar: quitamos espacios, pasamos a minúsculas y quitamos acentos
+  const normalize = (s: string) => (s || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+  
+  const val = normalize(dbValue);
+  const target = normalize(targetOrg);
+
+  // Si el usuario selecciona una opción específica de la lista, forzamos la igualdad
+  return val === target;
+};
+// FIN DE LA LÓGICA DE FILTRADO ESTRICTO
 
 export default function AdminDashboardPage() {
   const [activeTab, setActiveTab] = useState('directorio'); 
@@ -73,15 +52,18 @@ export default function AdminDashboardPage() {
   const [loading, setLoading] = useState(false);
   const [verificando, setVerificando] = useState(true);
   
+  // ESTADOS DE PROGRESO DE CARGA EXCEL
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadMessage, setUploadMessage] = useState('');
   const [showUploadModal, setShowUploadModal] = useState(false);
 
+  // Estados de Selección y Filtros (Directorio)
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [filtroMunicipio, setFiltroMunicipio] = useState('');
   const [filtroParroquia, setFiltroParroquia] = useState('');
   const [filtroCircuito, setFiltroCircuito] = useState(''); 
 
+  // Estados de Admin y Permisos
   const [adminUser, setAdminUser] = useState<any>(null);
   const [esSuperUser, setEsSuperUser] = useState(false);
   const [isReadOnlyVen911, setIsReadOnlyVen911] = useState(false);
@@ -91,10 +73,12 @@ export default function AdminDashboardPage() {
     nombre_apellido_jefe: '', telefono_celular_jefe: '', cedula: '', grado_jerarquia: '', email: '', codigo_situr: '' 
   });
   
+  // Estados para Administradores y Búsqueda
   const [listaAdmins, setListaAdmins] = useState<any[]>([]);
   const [mostrarModalEliminarAdmin, setMostrarModalEliminarAdmin] = useState(false);
   const [busquedaAdmin, setBusquedaAdmin] = useState('');
 
+  // Estados Formularios
   const [mostrarFormualioManual, setMostrarFormularioManual] = useState(false);
   const [formManual, setFormManual] = useState({
     estado: 'FALCÓN', municipio: '', parroquia: '', cuadrante: '', telefono_cuadrante: '',
@@ -103,10 +87,12 @@ export default function AdminDashboardPage() {
   });
   const [sectoresInputs, setSectoresInputs] = useState<string[]>(['']);
   
+  // Estados Edición
   const [editingUsuario, setEditingUsuario] = useState<any | null>(null);
   const [formEditar, setFormEditar] = useState({ ...formManual, id: '', rol: 'usuario', email: '' }); 
   const [sectoresInputsEditar, setSectoresInputsEditar] = useState<string[]>(['']);
 
+  // ESTADOS PANEL DE INCIDENCIAS
   const [incidenciasDB, setIncidenciasDB] = useState<any[]>([]);
   const [fechaDesde, setFechaDesde] = useState('');
   const [fechaHasta, setFechaHasta] = useState('');
@@ -117,11 +103,14 @@ export default function AdminDashboardPage() {
   const [filtroIncidenciaTipo, setFiltroIncidenciaTipo] = useState('');
   const [filtroIncidenciaOrganismo, setFiltroIncidenciaOrganismo] = useState('');
 
+  // ESTADO REPORTE MODAL (OJITO)
   const [incidenciaSeleccionada, setIncidenciaSeleccionada] = useState<any | null>(null);
 
+  // ESTADOS PANEL DE REPORTES Y ESTADÍSTICAS
   const [fechaRepDesde, setFechaRepDesde] = useState('');
   const [fechaRepHasta, setFechaRepHasta] = useState('');
 
+  // ESTADOS NUEVOS: GESTIÓN DE CATÁLOGOS
   const [catClasificacion, setCatClasificacion] = useState<any[]>([]);
   const [catIncidencia, setCatIncidencia] = useState<any[]>([]);
   const [catActividad, setCatActividad] = useState<any[]>([]);
@@ -178,40 +167,27 @@ export default function AdminDashboardPage() {
       return; 
     }
     
-    const normalizeStr = (str: string) => (str || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-    const adminOrg = normalizeStr(currentUser.organismo_responsable);
-    
-    const aliases = [adminOrg];
-    if (adminOrg.includes('estadal') || adminOrg.includes('estado')) aliases.push('estadal', 'estado', 'polifalcon');
-    if (adminOrg.includes('policia nacional') || adminOrg.includes('pnb') || adminOrg.includes('cpnb')) aliases.push('policia nacional', 'pnb', 'cpnb');
-    if (adminOrg.includes('guardia nacional') || adminOrg.includes('gnb')) aliases.push('guardia', 'gnb');
-    if (adminOrg.includes('bomberos')) aliases.push('bombero');
-    if (adminOrg.includes('cientificas') || adminOrg.includes('cicpc')) aliases.push('cientifica', 'cicpc');
-    if (adminOrg.includes('transporte terrestre')) aliases.push('transporte', 'intt');
-    if (adminOrg.includes('proteccion civil') || adminOrg.includes('desastre')) aliases.push('proteccion', 'civil', 'pc');
-    if (adminOrg.includes('municipal')) aliases.push('municipal');
-
-    const { data: users } = await supabase.from('directorio_operativo').select('*').neq('rol', 'admin').neq('rol', 'superusuario').limit(10000);
-    if (users) {
+    // CARGAR USUARIOS
+    const { data: users, error: errU } = await supabase.from('directorio_operativo').select('*').neq('rol', 'admin').neq('rol', 'superusuario').limit(10000);
+    if (errU) alert("Error cargando usuarios: " + errU.message);
+    else if (users) {
       if (!veTodo && currentUser.organismo_responsable) {
-        const filteredUsers = users.filter(u => {
-          if (!u.organismo_responsable) return false;
-          const uOrg = normalizeStr(u.organismo_responsable);
-          return aliases.some(alias => uOrg.includes(alias) || alias.includes(uOrg));
-        });
+        const filteredUsers = users.filter(u => matchesOrganismo(u.organismo_responsable, currentUser.organismo_responsable));
         setUsuarios(filteredUsers);
       } else {
         setUsuarios(users);
       }
     }
 
+    // CARGAR SECTORES
     let todosLosSectores: any[] = [];
     let limite = 1000;
     let inicio = 0;
     let hayMas = true;
     while (hayMas) {
-      const { data: secs } = await supabase.from('sectores').select('*').range(inicio, inicio + limite - 1);
-      if (secs && secs.length > 0) {
+      const { data: secs, error: errS } = await supabase.from('sectores').select('*').range(inicio, inicio + limite - 1);
+      if (errS) { console.error("Error cargando sectores:", errS); hayMas = false; }
+      else if (secs && secs.length > 0) {
         todosLosSectores = [...todosLosSectores, ...secs];
         inicio += limite;
         if (secs.length < limite) hayMas = false; 
@@ -219,14 +195,35 @@ export default function AdminDashboardPage() {
     }
     setSectoresDB(todosLosSectores);
     
-    const { data: incs } = await supabase.from('incidencias').select('*').limit(50000);
+    // CARGAR INCIDENCIAS (CON BUCLE PARA SALTAR EL LÍMITE DE 1000 DE SUPABASE)
+    let todasLasIncidencias: any[] = [];
+    let limiteIncs = 1000;
+    let inicioIncs = 0;
+    let hayMasIncs = true;
+    while (hayMasIncs) {
+      const { data: incsBatch, error: errI } = await supabase.from('incidencias').select('*').range(inicioIncs, inicioIncs + limiteIncs - 1);
+      if (errI) { console.error("Error cargando incidencias:", errI); hayMasIncs = false; }
+      else if (incsBatch && incsBatch.length > 0) {
+        todasLasIncidencias = [...todasLasIncidencias, ...incsBatch];
+        inicioIncs += limiteIncs;
+        if (incsBatch.length < limiteIncs) hayMasIncs = false; 
+      } else { hayMasIncs = false; }
+    }
+    
+    const incs = todasLasIncidencias;
+
     if (incs) {
       if (!veTodo && currentUser.organismo_responsable) {
-        const filteredIncs = incs.filter(inc => {
-          const repOrg = normalizeStr(inc.organismo_responsable || '');
-          const invOrgs = normalizeStr(inc.organismos_involucrados || '');
-          return aliases.some(alias => repOrg.includes(alias) || invOrgs.includes(alias));
-        });
+        // ENLACE POR CIRCUITO COMUNAL PARA EL ADMINISTRADOR REGULAR: 
+        // 1. Obtenemos un Set con los circuitos comunales autorizados para el usuario
+        const circuitosAutorizados = new Set(
+          (users || [])
+            .filter(u => matchesOrganismo(u.organismo_responsable, currentUser.organismo_responsable))
+            .map(u => u.comuna_o_circuito_comunal)
+        );
+
+        // 2. Filtramos las incidencias basándonos en si su circuito está en la lista de los autorizados
+        const filteredIncs = incs.filter(inc => circuitosAutorizados.has(inc.circuito_comunal));
         setIncidenciasDB(filteredIncs);
       } else {
         setIncidenciasDB(incs);
@@ -353,6 +350,8 @@ export default function AdminDashboardPage() {
     new Set(usuarios.filter(u => filtroIncidenciaMuni === '' || u.municipio === filtroIncidenciaMuni).map(u => u.parroquia))
   ).filter(Boolean).sort();
 
+  const incidenciasTipoUnicas = Array.from(new Set(incidenciasDB.map(i => i.incidencia))).filter(Boolean).sort();
+  
   const circuitosIncidenciaUnicos = Array.from(
     new Set(usuarios.filter(u => 
       (filtroIncidenciaMuni === '' || u.municipio === filtroIncidenciaMuni) && 
@@ -360,43 +359,28 @@ export default function AdminDashboardPage() {
     ).map(u => u.comuna_o_circuito_comunal))
   ).filter(Boolean).sort();
 
-  const incidenciasTipoUnicas = Array.from(new Set(incidenciasDB.map(i => i.incidencia))).filter(Boolean).sort();
-  
-  // Organismos para el filtro (Muestra dinámicos + Fijos, sin borrar nada)
-  const organismosUnicos = Array.from(new Set([
-    ...incidenciasDB.map(i => i.organismo_responsable),
-    ...LISTA_ORGANISMOS
-  ])).filter(Boolean).sort();
-
   const incidenciasFiltradas = (incidenciasDB || []).filter(inc => {
     const incDate = inc.fecha_registro ? new Date(inc.fecha_registro).toISOString().split('T')[0] : '';
     if (fechaDesde && incDate && incDate < fechaDesde) return false;
     if (fechaHasta && incDate && incDate > fechaHasta) return false;
 
+    // Buscamos a qué jefe pertenece esta incidencia a través del circuito_comunal
     const jefe = usuarios.find(u => u.comuna_o_circuito_comunal === inc.circuito_comunal);
+    
     if (filtroIncidenciaMuni && jefe?.municipio !== filtroIncidenciaMuni) return false;
     if (filtroIncidenciaParro && jefe?.parroquia !== filtroIncidenciaParro) return false;
     if (filtroIncidenciaCircuito && inc.circuito_comunal !== filtroIncidenciaCircuito) return false;
     if (filtroIncidenciaClasificacion && inc.clasificacion !== filtroIncidenciaClasificacion) return false;
     if (filtroIncidenciaTipo && inc.incidencia !== filtroIncidenciaTipo) return false;
     
-    // Filtro por organismo que revisa ambas columnas
+    // ENLACE POR CIRCUITO COMUNAL EN LA BARRA DE FILTROS:
+    // Si el usuario selecciona filtrar por un Organismo en la barra superior (ej: "Guardia Nacional"),
+    // 1. Miramos el circuito comunal de la incidencia ("inc.circuito_comunal")
+    // 2. Buscamos qué jefe está a cargo de ese circuito (la variable "jefe")
+    // 3. Revisamos si el organismo de ESE JEFE es el que estamos buscando.
     if (filtroIncidenciaOrganismo) {
-      const normalizeStr = (str: string) => (str || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-      const repOrg = normalizeStr(inc.organismo_responsable || '');
-      const invOrgs = normalizeStr(inc.organismos_involucrados || '');
-      const filtroLow = normalizeStr(filtroIncidenciaOrganismo);
-      
-      let keywords = [filtroLow];
-      if (filtroLow.includes('estadal') || filtroLow.includes('estado')) keywords.push('estadal', 'estado', 'polifalcon');
-      if (filtroLow.includes('bolivariana') || filtroLow.includes('pnb')) keywords.push('bolivariana', 'pnb', 'cpnb');
-      if (filtroLow.includes('guardia nacional') || filtroLow.includes('gnb')) keywords.push('guardia', 'gnb');
-      if (filtroLow.includes('bomberos')) keywords.push('bombero');
-      if (filtroLow.includes('cientificas') || filtroLow.includes('cicpc')) keywords.push('cientifica', 'cicpc');
-      if (filtroLow.includes('municipal')) keywords.push('municipal');
-
-      const coincides = keywords.some(k => repOrg.includes(k) || invOrgs.includes(k));
-      if (!coincides) return false;
+      const orgDelCircuito = jefe?.organismo_responsable || '';
+      if (!matchesOrganismo(orgDelCircuito, filtroIncidenciaOrganismo)) return false;
     }
 
     return true;
@@ -452,7 +436,7 @@ export default function AdminDashboardPage() {
         'CLASIFICACIÓN': inc.clasificacion || 'N/A',
         'INCIDENCIA': inc.incidencia || 'N/A',
         'ACTIVIDAD DETALLADA': inc.actividad || 'N/A',
-        'ORGANISMO REPORTANTE': inc.organismo_responsable || 'N/A',
+        'ORGANISMO REPORTANTE': jefe?.organismo_responsable || inc.organismo_responsable || 'N/A',
         'APOYO / INVOLUCRADOS': inc.organismos_involucrados || 'NINGUNO',
         'RESEÑA INFORMATIVA': inc.resena_informativa || inc.resena || 'N/A',
         'OBSERVACIONES': inc.observaciones || inc.observacion || 'No aplica',
@@ -481,18 +465,20 @@ export default function AdminDashboardPage() {
       const jefe = usuarios.find(u => u.comuna_o_circuito_comunal === inc.circuito_comunal);
       const resena = inc.resena_informativa || inc.resena || 'N/A';
       const obs = inc.observaciones || inc.observacion || 'No aplica';
+      const orgA_Mostrar = jefe?.organismo_responsable || inc.organismo_responsable || 'N/A';
+      
       return `
-        <tr>
-          <td>${new Date(inc.fecha_registro).toLocaleString()}</td>
-          <td><strong>${inc.circuito_comunal}</strong></td>
-          <td>${jefe?.municipio || 'N/A'} / ${jefe?.parroquia || 'N/A'}</td>
-          <td>${inc.clasificacion}</td>
-          <td>${inc.incidencia}</td>
-          <td><b>${inc.organismo_responsable || 'N/A'}</b><br/><span style="color:#666; font-size:8px;">Apoyo: ${inc.organismos_involucrados || 'Ninguno'}</span></td>
-          <td class="resena-text">${resena}</td>
-          <td class="resena-text">${obs}</td>
-        </tr>
-      `;
+      <tr>
+        <td>${new Date(inc.fecha_registro).toLocaleString()}</td>
+        <td><strong>${inc.circuito_comunal}</strong></td>
+        <td>${jefe?.municipio || 'N/A'} / ${jefe?.parroquia || 'N/A'}</td>
+        <td>${inc.clasificacion}</td>
+        <td>${inc.incidencia}</td>
+        <td><b>${orgA_Mostrar}</b><br/><span style="color:#666; font-size:8px;">Apoyo: ${inc.organismos_involucrados || 'Ninguno'}</span></td>
+        <td class="resena-text">${resena}</td>
+        <td class="resena-text">${obs}</td>
+      </tr>
+      `
     }).join('');
 
     const htmlContent = `
@@ -577,116 +563,6 @@ export default function AdminDashboardPage() {
     `;
     printWindow.document.write(htmlContent);
     printWindow.document.close();
-  };
-
-  const handleManualSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    try {
-      const circuitoComunal = formManual.comuna_o_circuito_comunal.trim();
-      const codigoSitur = formManual.codigo_situr.trim();
-      const correoGenerado = `${codigoSitur}@cupaz.com`.toLowerCase();
-
-      const { error: errDir } = await supabase.from('directorio_operativo').insert([{
-        ...formManual, comuna_o_circuito_comunal: circuitoComunal, codigo_situr: codigoSitur, email: correoGenerado, rol: 'usuario'
-      }]);
-      if (errDir) throw new Error("Error al crear usuario: " + errDir.message);
-
-      const sectoresPayload = sectoresInputs
-        .map(s => s.replace(/["']/g, '').trim())
-        .filter(s => s !== '')
-        .map(s => ({ nombre_sector: s, circuito_comunal: circuitoComunal, codigo_situr: codigoSitur }));
-        
-      if (sectoresPayload.length > 0) await supabase.from('sectores').insert(sectoresPayload);
-
-      alert("Usuario registrado correctamente.");
-      setMostrarFormularioManual(false);
-      setFormManual({
-        estado: 'FALCÓN', municipio: '', parroquia: '', cuadrante: '', telefono_cuadrante: '',
-        organismo_responsable: '', grado_jerarquia: '', cedula: '', nombre_apellido_jefe: '',
-        telefono_celular_jefe: '', codigo_situr: '', comuna_o_circuito_comunal: '', consejos_comunales: ''
-      });
-      setSectoresInputs(['']);
-      fetchDatos(adminUser);
-    } catch (error: any) { alert(error.message); } finally { setLoading(false); }
-  };
-
-  const abrirEditar = (u: any) => {
-    setEditingUsuario(u);
-    setFormEditar({
-      id: u.id,
-      rol: u.rol || 'usuario',
-      estado: u.estado || '', municipio: u.municipio || '', parroquia: u.parroquia || '',
-      cuadrante: u.cuadrante || '', telefono_cuadrante: u.telefono_cuadrante || '',
-      organismo_responsable: u.organismo_responsable || '', grado_jerarquia: u.grado_jerarquia || '',
-      cedula: u.cedula || '', nombre_apellido_jefe: u.nombre_apellido_jefe || '',
-      telefono_celular_jefe: u.telefono_celular_jefe || '', codigo_situr: u.codigo_situr || '',
-      comuna_o_circuito_comunal: u.comuna_o_circuito_comunal || '', consejos_comunales: u.consejos_comunales || '',
-      email: u.email || ''
-    });
-
-    const deEsteUsuario = sectoresDB.filter(s => s.codigo_situr === u.codigo_situr).map(s => s.nombre_sector);
-    setSectoresInputsEditar(deEsteUsuario.length > 0 ? [...deEsteUsuario, ''] : ['']);
-    setMostrarModalEliminarAdmin(false); 
-  };
-
-  const handleEditSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    try {
-      const codigoSiturLimpio = formEditar.codigo_situr?.toString().trim();
-      const circuitoLimpio = formEditar.comuna_o_circuito_comunal?.toString().trim();
-      const codigoViejo = editingUsuario.codigo_situr?.toString(); 
-
-      if (!codigoSiturLimpio) throw new Error("El Código SITUR es requerido.");
-
-      const datosJefeLimpios = {
-        ...formEditar,
-        codigo_situr: codigoSiturLimpio,
-        comuna_o_circuito_comunal: circuitoLimpio,
-        email: formEditar.rol === 'admin' || formEditar.rol === 'superusuario' ? formEditar.email : `${codigoSiturLimpio}@cupaz.com`.toLowerCase()
-      };
-
-      const { error: errJefe } = await supabase.from('directorio_operativo')
-        .update(datosJefeLimpios)
-        .eq('id', editingUsuario.id);
-      
-      if (errJefe) throw errJefe;
-
-      if (codigoViejo) {
-        await supabase.from('sectores').delete().eq('codigo_situr', codigoViejo);
-      }
-      if (codigoViejo !== codigoSiturLimpio) {
-        await supabase.from('sectores').delete().eq('codigo_situr', codigoSiturLimpio);
-      }
-
-      const sectoresPayload = sectoresInputsEditar
-        .map(s => s.replace(/["']/g, '').trim())
-        .filter(s => s !== '') 
-        .map(s => ({ 
-          nombre_sector: s, 
-          circuito_comunal: circuitoLimpio,
-          codigo_situr: codigoSiturLimpio 
-        }));
-        
-      if (sectoresPayload.length > 0) {
-        const { error: errSec } = await supabase.from('sectores').insert(sectoresPayload);
-        if (errSec) throw new Error("Fallo al insertar los sectores: " + errSec.message);
-      }
-
-      alert("Ficha actualizada con éxito.");
-      setEditingUsuario(null);
-      await fetchDatos(adminUser); 
-      if (formEditar.rol === 'admin' || formEditar.rol === 'superusuario') {
-        fetchAdmins();
-      }
-      
-    } catch (error: any) { 
-      alert("Error: " + error.message); 
-      console.error(error);
-    } finally { 
-      setLoading(false); 
-    }
   };
 
   const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -896,6 +772,116 @@ export default function AdminDashboardPage() {
     setSectoresInputsEditar(nuevasCeldas);
   };
 
+  const handleManualSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const circuitoComunal = formManual.comuna_o_circuito_comunal.trim();
+      const codigoSitur = formManual.codigo_situr.trim();
+      const correoGenerado = `${codigoSitur}@cupaz.com`.toLowerCase();
+
+      const { error: errDir } = await supabase.from('directorio_operativo').insert([{
+        ...formManual, comuna_o_circuito_comunal: circuitoComunal, codigo_situr: codigoSitur, email: correoGenerado, rol: 'usuario'
+      }]);
+      if (errDir) throw new Error("Error al crear usuario: " + errDir.message);
+
+      const sectoresPayload = sectoresInputs
+        .map(s => s.replace(/["']/g, '').trim())
+        .filter(s => s !== '')
+        .map(s => ({ nombre_sector: s, circuito_comunal: circuitoComunal, codigo_situr: codigoSitur }));
+        
+      if (sectoresPayload.length > 0) await supabase.from('sectores').insert(sectoresPayload);
+
+      alert("Usuario registrado correctamente.");
+      setMostrarFormularioManual(false);
+      setFormManual({
+        estado: 'FALCÓN', municipio: '', parroquia: '', cuadrante: '', telefono_cuadrante: '',
+        organismo_responsable: '', grado_jerarquia: '', cedula: '', nombre_apellido_jefe: '',
+        telefono_celular_jefe: '', codigo_situr: '', comuna_o_circuito_comunal: '', consejos_comunales: ''
+      });
+      setSectoresInputs(['']);
+      fetchDatos(adminUser);
+    } catch (error: any) { alert(error.message); } finally { setLoading(false); }
+  };
+
+  const abrirEditar = (u: any) => {
+    setEditingUsuario(u);
+    setFormEditar({
+      id: u.id,
+      rol: u.rol || 'usuario',
+      estado: u.estado || '', municipio: u.municipio || '', parroquia: u.parroquia || '',
+      cuadrante: u.cuadrante || '', telefono_cuadrante: u.telefono_cuadrante || '',
+      organismo_responsable: u.organismo_responsable || '', grado_jerarquia: u.grado_jerarquia || '',
+      cedula: u.cedula || '', nombre_apellido_jefe: u.nombre_apellido_jefe || '',
+      telefono_celular_jefe: u.telefono_celular_jefe || '', codigo_situr: u.codigo_situr || '',
+      comuna_o_circuito_comunal: u.comuna_o_circuito_comunal || '', consejos_comunales: u.consejos_comunales || '',
+      email: u.email || ''
+    });
+
+    const deEsteUsuario = sectoresDB.filter(s => s.codigo_situr === u.codigo_situr).map(s => s.nombre_sector);
+    setSectoresInputsEditar(deEsteUsuario.length > 0 ? [...deEsteUsuario, ''] : ['']);
+    setMostrarModalEliminarAdmin(false); 
+  };
+
+  const handleEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const codigoSiturLimpio = formEditar.codigo_situr?.toString().trim();
+      const circuitoLimpio = formEditar.comuna_o_circuito_comunal?.toString().trim();
+      const codigoViejo = editingUsuario.codigo_situr?.toString(); 
+
+      if (!codigoSiturLimpio) throw new Error("El Código SITUR es requerido.");
+
+      const datosJefeLimpios = {
+        ...formEditar,
+        codigo_situr: codigoSiturLimpio,
+        comuna_o_circuito_comunal: circuitoLimpio,
+        email: formEditar.rol === 'admin' || formEditar.rol === 'superusuario' ? formEditar.email : `${codigoSiturLimpio}@cupaz.com`.toLowerCase()
+      };
+
+      const { error: errJefe } = await supabase.from('directorio_operativo')
+        .update(datosJefeLimpios)
+        .eq('id', editingUsuario.id);
+      
+      if (errJefe) throw errJefe;
+
+      if (codigoViejo) {
+        await supabase.from('sectores').delete().eq('codigo_situr', codigoViejo);
+      }
+      if (codigoViejo !== codigoSiturLimpio) {
+        await supabase.from('sectores').delete().eq('codigo_situr', codigoSiturLimpio);
+      }
+
+      const sectoresPayload = sectoresInputsEditar
+        .map(s => s.replace(/["']/g, '').trim())
+        .filter(s => s !== '') 
+        .map(s => ({ 
+          nombre_sector: s, 
+          circuito_comunal: circuitoLimpio,
+          codigo_situr: codigoSiturLimpio 
+        }));
+        
+      if (sectoresPayload.length > 0) {
+        const { error: errSec } = await supabase.from('sectores').insert(sectoresPayload);
+        if (errSec) throw new Error("Fallo al insertar los sectores: " + errSec.message);
+      }
+
+      alert("Ficha actualizada con éxito.");
+      setEditingUsuario(null);
+      await fetchDatos(adminUser); 
+      if (formEditar.rol === 'admin' || formEditar.rol === 'superusuario') {
+        fetchAdmins();
+      }
+      
+    } catch (error: any) { 
+      alert("Error: " + error.message); 
+      console.error(error);
+    } finally { 
+      setLoading(false); 
+    }
+  };
+
   if (verificando) return <div className="min-h-screen flex items-center justify-center bg-[#f0f2f5]"><p className="text-xl font-bold text-gray-700 animate-pulse">Verificando Credenciales de Seguridad...</p></div>;
 
   return (
@@ -989,9 +975,9 @@ export default function AdminDashboardPage() {
                 </div>
                 
                 <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
-                  <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Organismos Operativos</p>
-                  <p className="text-sm font-black text-[#00529b] mb-1">{incidenciaSeleccionada.organismo_responsable || 'N/A'}</p>
-                  <p className="text-[9px] font-bold text-gray-400 uppercase">Apoyo / Involucrados:</p>
+                  <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Organismo Reportante</p>
+                  <p className="text-sm font-black text-[#00529b] mb-2">{incidenciaSeleccionada.organismo_responsable || incidenciaSeleccionada.organismo_reportante || 'N/A'}</p>
+                  <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Apoyo / Involucrados</p>
                   <div className="flex gap-2 flex-wrap mt-1">
                     {incidenciaSeleccionada.organismos_involucrados && incidenciaSeleccionada.organismos_involucrados !== 'NINGUNO' ? (
                       incidenciaSeleccionada.organismos_involucrados.split('-').map((org: string, i: number) => (
@@ -1163,6 +1149,7 @@ export default function AdminDashboardPage() {
                   </select>
                 </div>
 
+                {/* NUEVO FILTRO DE CIRCUITO COMUNAL */}
                 <div className="flex flex-col">
                   <label className="text-xs font-bold text-gray-500 mb-1">Filtrar por Circuito</label>
                   <select 
@@ -1389,7 +1376,7 @@ export default function AdminDashboardPage() {
                       <label className="block text-xs font-bold text-gray-500 mb-1">Filtrar por Organismos</label>
                       <select className="w-full p-2 border rounded-lg bg-white text-sm outline-none shadow-sm cursor-pointer" value={filtroIncidenciaOrganismo} onChange={e => setFiltroIncidenciaOrganismo(e.target.value)}>
                         <option value="">Todos</option>
-                        {organismosUnicos.map((org, i) => <option key={i} value={org as string}>{org}</option>)}
+                        {LISTA_ORGANISMOS.map((org, i) => <option key={i} value={org}>{org}</option>)}
                       </select>
                     </div>
                   )}
@@ -1449,7 +1436,7 @@ export default function AdminDashboardPage() {
                           <td className="p-3">
                             <div className="flex flex-col">
                               <span className="font-bold text-[#00529b] text-[11px] leading-tight">
-                                {incidencia.organismo_responsable || 'N/A'}
+                                {incidencia.organismo_responsable || incidencia.organismo_reportante || 'N/A'}
                               </span>
                               {incidencia.organismos_involucrados && incidencia.organismos_involucrados !== 'NINGUNO' && (
                                 <span className="text-[9px] text-gray-500 mt-0.5 leading-tight">Apoyo: {incidencia.organismos_involucrados}</span>
