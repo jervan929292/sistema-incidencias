@@ -29,7 +29,6 @@ const getSiglas = (organismo: string) => {
   return organismo || 'SIN ORGANISMO';
 };
 
-
 // FILTRO ESTRICTO: Compara el valor de la BD contra la selección
 const matchesOrganismo = (dbValue: string, targetOrg: string) => {
   if (!targetOrg) return true;
@@ -195,23 +194,8 @@ export default function AdminDashboardPage() {
     }
     setSectoresDB(todosLosSectores);
     
-    // CARGAR INCIDENCIAS (CON BUCLE PARA SALTAR EL LÍMITE DE 1000 DE SUPABASE)
-    let todasLasIncidencias: any[] = [];
-    let limiteIncs = 1000;
-    let inicioIncs = 0;
-    let hayMasIncs = true;
-    while (hayMasIncs) {
-      const { data: incsBatch, error: errI } = await supabase.from('incidencias').select('*').range(inicioIncs, inicioIncs + limiteIncs - 1);
-      if (errI) { console.error("Error cargando incidencias:", errI); hayMasIncs = false; }
-      else if (incsBatch && incsBatch.length > 0) {
-        todasLasIncidencias = [...todasLasIncidencias, ...incsBatch];
-        inicioIncs += limiteIncs;
-        if (incsBatch.length < limiteIncs) hayMasIncs = false; 
-      } else { hayMasIncs = false; }
-    }
-    
-    const incs = todasLasIncidencias;
-
+    // CARGAR INCIDENCIAS
+    const { data: incs } = await supabase.from('incidencias').select('*').limit(50000);
     if (incs) {
       if (!veTodo && currentUser.organismo_responsable) {
         // ENLACE POR CIRCUITO COMUNAL PARA EL ADMINISTRADOR REGULAR: 
@@ -1932,3 +1916,5 @@ export default function AdminDashboardPage() {
     </div>
   );
 }
+
+

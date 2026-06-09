@@ -9,30 +9,12 @@ import { ShieldCheck, UserPlus, Building2 } from 'lucide-react';
 // ==========================================
 const LISTA_ORGANISMOS = [
   "VEN 911",
-  "Cuerpo de Investigaciones Científicas Penales y Criminalísticas",
-  "Dirección de Atención Integral Penitenciaria",
-  "Dirección General de Bomberos y Bomberas",
-  "Direccion General de Cuadrantes de Paz",
-  "Dirección General de los Centros de Comando, Control y Telecomunicaciones",
-  "Dirección General de Prevención del Delito",
-  "Guardia Nacional Policia Nacional Bolivariana",
-  "Instituto Nacional Contra la Discriminación Racial",
-  "Instituto Nacional de Meteorología e Hidrología",
-  "Instituto Nacional de Transporte Terrestre",
-  "Oficina Nacional Contra la Delincuencia Organizada y Financiamiento al Terrorismo",
-  "Oficina Nacional para La Atención Integral de las Victimas",
-  "Policía Estadal",
-  "Policía Municipal Miranda",
-  "Policía Municipal Carirubana",
-  "Cuerpo De Policia Nacional Bolivariana",
-  "Protección Civil y Administración de Desastre",
-  "Servicio Autónomo de Identificación, Migración y Extranjería",
-  "Servicio Autónomo de Registros y Notarias",
-  "Servicio Nacional para el Desarme",
-  "Sistema Nacional de Medicina Forense",
-  "Superintendencia Nacional Antidrogas",
-  "Universidad Nacional Experimental de la Seguridad",
-  "Otros"
+  "CICPC",
+  "CUERPO DE POLICIA NACIONAL BOLIVARIANA",
+  "GUARDIA NACIONAL BOLIVARIANA",
+  "POLICIA DEL ESTADO FALCON",
+  "POLICIA MUNICIPAL DE CARIRUBANA",
+  "POLICIA MUNICIPAL DE MIRANDA"
 ];
 
 export default function RegistroAdminPage() {
