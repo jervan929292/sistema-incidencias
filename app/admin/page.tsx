@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { SquarePen, Calendar, Search, FileSpreadsheet, FileText, Filter, ShieldAlert, Activity, ShieldCheck, Siren, Target, Award, TrendingUp, Settings, Plus, Trash2, Edit3, ChevronRight, UserPlus, UserMinus, User, Star, AlertCircle, Eye, X } from 'lucide-react';
+import { SquarePen, Calendar, Search, FileSpreadsheet, FileText, Filter, ShieldAlert, Activity, ShieldCheck, Siren, Target, Award, TrendingUp, TrendingDown, Settings, Plus, Trash2, Edit3, ChevronRight, UserPlus, UserMinus, User, Star, AlertCircle, Eye, X, Info } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import Link from 'next/link';
 
@@ -15,35 +15,26 @@ const LISTA_ORGANISMOS = [
   "POLICIA MUNICIPAL DE MIRANDA"
 ];
 
-// DICCIONARIO PARA OBTENER LAS SIGLAS DEL ORGANISMO (Para mostrar en la interfaz)
+// DICCIONARIO PARA OBTENER LAS SIGLAS DEL ORGANISMO
 const getSiglas = (organismo: string) => {
   const orgLow = (organismo || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-  
   if (orgLow.includes('cicpc')) return 'CICPC';
   if (orgLow.includes('cuerpo de policia nacional bolivariana') || orgLow.includes('pnb') || orgLow.includes('cpnb')) return 'CPNB';
   if (orgLow.includes('guardia nacional bolivariana') || orgLow.includes('gnb')) return 'GNB';
   if (orgLow.includes('policia del estado falcon') || orgLow.includes('estadal') || orgLow.includes('polifalcon')) return 'POLIFALCÓN';
   if (orgLow.includes('policia municipal de carirubana')) return 'POLICARIRUBANA';
   if (orgLow.includes('policia municipal de miranda')) return 'POLIMIRANDA';
-  
   return organismo || 'SIN ORGANISMO';
 };
-
 
 // FILTRO ESTRICTO: Compara el valor de la BD contra la selección
 const matchesOrganismo = (dbValue: string, targetOrg: string) => {
   if (!targetOrg) return true;
-  
-  // Limpiamos ambos valores para comparar: quitamos espacios, pasamos a minúsculas y quitamos acentos
   const normalize = (s: string) => (s || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
-  
   const val = normalize(dbValue);
   const target = normalize(targetOrg);
-
-  // Si el usuario selecciona una opción específica de la lista, forzamos la igualdad
   return val === target;
 };
-// FIN DE LA LÓGICA DE FILTRADO ESTRICTO
 
 export default function AdminDashboardPage() {
   const [activeTab, setActiveTab] = useState('directorio'); 
@@ -52,18 +43,15 @@ export default function AdminDashboardPage() {
   const [loading, setLoading] = useState(false);
   const [verificando, setVerificando] = useState(true);
   
-  // ESTADOS DE PROGRESO DE CARGA EXCEL
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadMessage, setUploadMessage] = useState('');
   const [showUploadModal, setShowUploadModal] = useState(false);
 
-  // Estados de Selección y Filtros (Directorio)
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [filtroMunicipio, setFiltroMunicipio] = useState('');
   const [filtroParroquia, setFiltroParroquia] = useState('');
   const [filtroCircuito, setFiltroCircuito] = useState(''); 
 
-  // Estados de Admin y Permisos
   const [adminUser, setAdminUser] = useState<any>(null);
   const [esSuperUser, setEsSuperUser] = useState(false);
   const [isReadOnlyVen911, setIsReadOnlyVen911] = useState(false);
@@ -73,12 +61,10 @@ export default function AdminDashboardPage() {
     nombre_apellido_jefe: '', telefono_celular_jefe: '', cedula: '', grado_jerarquia: '', email: '', codigo_situr: '' 
   });
   
-  // Estados para Administradores y Búsqueda
   const [listaAdmins, setListaAdmins] = useState<any[]>([]);
   const [mostrarModalEliminarAdmin, setMostrarModalEliminarAdmin] = useState(false);
   const [busquedaAdmin, setBusquedaAdmin] = useState('');
 
-  // Estados Formularios
   const [mostrarFormualioManual, setMostrarFormularioManual] = useState(false);
   const [formManual, setFormManual] = useState({
     estado: 'FALCÓN', municipio: '', parroquia: '', cuadrante: '', telefono_cuadrante: '',
@@ -87,12 +73,10 @@ export default function AdminDashboardPage() {
   });
   const [sectoresInputs, setSectoresInputs] = useState<string[]>(['']);
   
-  // Estados Edición
   const [editingUsuario, setEditingUsuario] = useState<any | null>(null);
   const [formEditar, setFormEditar] = useState({ ...formManual, id: '', rol: 'usuario', email: '' }); 
   const [sectoresInputsEditar, setSectoresInputsEditar] = useState<string[]>(['']);
 
-  // ESTADOS PANEL DE INCIDENCIAS
   const [incidenciasDB, setIncidenciasDB] = useState<any[]>([]);
   const [fechaDesde, setFechaDesde] = useState('');
   const [fechaHasta, setFechaHasta] = useState('');
@@ -103,14 +87,12 @@ export default function AdminDashboardPage() {
   const [filtroIncidenciaTipo, setFiltroIncidenciaTipo] = useState('');
   const [filtroIncidenciaOrganismo, setFiltroIncidenciaOrganismo] = useState('');
 
-  // ESTADO REPORTE MODAL (OJITO)
   const [incidenciaSeleccionada, setIncidenciaSeleccionada] = useState<any | null>(null);
+  const [circuitoInfoSeleccionado, setCircuitoInfoSeleccionado] = useState<string | null>(null);
 
-  // ESTADOS PANEL DE REPORTES Y ESTADÍSTICAS
   const [fechaRepDesde, setFechaRepDesde] = useState('');
   const [fechaRepHasta, setFechaRepHasta] = useState('');
 
-  // ESTADOS NUEVOS: GESTIÓN DE CATÁLOGOS
   const [catClasificacion, setCatClasificacion] = useState<any[]>([]);
   const [catIncidencia, setCatIncidencia] = useState<any[]>([]);
   const [catActividad, setCatActividad] = useState<any[]>([]);
@@ -167,7 +149,6 @@ export default function AdminDashboardPage() {
       return; 
     }
     
-    // CARGAR USUARIOS
     const { data: users, error: errU } = await supabase.from('directorio_operativo').select('*').neq('rol', 'admin').neq('rol', 'superusuario').limit(10000);
     if (errU) alert("Error cargando usuarios: " + errU.message);
     else if (users) {
@@ -179,7 +160,6 @@ export default function AdminDashboardPage() {
       }
     }
 
-    // CARGAR SECTORES
     let todosLosSectores: any[] = [];
     let limite = 1000;
     let inicio = 0;
@@ -195,7 +175,6 @@ export default function AdminDashboardPage() {
     }
     setSectoresDB(todosLosSectores);
     
-    // CARGAR INCIDENCIAS (CON BUCLE PARA SALTAR EL LÍMITE DE 1000 DE SUPABASE)
     let todasLasIncidencias: any[] = [];
     let limiteIncs = 1000;
     let inicioIncs = 0;
@@ -214,15 +193,11 @@ export default function AdminDashboardPage() {
 
     if (incs) {
       if (!veTodo && currentUser.organismo_responsable) {
-        // ENLACE POR CIRCUITO COMUNAL PARA EL ADMINISTRADOR REGULAR: 
-        // 1. Obtenemos un Set con los circuitos comunales autorizados para el usuario
         const circuitosAutorizados = new Set(
           (users || [])
             .filter(u => matchesOrganismo(u.organismo_responsable, currentUser.organismo_responsable))
             .map(u => u.comuna_o_circuito_comunal)
         );
-
-        // 2. Filtramos las incidencias basándonos en si su circuito está en la lista de los autorizados
         const filteredIncs = incs.filter(inc => circuitosAutorizados.has(inc.circuito_comunal));
         setIncidenciasDB(filteredIncs);
       } else {
@@ -300,7 +275,6 @@ export default function AdminDashboardPage() {
     } catch (err: any) { alert("Error al eliminar: " + err.message); } finally { setLoading(false); }
   };
 
-  // LÓGICA DE FILTROS DIRECTORIO
   const municipiosUnicos = Array.from(new Set(usuarios.map(u => u.municipio))).filter(Boolean).sort();
   const parroquiasUnicas = Array.from(
     new Set(usuarios.filter(u => filtroMunicipio === '' || u.municipio === filtroMunicipio).map(u => u.parroquia))
@@ -345,7 +319,6 @@ export default function AdminDashboardPage() {
     XLSX.writeFile(wb, 'BD_Credenciales_Jefes_Cuadrante.xlsx');
   };
 
-  // LÓGICA DE FILTROS INCIDENCIAS
   const parroquiasIncidenciaUnicas = Array.from(
     new Set(usuarios.filter(u => filtroIncidenciaMuni === '' || u.municipio === filtroIncidenciaMuni).map(u => u.parroquia))
   ).filter(Boolean).sort();
@@ -359,28 +332,20 @@ export default function AdminDashboardPage() {
     ).map(u => u.comuna_o_circuito_comunal))
   ).filter(Boolean).sort();
 
-  // === CORRECCIÓN APLICADA AQUÍ: incidenciasFiltradas ===
   const incidenciasFiltradas = (incidenciasDB || []).filter(inc => {
-    // 1. FILTRO DE FECHAS (Corrección de Zona Horaria)
     if (fechaDesde || fechaHasta) {
       if (!inc.fecha_registro) return false;
-      
       const incTime = new Date(inc.fecha_registro).getTime();
-      
       if (fechaDesde) {
-        // Añadimos T00:00:00 para forzar el inicio del día en hora local
         const desdeTime = new Date(`${fechaDesde}T00:00:00`).getTime();
         if (incTime < desdeTime) return false;
       }
-      
       if (fechaHasta) {
-        // Añadimos T23:59:59 para abarcar hasta el último segundo de ese día
         const hastaTime = new Date(`${fechaHasta}T23:59:59`).getTime();
         if (incTime > hastaTime) return false;
       }
     }
 
-    // Buscamos a qué jefe pertenece esta incidencia a través del circuito_comunal
     const jefe = usuarios.find(u => u.comuna_o_circuito_comunal === inc.circuito_comunal);
     
     if (filtroIncidenciaMuni && jefe?.municipio !== filtroIncidenciaMuni) return false;
@@ -389,11 +354,6 @@ export default function AdminDashboardPage() {
     if (filtroIncidenciaClasificacion && inc.clasificacion !== filtroIncidenciaClasificacion) return false;
     if (filtroIncidenciaTipo && inc.incidencia !== filtroIncidenciaTipo) return false;
     
-    // ENLACE POR CIRCUITO COMUNAL EN LA BARRA DE FILTROS:
-    // Si el usuario selecciona filtrar por un Organismo en la barra superior (ej: "Guardia Nacional"),
-    // 1. Miramos el circuito comunal de la incidencia ("inc.circuito_comunal")
-    // 2. Buscamos qué jefe está a cargo de ese circuito (la variable "jefe")
-    // 3. Revisamos si el organismo de ESE JEFE es el que estamos buscando.
     if (filtroIncidenciaOrganismo) {
       const orgDelCircuito = jefe?.organismo_responsable || '';
       if (!matchesOrganismo(orgDelCircuito, filtroIncidenciaOrganismo)) return false;
@@ -407,13 +367,10 @@ export default function AdminDashboardPage() {
   const totalPatrullaje = incidenciasFiltradas.filter(i => i.clasificacion?.toUpperCase().includes('PATRULLAJE')).reduce((sum, item) => sum + (Number(item.cantidad) || 0), 0);
   const totalEfectividad = incidenciasFiltradas.filter(i => i.clasificacion?.toUpperCase().includes('OPERATIVIDAD') || i.clasificacion?.toUpperCase().includes('EFECTIVIDAD')).reduce((sum, item) => sum + (Number(item.cantidad) || 0), 0);
 
-  // === CORRECCIÓN APLICADA AQUÍ: incidenciasReporte ===
   const incidenciasReporte = (incidenciasDB || []).filter(inc => {
     if (fechaRepDesde || fechaRepHasta) {
       if (!inc.fecha_registro) return false;
-      
       const incTime = new Date(inc.fecha_registro).getTime();
-      
       if (fechaRepDesde) {
         const desdeTime = new Date(`${fechaRepDesde}T00:00:00`).getTime();
         if (incTime < desdeTime) return false;
@@ -447,6 +404,11 @@ export default function AdminDashboardPage() {
     .slice(0, 5) || [];
     
   const maxCircuitoValor = topCircuitos[0]?.[1] || 1;
+
+  const bottomCircuitos = circuitosIncidenciaUnicos
+    .map(c => [c, conteoCircuitos[c as string] || 0])
+    .sort((a, b) => (a[1] as number) - (b[1] as number))
+    .slice(0, 5);
 
   const handleGenerarExcelIncidencias = () => {
     if (incidenciasFiltradas.length === 0) {
@@ -934,8 +896,6 @@ export default function AdminDashboardPage() {
       {incidenciaSeleccionada && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
           <div className="bg-white rounded-[2rem] p-6 max-w-3xl w-full shadow-2xl border flex flex-col max-h-[90vh] overflow-hidden relative">
-            
-            {/* Header del Modal */}
             <div className="flex justify-between items-start border-b pb-4 mb-4">
               <div>
                 <h3 className="text-xl font-black text-[#00529b] flex items-center gap-2">
@@ -946,18 +906,11 @@ export default function AdminDashboardPage() {
                   Registrado el {new Date(incidenciaSeleccionada.fecha_registro).toLocaleString()}
                 </p>
               </div>
-              <button 
-                onClick={() => setIncidenciaSeleccionada(null)} 
-                className="text-gray-400 hover:text-red-500 bg-gray-100 hover:bg-red-50 p-2 rounded-full transition-all"
-                title="Cerrar Reporte"
-              >
+              <button onClick={() => setIncidenciaSeleccionada(null)} className="text-gray-400 hover:text-red-500 bg-gray-100 hover:bg-red-50 p-2 rounded-full transition-all">
                 <X size={20} />
               </button>
             </div>
-
-            {/* Contenido Scrolleable del Modal */}
             <div className="overflow-y-auto pr-2 space-y-4">
-              
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100">
                   <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider mb-1">Clasificación</p>
@@ -968,15 +921,12 @@ export default function AdminDashboardPage() {
                   <p className="text-base font-black text-gray-800">{incidenciaSeleccionada.incidencia}</p>
                 </div>
               </div>
-
               <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
                 <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">Actividad Específica</p>
                 <div className="bg-white p-3 rounded-lg border">
                   <p className="text-sm font-bold text-gray-700">{incidenciaSeleccionada.actividad}</p>
                 </div>
               </div>
-
-              {/* BLOQUE: RESEÑA INFORMATIVA Y OBSERVACIONES */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
                   <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">Reseña Informativa</p>
@@ -991,7 +941,6 @@ export default function AdminDashboardPage() {
                   </div>
                 </div>
               </div>
-
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
                   <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Ubicación / Circuito Comunal</p>
@@ -1001,7 +950,6 @@ export default function AdminDashboardPage() {
                     <span><strong>Parroquia:</strong> {usuarios.find(u => u.comuna_o_circuito_comunal === incidenciaSeleccionada.circuito_comunal)?.parroquia || 'N/A'}</span>
                   </p>
                 </div>
-                
                 <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
                   <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Organismo Reportante</p>
                   <p className="text-sm font-black text-[#00529b] mb-2">{incidenciaSeleccionada.organismo_responsable || incidenciaSeleccionada.organismo_reportante || 'N/A'}</p>
@@ -1019,13 +967,72 @@ export default function AdminDashboardPage() {
                   </div>
                 </div>
               </div>
-
               <div className="bg-gray-100 p-4 rounded-xl border border-gray-300 border-dashed">
                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Información de Sistema</p>
                 <p className="text-xs font-mono text-gray-500">ID Despachador: {incidenciaSeleccionada.usuario_id}</p>
               </div>
-
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* NUEVO: ==========================================
+          MODAL DE INFORMACIÓN DEL CIRCUITO COMUNAL
+          ========================================== */}
+      {circuitoInfoSeleccionado && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-[100] animate-fade-in backdrop-blur-sm">
+          <div className="bg-white rounded-3xl p-6 max-w-lg w-full shadow-2xl border flex flex-col relative">
+            <div className="flex justify-between items-start border-b pb-4 mb-4">
+              <div>
+                <h3 className="text-lg font-black text-[#00529b] flex items-center gap-2">
+                  <Info size={20} className="text-blue-500" />
+                  Detalles del Circuito Comunal
+                </h3>
+              </div>
+              <button onClick={() => setCircuitoInfoSeleccionado(null)} className="text-gray-400 hover:text-red-500 bg-gray-100 hover:bg-red-50 p-2 rounded-full transition-all">
+                <X size={20} />
+              </button>
+            </div>
+            
+            {/* Buscamos dinámicamente los datos del circuito y sus sectores */}
+            {(() => {
+              const jefe = usuarios.find(u => u.comuna_o_circuito_comunal === circuitoInfoSeleccionado);
+              const sectores = sectoresDB.filter(s => s.codigo_situr === jefe?.codigo_situr);
+              
+              return (
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-[10px] text-gray-500 font-bold uppercase">Circuito Comunal</p>
+                    <p className="text-sm font-bold text-gray-800">{circuitoInfoSeleccionado}</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-[10px] text-gray-500 font-bold uppercase">Municipio</p>
+                      <p className="text-sm font-bold text-gray-800">{jefe?.municipio || 'N/A'}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-gray-500 font-bold uppercase">Parroquia</p>
+                      <p className="text-sm font-bold text-gray-800">{jefe?.parroquia || 'N/A'}</p>
+                    </div>
+                  </div>
+                  <div className="bg-blue-50 p-3 rounded-xl border border-blue-100">
+                    <p className="text-[10px] text-blue-600 font-bold uppercase mb-1">Jefe de Cuadrante / Circuito</p>
+                    <p className="text-sm font-black text-gray-800">{jefe?.nombre_apellido_jefe || 'No asignado'}</p>
+                    <p className="text-xs text-gray-600">{jefe?.grado_jerarquia} | {jefe?.telefono_celular_jefe}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-gray-500 font-bold uppercase mb-2">Sectores que lo conforman ({sectores.length})</p>
+                    <div className="flex flex-wrap gap-2 max-h-[150px] overflow-y-auto p-2 bg-gray-50 rounded-lg border">
+                      {sectores.length > 0 ? sectores.map((s, idx) => (
+                        <span key={idx} className="bg-white border text-gray-700 text-[10px] font-bold px-2 py-1 rounded shadow-sm">
+                          {s.nombre_sector}
+                        </span>
+                      )) : <span className="text-xs text-gray-400">Sin sectores registrados</span>}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}
@@ -1150,7 +1157,6 @@ export default function AdminDashboardPage() {
                 </div>
               </div>
 
-              {/* BARRA DE FILTROS INTELIGENTES DIRECTORIO */}
               <div className="flex flex-wrap gap-4 mb-6 bg-gray-50 p-4 rounded-2xl border border-gray-200">
                 <div className="flex flex-col">
                   <label className="text-xs font-bold text-gray-500 mb-1">Filtrar por Municipio</label>
@@ -1177,7 +1183,6 @@ export default function AdminDashboardPage() {
                   </select>
                 </div>
 
-                {/* NUEVO FILTRO DE CIRCUITO COMUNAL */}
                 <div className="flex flex-col">
                   <label className="text-xs font-bold text-gray-500 mb-1">Filtrar por Circuito</label>
                   <select 
@@ -1192,7 +1197,6 @@ export default function AdminDashboardPage() {
                 </div>
               </div>
 
-              {/* FORMULARIO MANUAL */}
               {mostrarFormualioManual && !isReadOnlyVen911 && (
                 <form onSubmit={handleManualSubmit} className="bg-gray-50 p-6 rounded-2xl border border-gray-200 mb-8 grid grid-cols-1 md:grid-cols-3 gap-4 animate-fade-in">
                   <div className="col-span-full border-b pb-2 mb-2 flex justify-between items-end">
@@ -1242,7 +1246,6 @@ export default function AdminDashboardPage() {
                 </form>
               )}
 
-              {/* TABLA DE USUARIOS FILTRADOS */}
               <div className="overflow-x-auto overflow-y-auto max-h-[65vh] rounded-xl border border-gray-200 w-full shadow-inner relative">
                 <table className="w-full min-w-max text-left bg-white text-xs">
                   <thead className="text-gray-700 uppercase tracking-wider text-[10px]">
@@ -1274,7 +1277,17 @@ export default function AdminDashboardPage() {
                             {!isReadOnlyVen911 && <td className="p-2 sticky left-10 bg-white z-10"><button onClick={() => abrirEditar(u)} className="bg-amber-500 text-white px-2 py-1 rounded"><SquarePen size={14}/></button></td>}
                             <td className="p-2 truncate max-w-[160px]" title={`${u.estado} - ${u.municipio} - ${u.parroquia}`}>{u.municipio} - {u.parroquia}</td>
                             <td className="p-2 font-mono font-bold text-amber-700">{u.codigo_situr}</td>
-                            <td className="p-2 truncate max-w-[130px]" title={u.comuna_o_circuito_comunal}>{u.comuna_o_circuito_comunal}</td>
+                            
+                            {/* NUEVO: Botón Info en la tabla de Directorio CORREGIDO */}
+                            <td className="p-2">
+                              <div className="flex items-center gap-1.5 max-w-[140px]">
+                                <span className="truncate" title={u.comuna_o_circuito_comunal}>{u.comuna_o_circuito_comunal}</span>
+                                <button onClick={() => setCircuitoInfoSeleccionado(u.comuna_o_circuito_comunal)} className="text-blue-500 hover:text-blue-700 transition-colors shrink-0" title="Ver detalles del circuito">
+                                  <Info size={14} />
+                                </button>
+                              </div>
+                            </td>
+
                             <td className="p-2 truncate max-w-[110px] font-bold text-gray-600" title={u.grado_jerarquia}>{u.grado_jerarquia}</td>
                             <td className="p-2 truncate max-w-[190px]" title={u.nombre_apellido_jefe}>{u.nombre_apellido_jefe}</td>
                             <td className="p-2">{u.cedula}</td>
@@ -1305,7 +1318,6 @@ export default function AdminDashboardPage() {
                 </div>
               </div>
 
-              {/* 4 TARJETAS ESTADÍSTICAS */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className="bg-white border border-gray-200 rounded-2xl p-4 flex items-center gap-4 shadow-sm">
                   <div className="bg-blue-50 p-3 rounded-full text-[#00529b]"><Activity size={28} /></div>
@@ -1337,7 +1349,6 @@ export default function AdminDashboardPage() {
                 </div>
               </div>
 
-              {/* Barra de Filtros Completa */}
               <div className="bg-gray-50 p-5 rounded-2xl shadow-sm border border-gray-200">
                 <div className="font-bold text-gray-700 flex items-center gap-2 mb-4 border-b border-gray-200 pb-3">
                   <Filter size={18} className="text-[#00529b]" /> 
@@ -1368,7 +1379,6 @@ export default function AdminDashboardPage() {
                     </select>
                   </div>
                   
-                  {/* NUEVO FILTRO DE CIRCUITO COMUNAL EN INCIDENCIAS */}
                   <div className="lg:col-span-1">
                     <label className="block text-xs font-bold text-gray-500 mb-1">Filtrar por Circuito</label>
                     <select 
@@ -1422,7 +1432,6 @@ export default function AdminDashboardPage() {
                 </div>
               </div>
 
-              {/* Tabla de Incidencias */}
               <div className="overflow-x-auto overflow-y-auto max-h-[50vh] rounded-xl border border-gray-200 w-full shadow-inner relative bg-white">
                 <table className="w-full min-w-max text-left text-xs">
                   <thead className="text-gray-700 uppercase tracking-wider text-[10px]">
@@ -1447,14 +1456,22 @@ export default function AdminDashboardPage() {
                             </button>
                           </td>
                           <td className="p-3">{new Date(incidencia.fecha_registro).toLocaleString()}</td>
+                          
+                          {/* NUEVO: Botón Info en la tabla de Incidencias CORREGIDO */}
                           <td className="p-3 font-bold text-gray-800">
                             <div className="flex flex-col">
-                              <span>{incidencia.circuito_comunal}</span>
+                              <div className="flex items-center gap-1.5 max-w-[160px]">
+                                <span className="truncate" title={incidencia.circuito_comunal}>{incidencia.circuito_comunal}</span>
+                                <button onClick={() => setCircuitoInfoSeleccionado(incidencia.circuito_comunal)} className="text-blue-500 hover:text-blue-700 transition-colors shrink-0" title="Ver detalles del circuito">
+                                  <Info size={14} />
+                                </button>
+                              </div>
                               <span className="text-[9px] font-black text-[#00529b] uppercase tracking-wider">
                                 {usuarios.find(u => u.comuna_o_circuito_comunal === incidencia.circuito_comunal)?.organismo_responsable ? getSiglas(usuarios.find(u => u.comuna_o_circuito_comunal === incidencia.circuito_comunal)!.organismo_responsable) : 'N/A'}
                               </span>
                             </div>
                           </td>
+
                           <td className="p-3 text-gray-600">
                             {usuarios.find(u => u.comuna_o_circuito_comunal === incidencia.circuito_comunal)?.municipio || 'N/A'} / {usuarios.find(u => u.comuna_o_circuito_comunal === incidencia.circuito_comunal)?.parroquia || 'N/A'}
                           </td>
@@ -1552,6 +1569,7 @@ export default function AdminDashboardPage() {
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* LADO IZQUIERDO: Gráfico de Barras */}
                 <div className="bg-white border border-gray-200 p-6 rounded-3xl shadow-sm space-y-6">
                   <div className="flex justify-between items-center border-b pb-3">
                     <h3 className="font-bold text-gray-800 text-sm uppercase tracking-wide">Distribución de Carga por Clasificación</h3>
@@ -1574,40 +1592,101 @@ export default function AdminDashboardPage() {
                   {repTotal === 0 && <p className="text-center text-xs font-bold text-gray-400 py-4 shadow-inner bg-gray-50 rounded-xl">No hay registros analíticos para graficar.</p>}
                 </div>
 
-                <div className="bg-white border border-gray-200 p-6 rounded-3xl shadow-sm space-y-4">
-                  <div className="flex justify-between items-center border-b pb-3">
-                    <h3 className="font-bold text-gray-800 text-sm uppercase tracking-wide flex items-center gap-1.5"><Award size={16} className="text-amber-500" />Top 5 Circuitos Comunales con Mayor Despliegue</h3>
-                    <span className="text-[10px] bg-amber-100 text-amber-800 font-black px-2 py-0.5 rounded-full">Ranking</span>
-                  </div>
-                  <div className="space-y-3.5">
-                    {topCircuitos?.length > 0 ? (
-                      topCircuitos.map(([circuito, valor], idx) => {
-                        const porcentajeCircuito = Math.round(((valor as number) / maxCircuitoValor) * 100);
-                        const jefeCircuito = usuarios.find(u => u.comuna_o_circuito_comunal === circuito);
-                        const organismo = jefeCircuito?.organismo_responsable ? getSiglas(jefeCircuito.organismo_responsable) : 'N/A';
-                        
-                        return (
-                          <div key={idx} className="flex items-center gap-3">
-                            <span className="text-xs font-black text-gray-400 w-5">#{idx + 1}</span>
-                            <div className="flex-1 space-y-1">
-                              <div className="flex justify-between items-end">
-                                <div className="flex flex-col">
-                                  <span className="text-[11px] font-bold text-gray-700 truncate max-w-[200px]">{circuito}</span>
-                                  <span className="text-[9px] font-black text-[#00529b] uppercase tracking-wider">{organismo}</span>
+                {/* LADO DERECHO: Tarjetas de TOP y BOTTOM */}
+                <div className="space-y-6">
+                  
+                  {/* NUEVO: Tarjeta TOP 5 con botón INFO CORREGIDO */}
+                  <div className="bg-white border border-gray-200 p-6 rounded-3xl shadow-sm space-y-4">
+                    <div className="flex justify-between items-center border-b pb-3">
+                      <h3 className="font-bold text-gray-800 text-sm uppercase tracking-wide flex items-center gap-1.5"><Award size={16} className="text-amber-500" />Top 5 Circuitos Comunales con Mayor Despliegue</h3>
+                      <span className="text-[10px] bg-amber-100 text-amber-800 font-black px-2 py-0.5 rounded-full">Ranking</span>
+                    </div>
+                    <div className="space-y-3.5">
+                      {topCircuitos?.length > 0 ? (
+                        topCircuitos.map(([circuito, valor], idx) => {
+                          const porcentajeCircuito = Math.round(((valor as number) / maxCircuitoValor) * 100);
+                          const jefeCircuito = usuarios.find(u => u.comuna_o_circuito_comunal === circuito);
+                          const organismo = jefeCircuito?.organismo_responsable ? getSiglas(jefeCircuito.organismo_responsable) : 'N/A';
+                          
+                          return (
+                            <div key={idx} className="flex items-center gap-3">
+                              <span className="text-xs font-black text-gray-400 w-5">#{idx + 1}</span>
+                              <div className="flex-1 space-y-1">
+                                <div className="flex justify-between items-end">
+                                  <div className="flex flex-col">
+                                    <div className="flex items-center gap-1.5 max-w-[180px]">
+                                      <span className="text-[11px] font-bold text-gray-700 truncate" title={circuito as string}>
+                                        {circuito}
+                                      </span>
+                                      <button onClick={() => setCircuitoInfoSeleccionado(circuito as string)} className="text-blue-500 hover:text-blue-700 transition-colors shrink-0" title="Ver detalles del circuito">
+                                        <Info size={14} />
+                                      </button>
+                                    </div>
+                                    <span className="text-[9px] font-black text-[#00529b] uppercase tracking-wider">{organismo}</span>
+                                  </div>
+                                  <span className="text-[11px] text-gray-900 font-extrabold">{valor as number} act.</span>
                                 </div>
-                                <span className="text-[11px] text-gray-900 font-extrabold">{valor as number} act.</span>
+                                <div className="w-full bg-gray-100 rounded-md h-2 overflow-hidden border"><div className="bg-gradient-to-r from-[#00529b] to-blue-500 h-2 rounded-md transition-all duration-500" style={{ width: `${porcentajeCircuito}%` }}></div></div>
                               </div>
-                              <div className="w-full bg-gray-100 rounded-md h-2 overflow-hidden border"><div className="bg-gradient-to-r from-[#00529b] to-blue-500 h-2 rounded-md transition-all duration-500" style={{ width: `${porcentajeCircuito}%` }}></div></div>
                             </div>
-                          </div>
-                        );
-                      })
-                    ) : (
-                      <div className="flex flex-col items-center justify-center py-12 text-gray-400 bg-gray-50 rounded-2xl shadow-inner border-2 border-dashed">
-                        <ShieldAlert size={36} className="opacity-30 mb-2"/><p className="text-xs font-bold">Sin histórico operativo en este rango de fechas</p>
-                      </div>
-                    )}
+                          );
+                        })
+                      ) : (
+                        <div className="flex flex-col items-center justify-center py-12 text-gray-400 bg-gray-50 rounded-2xl shadow-inner border-2 border-dashed">
+                          <ShieldAlert size={36} className="opacity-30 mb-2"/><p className="text-xs font-bold">Sin histórico operativo en este rango de fechas</p>
+                        </div>
+                      )}
+                    </div>
                   </div>
+
+                  {/* NUEVO: Tarjeta BOTTOM 5 con botón INFO CORREGIDO */}
+                  <div className="bg-white border border-gray-200 p-6 rounded-3xl shadow-sm space-y-4">
+                    <div className="flex justify-between items-center border-b pb-3">
+                      <h3 className="font-bold text-gray-800 text-sm uppercase tracking-wide flex items-center gap-1.5">
+                        <TrendingDown size={16} className="text-red-500" /> Top 5 Circuitos con Menor Despliegue
+                      </h3>
+                      <span className="text-[10px] bg-red-100 text-red-800 font-black px-2 py-0.5 rounded-full">Atención</span>
+                    </div>
+                    <div className="space-y-3.5">
+                      {bottomCircuitos?.length > 0 ? (
+                        bottomCircuitos.map(([circuito, valor], idx) => {
+                          const porcentajeCircuito = Math.round(((valor as number) / maxCircuitoValor) * 100);
+                          const jefeCircuito = usuarios.find(u => u.comuna_o_circuito_comunal === circuito);
+                          const organismo = jefeCircuito?.organismo_responsable ? getSiglas(jefeCircuito.organismo_responsable) : 'N/A';
+                          
+                          return (
+                            <div key={idx} className="flex items-center gap-3">
+                              <span className="text-xs font-black text-gray-400 w-5">#{idx + 1}</span>
+                              <div className="flex-1 space-y-1">
+                                <div className="flex justify-between items-end">
+                                  <div className="flex flex-col">
+                                    <div className="flex items-center gap-1.5 max-w-[180px]">
+                                      <span className="text-[11px] font-bold text-gray-700 truncate" title={circuito as string}>
+                                        {circuito}
+                                      </span>
+                                      <button onClick={() => setCircuitoInfoSeleccionado(circuito as string)} className="text-blue-500 hover:text-blue-700 transition-colors shrink-0" title="Ver detalles del circuito">
+                                        <Info size={14} />
+                                      </button>
+                                    </div>
+                                    <span className="text-[9px] font-black text-[#00529b] uppercase tracking-wider">{organismo}</span>
+                                  </div>
+                                  <span className="text-[11px] text-gray-900 font-extrabold">{valor as number} act.</span>
+                                </div>
+                                <div className="w-full bg-gray-100 rounded-md h-2 overflow-hidden border">
+                                  <div className="bg-gradient-to-r from-red-500 to-orange-400 h-2 rounded-md transition-all duration-500" style={{ width: `${Math.max(porcentajeCircuito, 1)}%` }}></div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })
+                      ) : (
+                        <div className="flex flex-col items-center justify-center py-12 text-gray-400 bg-gray-50 rounded-2xl shadow-inner border-2 border-dashed">
+                          <ShieldAlert size={36} className="opacity-30 mb-2"/><p className="text-xs font-bold">Sin histórico operativo en este rango de fechas</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
                 </div>
               </div>
             </div>
