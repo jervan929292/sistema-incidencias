@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { SquarePen, Calendar, Search, FileSpreadsheet, FileText, Filter, ShieldAlert, Activity, ShieldCheck, Siren, Target, Award, TrendingUp, TrendingDown, Settings, Plus, Trash2, Edit3, ChevronRight, UserPlus, UserMinus, User, Star, AlertCircle, Eye, X, Info } from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -92,7 +92,6 @@ export default function AdminDashboardPage() {
 
   const [fechaRepDesde, setFechaRepDesde] = useState('');
   const [fechaRepHasta, setFechaRepHasta] = useState('');
-  const [filtroRepOrganismo, setFiltroRepOrganismo] = useState('');
 
   const [catClasificacion, setCatClasificacion] = useState<any[]>([]);
   const [catIncidencia, setCatIncidencia] = useState<any[]>([]);
@@ -107,28 +106,22 @@ export default function AdminDashboardPage() {
 
   useEffect(() => {
     const checkAccess = async () => {
-      try {
-        const { data: { user }, error: authError } = await supabase.auth.getUser();
-        if (authError || !user) { await supabase.auth.signOut(); window.location.href = '/login'; return; }
-        
-        const { data: adminData, error: dbError } = await supabase.from('directorio_operativo').select('*').eq('id', user.id).single();
-        if (dbError) throw dbError;
-        
-        if (adminData?.rol === 'admin' || adminData?.rol === 'superusuario') {
-          setAdminUser(adminData); 
-          setEsSuperUser(adminData.rol === 'superusuario');
-          setIsReadOnlyVen911(adminData.organismo_responsable === 'VEN 911' && adminData.rol !== 'superusuario');
-          setVerificando(false);
-          fetchDatos(adminData);
-          if (adminData.rol === 'superusuario') {
-            fetchAdmins();
-          }
-        } else {
-          window.location.href = '/dashboard';
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { window.location.href = '/login'; return; }
+      
+      const { data: adminData } = await supabase.from('directorio_operativo').select('*').eq('id', user.id).single();
+      
+      if (adminData?.rol === 'admin' || adminData?.rol === 'superusuario') {
+        setAdminUser(adminData); 
+        setEsSuperUser(adminData.rol === 'superusuario');
+        setIsReadOnlyVen911(adminData.organismo_responsable === 'VEN 911' && adminData.rol !== 'superusuario');
+        setVerificando(false);
+        fetchDatos(adminData);
+        if (adminData.rol === 'superusuario') {
+          fetchAdmins();
         }
-      } catch (err) {
-        console.error(err);
-        await supabase.auth.signOut(); window.location.href = '/login';
+      } else {
+        window.location.href = '/dashboard';
       }
     };
     checkAccess();
@@ -156,73 +149,68 @@ export default function AdminDashboardPage() {
       return; 
     }
     
-    // 1. CARGAR USUARIOS PRIMERO (Necesarios para el filtro posterior)
-    let usuariosProcesados: any[] = [];
     const { data: users, error: errU } = await supabase.from('directorio_operativo').select('*').neq('rol', 'admin').neq('rol', 'superusuario').limit(10000);
-    if (errU) {
-      alert("Error cargando usuarios: " + errU.message);
-    } else if (users) {
-      usuariosProcesados = (!veTodo && currentUser.organismo_responsable) 
-        ? users.filter(u => matchesOrganismo(u.organismo_responsable, currentUser.organismo_responsable)) 
-        : users;
-      setUsuarios(usuariosProcesados);
-    }
-
-    // 2. CARGAS PARALELAS OPTIMIZADAS (Para evitar tiempos de espera largos)
-    const fetchSectores = async () => {
-      let todosLosSectores: any[] = [];
-      let limite = 1000;
-      let inicio = 0;
-      let hayMas = true;
-      while (hayMas) {
-        const { data: secs } = await supabase.from('sectores').select('*').range(inicio, inicio + limite - 1);
-        if (secs && secs.length > 0) {
-          todosLosSectores = [...todosLosSectores, ...secs];
-          inicio += limite;
-          if (secs.length < limite) hayMas = false; 
-        } else { hayMas = false; }
-      }
-      return todosLosSectores;
-    };
-
-    const fetchIncidencias = async () => {
-      let todasLasIncidencias: any[] = [];
-      let limiteIncs = 1000;
-      let inicioIncs = 0;
-      let hayMasIncs = true;
-      while (hayMasIncs) {
-        const { data: incsBatch } = await supabase.from('incidencias').select('*').range(inicioIncs, inicioIncs + limiteIncs - 1);
-        if (incsBatch && incsBatch.length > 0) {
-          todasLasIncidencias = [...todasLasIncidencias, ...incsBatch];
-          inicioIncs += limiteIncs;
-          if (incsBatch.length < limiteIncs) hayMasIncs = false; 
-        } else { hayMasIncs = false; }
-      }
-      return todasLasIncidencias;
-    };
-
-    const [resSectores, resIncidencias, resCatClas, resCatInc, resCatAct] = await Promise.all([
-      fetchSectores(),
-      fetchIncidencias(),
-      supabase.from('catalogo_clasificacion').select('*').order('nombre'),
-      supabase.from('catalogo_incidencia').select('*').order('nombre'),
-      supabase.from('catalogo_actividad').select('*').order('nombre')
-    ]);
-
-    setSectoresDB(resSectores);
-
-    if (resIncidencias) {
+    if (errU) alert("Error cargando usuarios: " + errU.message);
+    else if (users) {
       if (!veTodo && currentUser.organismo_responsable) {
-        const circuitosAutorizados = new Set(usuariosProcesados.map(u => u.comuna_o_circuito_comunal));
-        setIncidenciasDB(resIncidencias.filter(inc => circuitosAutorizados.has(inc.circuito_comunal)));
+        const filteredUsers = users.filter(u => matchesOrganismo(u.organismo_responsable, currentUser.organismo_responsable));
+        setUsuarios(filteredUsers);
       } else {
-        setIncidenciasDB(resIncidencias);
+        setUsuarios(users);
       }
     }
 
-    if (resCatClas.data) setCatClasificacion(resCatClas.data);
-    if (resCatInc.data) setCatIncidencia(resCatInc.data);
-    if (resCatAct.data) setCatActividad(resCatAct.data);
+    let todosLosSectores: any[] = [];
+    let limite = 1000;
+    let inicio = 0;
+    let hayMas = true;
+    while (hayMas) {
+      const { data: secs, error: errS } = await supabase.from('sectores').select('*').range(inicio, inicio + limite - 1);
+      if (errS) { console.error("Error cargando sectores:", errS); hayMas = false; }
+      else if (secs && secs.length > 0) {
+        todosLosSectores = [...todosLosSectores, ...secs];
+        inicio += limite;
+        if (secs.length < limite) hayMas = false; 
+      } else { hayMas = false; }
+    }
+    setSectoresDB(todosLosSectores);
+    
+    let todasLasIncidencias: any[] = [];
+    let limiteIncs = 1000;
+    let inicioIncs = 0;
+    let hayMasIncs = true;
+    while (hayMasIncs) {
+      const { data: incsBatch, error: errI } = await supabase.from('incidencias').select('*').range(inicioIncs, inicioIncs + limiteIncs - 1);
+      if (errI) { console.error("Error cargando incidencias:", errI); hayMasIncs = false; }
+      else if (incsBatch && incsBatch.length > 0) {
+        todasLasIncidencias = [...todasLasIncidencias, ...incsBatch];
+        inicioIncs += limiteIncs;
+        if (incsBatch.length < limiteIncs) hayMasIncs = false; 
+      } else { hayMasIncs = false; }
+    }
+    
+    const incs = todasLasIncidencias;
+
+    if (incs) {
+      if (!veTodo && currentUser.organismo_responsable) {
+        const circuitosAutorizados = new Set(
+          (users || [])
+            .filter(u => matchesOrganismo(u.organismo_responsable, currentUser.organismo_responsable))
+            .map(u => u.comuna_o_circuito_comunal)
+        );
+        const filteredIncs = incs.filter(inc => circuitosAutorizados.has(inc.circuito_comunal));
+        setIncidenciasDB(filteredIncs);
+      } else {
+        setIncidenciasDB(incs);
+      }
+    }
+
+    const { data: cClas } = await supabase.from('catalogo_clasificacion').select('*').order('nombre');
+    if (cClas) setCatClasificacion(cClas);
+    const { data: cInc } = await supabase.from('catalogo_incidencia').select('*').order('nombre');
+    if (cInc) setCatIncidencia(cInc);
+    const { data: cAct } = await supabase.from('catalogo_actividad').select('*').order('nombre');
+    if (cAct) setCatActividad(cAct);
     
     setSelectedIds([]); 
   };
@@ -287,158 +275,24 @@ export default function AdminDashboardPage() {
     } catch (err: any) { alert("Error al eliminar: " + err.message); } finally { setLoading(false); }
   };
 
-  // =========================================================================
-  // OPTIMIZACIONES DE MEMORIA Y CÁLCULO (Evita que el navegador se congele)
-  // =========================================================================
-  
-  // DICCIONARIO O(1) PARA BÚSQUEDAS SÚPER RÁPIDAS
-  const jefePorCircuito = useMemo(() => {
-    const mapa = new Map();
-    usuarios.forEach(u => {
-      if (u.comuna_o_circuito_comunal) {
-        mapa.set(u.comuna_o_circuito_comunal, u);
-      }
-    });
-    return mapa;
-  }, [usuarios]);
-
-  const municipiosUnicos = useMemo(() => Array.from(new Set(usuarios.map(u => u.municipio))).filter(Boolean).sort(), [usuarios]);
-  
-  const parroquiasUnicas = useMemo(() => Array.from(
+  const municipiosUnicos = Array.from(new Set(usuarios.map(u => u.municipio))).filter(Boolean).sort();
+  const parroquiasUnicas = Array.from(
     new Set(usuarios.filter(u => filtroMunicipio === '' || u.municipio === filtroMunicipio).map(u => u.parroquia))
-  ).filter(Boolean).sort(), [usuarios, filtroMunicipio]);
+  ).filter(Boolean).sort();
   
-  const circuitosUnicos = useMemo(() => Array.from(
+  const circuitosUnicos = Array.from(
     new Set(usuarios.filter(u => 
       (filtroMunicipio === '' || u.municipio === filtroMunicipio) && 
       (filtroParroquia === '' || u.parroquia === filtroParroquia)
     ).map(u => u.comuna_o_circuito_comunal))
-  ).filter(Boolean).sort(), [usuarios, filtroMunicipio, filtroParroquia]);
+  ).filter(Boolean).sort();
 
-  const usuariosFiltrados = useMemo(() => usuarios.filter(u => {
+  const usuariosFiltrados = usuarios.filter(u => {
     const matchMunicipio = filtroMunicipio === '' || u.municipio === filtroMunicipio;
     const matchParroquia = filtroParroquia === '' || u.parroquia === filtroParroquia;
     const matchCircuito = filtroCircuito === '' || u.comuna_o_circuito_comunal === filtroCircuito;
     return matchMunicipio && matchParroquia && matchCircuito;
-  }), [usuarios, filtroMunicipio, filtroParroquia, filtroCircuito]);
-
-  const parroquiasIncidenciaUnicas = useMemo(() => Array.from(
-    new Set(usuarios.filter(u => filtroIncidenciaMuni === '' || u.municipio === filtroIncidenciaMuni).map(u => u.parroquia))
-  ).filter(Boolean).sort(), [usuarios, filtroIncidenciaMuni]);
-
-  const incidenciasTipoUnicas = useMemo(() => Array.from(new Set(incidenciasDB.map(i => i.incidencia))).filter(Boolean).sort(), [incidenciasDB]);
-  
-  const circuitosIncidenciaUnicos = useMemo(() => Array.from(
-    new Set(usuarios.filter(u => 
-      (filtroIncidenciaMuni === '' || u.municipio === filtroIncidenciaMuni) && 
-      (filtroIncidenciaParro === '' || u.parroquia === filtroIncidenciaParro)
-    ).map(u => u.comuna_o_circuito_comunal))
-  ).filter(Boolean).sort(), [usuarios, filtroIncidenciaMuni, filtroIncidenciaParro]);
-
-  // FILTRADO OPTIMIZADO PARA EL PANEL DE INCIDENCIAS
-  const incidenciasFiltradas = useMemo(() => {
-    return (incidenciasDB || []).filter(inc => {
-      if (fechaDesde || fechaHasta) {
-        if (!inc.fecha_registro) return false;
-        const incTime = new Date(inc.fecha_registro).getTime();
-        if (fechaDesde) {
-          const desdeTime = new Date(`${fechaDesde}T00:00:00`).getTime();
-          if (incTime < desdeTime) return false;
-        }
-        if (fechaHasta) {
-          const hastaTime = new Date(`${fechaHasta}T23:59:59`).getTime();
-          if (incTime > hastaTime) return false;
-        }
-      }
-
-      // USO DEL DICCIONARIO RÁPIDO AQUÍ:
-      const jefe = jefePorCircuito.get(inc.circuito_comunal);
-      
-      if (filtroIncidenciaMuni && jefe?.municipio !== filtroIncidenciaMuni) return false;
-      if (filtroIncidenciaParro && jefe?.parroquia !== filtroIncidenciaParro) return false;
-      if (filtroIncidenciaCircuito && inc.circuito_comunal !== filtroIncidenciaCircuito) return false;
-      if (filtroIncidenciaClasificacion && inc.clasificacion !== filtroIncidenciaClasificacion) return false;
-      if (filtroIncidenciaTipo && inc.incidencia !== filtroIncidenciaTipo) return false;
-      
-      if (filtroIncidenciaOrganismo) {
-        const orgDelCircuito = jefe?.organismo_responsable || '';
-        if (!matchesOrganismo(orgDelCircuito, filtroIncidenciaOrganismo)) return false;
-      }
-
-      return true;
-    });
-  }, [incidenciasDB, fechaDesde, fechaHasta, filtroIncidenciaMuni, filtroIncidenciaParro, filtroIncidenciaCircuito, filtroIncidenciaClasificacion, filtroIncidenciaTipo, filtroIncidenciaOrganismo, jefePorCircuito]);
-
-  // FILTRADO OPTIMIZADO PARA EL PANEL DE REPORTES Y ESTADÍSTICAS
-  const incidenciasReporte = useMemo(() => {
-    return (incidenciasDB || []).filter(inc => {
-      if (fechaRepDesde || fechaRepHasta) {
-        if (!inc.fecha_registro) return false;
-        const incTime = new Date(inc.fecha_registro).getTime();
-        if (fechaRepDesde) {
-          const desdeTime = new Date(`${fechaRepDesde}T00:00:00`).getTime();
-          if (incTime < desdeTime) return false;
-        }
-        if (fechaRepHasta) {
-          const hastaTime = new Date(`${fechaRepHasta}T23:59:59`).getTime();
-          if (incTime > hastaTime) return false;
-        }
-      }
-
-      if (filtroRepOrganismo) {
-        const jefe = jefePorCircuito.get(inc.circuito_comunal);
-        const orgDelCircuito = jefe?.organismo_responsable || '';
-        if (!matchesOrganismo(orgDelCircuito, filtroRepOrganismo)) return false;
-      }
-
-      return true;
-    });
-  }, [incidenciasDB, fechaRepDesde, fechaRepHasta, filtroRepOrganismo, jefePorCircuito]);
-
-  // CÁLCULOS OPTIMIZADOS (No se recalculan si los datos no cambian)
-  const { totalActividades, totalPreventiva, totalPatrullaje, totalEfectividad } = useMemo(() => {
-    return {
-      totalActividades: incidenciasFiltradas.reduce((sum, item) => sum + (Number(item.cantidad) || 0), 0),
-      totalPreventiva: incidenciasFiltradas.filter(i => i.clasificacion?.toUpperCase().includes('PREVENTIVA')).reduce((sum, item) => sum + (Number(item.cantidad) || 0), 0),
-      totalPatrullaje: incidenciasFiltradas.filter(i => i.clasificacion?.toUpperCase().includes('PATRULLAJE')).reduce((sum, item) => sum + (Number(item.cantidad) || 0), 0),
-      totalEfectividad: incidenciasFiltradas.filter(i => i.clasificacion?.toUpperCase().includes('OPERATIVIDAD') || i.clasificacion?.toUpperCase().includes('EFECTIVIDAD')).reduce((sum, item) => sum + (Number(item.cantidad) || 0), 0)
-    };
-  }, [incidenciasFiltradas]);
-
-  const { repTotal, repPreventiva, repPatrullaje, repEfectividad } = useMemo(() => {
-    return {
-      repTotal: incidenciasReporte.reduce((sum, item) => sum + (Number(item.cantidad) || 0), 0),
-      repPreventiva: incidenciasReporte.filter(i => i.clasificacion?.toUpperCase().includes('PREVENTIVA')).reduce((sum, item) => sum + (Number(item.cantidad) || 0), 0),
-      repPatrullaje: incidenciasReporte.filter(i => i.clasificacion?.toUpperCase().includes('PATRULLAJE')).reduce((sum, item) => sum + (Number(item.cantidad) || 0), 0),
-      repEfectividad: incidenciasReporte.filter(i => i.clasificacion?.toUpperCase().includes('OPERATIVIDAD') || i.clasificacion?.toUpperCase().includes('EFECTIVIDAD')).reduce((sum, item) => sum + (Number(item.cantidad) || 0), 0)
-    };
-  }, [incidenciasReporte]);
-
-  const pctPreventiva = repTotal > 0 ? Math.round((repPreventiva / repTotal) * 100) : 0;
-  const pctPatrullaje = repTotal > 0 ? Math.round((repPatrullaje / repTotal) * 100) : 0;
-  const pctEfectividad = repTotal > 0 ? Math.round((repEfectividad / repTotal) * 100) : 0;
-
-  const { topCircuitos, bottomCircuitos, maxCircuitoValor } = useMemo(() => {
-    const conteo: { [key: string]: number } = {};
-    incidenciasReporte.forEach(inc => {
-      if (inc.circuito_comunal) {
-        conteo[inc.circuito_comunal] = (conteo[inc.circuito_comunal] || 0) + (Number(inc.cantidad) || 1);
-      }
-    });
-    
-    const top = Object.entries(conteo)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5) || [];
-      
-    const maxVal = top[0]?.[1] || 1;
-
-    const bottom = circuitosIncidenciaUnicos
-      .map(c => [c, conteo[c as string] || 0])
-      .sort((a, b) => (a[1] as number) - (b[1] as number))
-      .slice(0, 5);
-
-    return { topCircuitos: top, bottomCircuitos: bottom, maxCircuitoValor: maxVal };
-  }, [incidenciasReporte, circuitosIncidenciaUnicos]);
+  });
 
   const handleDescargarCredenciales = () => {
     if (usuariosFiltrados.length === 0) { alert("No hay registros en la tabla para exportar."); return; }
@@ -465,61 +319,122 @@ export default function AdminDashboardPage() {
     XLSX.writeFile(wb, 'BD_Credenciales_Jefes_Cuadrante.xlsx');
   };
 
+  const parroquiasIncidenciaUnicas = Array.from(
+    new Set(usuarios.filter(u => filtroIncidenciaMuni === '' || u.municipio === filtroIncidenciaMuni).map(u => u.parroquia))
+  ).filter(Boolean).sort();
+
+  const incidenciasTipoUnicas = Array.from(new Set(incidenciasDB.map(i => i.incidencia))).filter(Boolean).sort();
+  
+  const circuitosIncidenciaUnicos = Array.from(
+    new Set(usuarios.filter(u => 
+      (filtroIncidenciaMuni === '' || u.municipio === filtroIncidenciaMuni) && 
+      (filtroIncidenciaParro === '' || u.parroquia === filtroIncidenciaParro)
+    ).map(u => u.comuna_o_circuito_comunal))
+  ).filter(Boolean).sort();
+
+  const incidenciasFiltradas = (incidenciasDB || []).filter(inc => {
+    if (fechaDesde || fechaHasta) {
+      if (!inc.fecha_registro) return false;
+      const incTime = new Date(inc.fecha_registro).getTime();
+      if (fechaDesde) {
+        const desdeTime = new Date(`${fechaDesde}T00:00:00`).getTime();
+        if (incTime < desdeTime) return false;
+      }
+      if (fechaHasta) {
+        const hastaTime = new Date(`${fechaHasta}T23:59:59`).getTime();
+        if (incTime > hastaTime) return false;
+      }
+    }
+
+    const jefe = usuarios.find(u => u.comuna_o_circuito_comunal === inc.circuito_comunal);
+    
+    if (filtroIncidenciaMuni && jefe?.municipio !== filtroIncidenciaMuni) return false;
+    if (filtroIncidenciaParro && jefe?.parroquia !== filtroIncidenciaParro) return false;
+    if (filtroIncidenciaCircuito && inc.circuito_comunal !== filtroIncidenciaCircuito) return false;
+    if (filtroIncidenciaClasificacion && inc.clasificacion !== filtroIncidenciaClasificacion) return false;
+    if (filtroIncidenciaTipo && inc.incidencia !== filtroIncidenciaTipo) return false;
+    
+    if (filtroIncidenciaOrganismo) {
+      const orgDelCircuito = jefe?.organismo_responsable || '';
+      if (!matchesOrganismo(orgDelCircuito, filtroIncidenciaOrganismo)) return false;
+    }
+
+    return true;
+  });
+
+  const totalActividades = incidenciasFiltradas.reduce((sum, item) => sum + (Number(item.cantidad) || 0), 0);
+  const totalPreventiva = incidenciasFiltradas.filter(i => i.clasificacion?.toUpperCase().includes('PREVENTIVA')).reduce((sum, item) => sum + (Number(item.cantidad) || 0), 0);
+  const totalPatrullaje = incidenciasFiltradas.filter(i => i.clasificacion?.toUpperCase().includes('PATRULLAJE')).reduce((sum, item) => sum + (Number(item.cantidad) || 0), 0);
+  const totalEfectividad = incidenciasFiltradas.filter(i => i.clasificacion?.toUpperCase().includes('OPERATIVIDAD') || i.clasificacion?.toUpperCase().includes('EFECTIVIDAD')).reduce((sum, item) => sum + (Number(item.cantidad) || 0), 0);
+
+  const incidenciasReporte = (incidenciasDB || []).filter(inc => {
+    if (fechaRepDesde || fechaRepHasta) {
+      if (!inc.fecha_registro) return false;
+      const incTime = new Date(inc.fecha_registro).getTime();
+      if (fechaRepDesde) {
+        const desdeTime = new Date(`${fechaRepDesde}T00:00:00`).getTime();
+        if (incTime < desdeTime) return false;
+      }
+      if (fechaRepHasta) {
+        const hastaTime = new Date(`${fechaRepHasta}T23:59:59`).getTime();
+        if (incTime > hastaTime) return false;
+      }
+    }
+    return true;
+  });
+
+  const repTotal = incidenciasReporte.reduce((sum, item) => sum + (Number(item.cantidad) || 0), 0);
+  const repPreventiva = incidenciasReporte.filter(i => i.clasificacion?.toUpperCase().includes('PREVENTIVA')).reduce((sum, item) => sum + (Number(item.cantidad) || 0), 0);
+  const repPatrullaje = incidenciasReporte.filter(i => i.clasificacion?.toUpperCase().includes('PATRULLAJE')).reduce((sum, item) => sum + (Number(item.cantidad) || 0), 0);
+  const repEfectividad = incidenciasReporte.filter(i => i.clasificacion?.toUpperCase().includes('OPERATIVIDAD') || i.clasificacion?.toUpperCase().includes('EFECTIVIDAD')).reduce((sum, item) => sum + (Number(item.cantidad) || 0), 0);
+
+  const pctPreventiva = repTotal > 0 ? Math.round((repPreventiva / repTotal) * 100) : 0;
+  const pctPatrullaje = repTotal > 0 ? Math.round((repPatrullaje / repTotal) * 100) : 0;
+  const pctEfectividad = repTotal > 0 ? Math.round((repEfectividad / repTotal) * 100) : 0;
+
+  const conteoCircuitos: { [key: string]: number } = {};
+  incidenciasReporte.forEach(inc => {
+    if (inc.circuito_comunal) {
+      conteoCircuitos[inc.circuito_comunal] = (conteoCircuitos[inc.circuito_comunal] || 0) + (Number(inc.cantidad) || 1);
+    }
+  });
+  
+  const topCircuitos = Object.entries(conteoCircuitos)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5) || [];
+    
+  const maxCircuitoValor = topCircuitos[0]?.[1] || 1;
+
+  const bottomCircuitos = circuitosIncidenciaUnicos
+    .map(c => [c, conteoCircuitos[c as string] || 0])
+    .sort((a, b) => (a[1] as number) - (b[1] as number))
+    .slice(0, 5);
+
   const handleGenerarExcelIncidencias = () => {
     if (incidenciasFiltradas.length === 0) {
       alert("No hay registros para exportar con los filtros actuales.");
       return;
     }
-    
-    const wsData: any[][] = [
-      ["REPORTE GENERAL DE INCIDENCIAS OPERATIVAS - VEN 911 FALCÓN"],
-      [],
-      ["ESTADÍSTICAS DEL FILTRO APLICADO"],
-      ["Total Actividades Computadas:", totalActividades, "Total Preventiva:", totalPreventiva],
-      ["Total Patrullaje:", totalPatrullaje, "Efectividad y Rendimiento:", totalEfectividad],
-      [],
-      [
-        'FECHA / HORA', 'ESTADO', 'MUNICIPIO', 'PARROQUIA', 'CIRCUITO COMUNAL', 
-        'CLASIFICACIÓN', 'INCIDENCIA', 'ACTIVIDAD DETALLADA', 
-        'ORGANISMO REPORTANTE', 'APOYO / INVOLUCRADOS', 'RESEÑA INFORMATIVA', 
-        'OBSERVACIONES', 'ID DESPACHADOR'
-      ]
-    ];
-
-    incidenciasFiltradas.forEach(inc => {
-      const jefe = jefePorCircuito.get(inc.circuito_comunal);
-      wsData.push([
-        new Date(inc.fecha_registro).toLocaleString(),
-        jefe?.estado || 'N/A',
-        jefe?.municipio || 'N/A',
-        jefe?.parroquia || 'N/A',
-        inc.circuito_comunal || 'N/A',
-        inc.clasificacion || 'N/A',
-        inc.incidencia || 'N/A',
-        inc.actividad || 'N/A',
-        jefe?.organismo_responsable || inc.organismo_responsable || 'N/A',
-        inc.organismos_involucrados || 'NINGUNO',
-        inc.resena_informativa || inc.resena || 'N/A',
-        inc.observaciones || inc.observacion || 'No aplica',
-        inc.usuario_id || 'N/A'
-      ]);
+    const dataExcel = incidenciasFiltradas.map(inc => {
+      const jefe = usuarios.find(u => u.comuna_o_circuito_comunal === inc.circuito_comunal);
+      return {
+        'FECHA / HORA': new Date(inc.fecha_registro).toLocaleString(),
+        'ESTADO': jefe?.estado || 'N/A',
+        'MUNICIPIO': jefe?.municipio || 'N/A',
+        'PARROQUIA': jefe?.parroquia || 'N/A',
+        'CIRCUITO COMUNAL': inc.circuito_comunal || 'N/A',
+        'CLASIFICACIÓN': inc.clasificacion || 'N/A',
+        'INCIDENCIA': inc.incidencia || 'N/A',
+        'ACTIVIDAD DETALLADA': inc.actividad || 'N/A',
+        'ORGANISMO REPORTANTE': jefe?.organismo_responsable || inc.organismo_responsable || 'N/A',
+        'APOYO / INVOLUCRADOS': inc.organismos_involucrados || 'NINGUNO',
+        'RESEÑA INFORMATIVA': inc.resena_informativa || inc.resena || 'N/A',
+        'OBSERVACIONES': inc.observaciones || inc.observacion || 'No aplica',
+        'ID DESPACHADOR': inc.usuario_id || 'N/A'
+      };
     });
 
-    const ws = XLSX.utils.aoa_to_sheet(wsData);
-
-    ws['!merges'] = [
-      { s: { r: 0, c: 0 }, e: { r: 0, c: 12 } },
-      { s: { r: 2, c: 0 }, e: { r: 2, c: 3 } }  
-    ];
-
-    const wscols = [
-      { wch: 20 }, { wch: 15 }, { wch: 20 }, { wch: 25 }, { wch: 35 }, 
-      { wch: 25 }, { wch: 25 }, { wch: 40 }, 
-      { wch: 35 }, { wch: 30 }, { wch: 60 }, 
-      { wch: 45 }, { wch: 35 }
-    ];
-    ws['!cols'] = wscols;
-
+    const ws = XLSX.utils.json_to_sheet(dataExcel);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Reporte_Incidencias');
     XLSX.writeFile(wb, 'Reporte_Incidencias_VEN911.xlsx');
@@ -537,7 +452,7 @@ export default function AdminDashboardPage() {
     const baseUrl = window.location.origin;
 
     const filasHtml = incidenciasFiltradas.map(inc => {
-      const jefe = jefePorCircuito.get(inc.circuito_comunal);
+      const jefe = usuarios.find(u => u.comuna_o_circuito_comunal === inc.circuito_comunal);
       const resena = inc.resena_informativa || inc.resena || 'N/A';
       const obs = inc.observaciones || inc.observacion || 'No aplica';
       const orgA_Mostrar = jefe?.organismo_responsable || inc.organismo_responsable || 'N/A';
@@ -569,15 +484,9 @@ export default function AdminDashboardPage() {
           .title-container { text-align: center; flex-grow: 1; padding: 0 20px; }
           .title-container h2 { margin: 0; color: #00529b; font-size: 18px; text-transform: uppercase; letter-spacing: 1px; }
           .title-container h3 { margin: 5px 0 0 0; color: #555; font-size: 14px; font-weight: normal; }
-          .filters-box { background-color: #f8fafc; border: 1px solid #e2e8f0; padding: 12px; border-radius: 8px; margin-bottom: 15px; font-size: 11px; }
+          .filters-box { background-color: #f8fafc; border: 1px solid #e2e8f0; padding: 12px; border-radius: 8px; margin-bottom: 20px; font-size: 11px; }
           .filters-box p { margin: 4px 0; color: #475569; }
           .filters-box strong { color: #1e293b; }
-          
-          .stats-container { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 20px; }
-          .stat-box { flex: 1; background-color: #f1f5f9; border: 1px solid #cbd5e1; padding: 10px; border-radius: 6px; text-align: center; }
-          .stat-box strong { display: block; font-size: 10px; color: #64748b; text-transform: uppercase; margin-bottom: 5px; }
-          .stat-box span { font-size: 18px; font-weight: bold; color: #0f172a; }
-
           table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 9px; }
           th, td { border: 1px solid #cbd5e1; padding: 6px 8px; text-align: left; vertical-align: top; }
           th { background-color: #00529b; color: white; font-weight: bold; text-transform: uppercase; font-size: 8px; }
@@ -604,13 +513,9 @@ export default function AdminDashboardPage() {
           <p><strong>Rango de Fechas:</strong> ${fechaDesde ? new Date(fechaDesde).toLocaleDateString() : 'Inicio'} al ${fechaHasta ? new Date(fechaHasta).toLocaleDateString() : 'Día de Hoy'}</p>
           <p><strong>Filtros Geográficos:</strong> Municipio: ${filtroIncidenciaMuni || 'Todos'} | Parroquia: ${filtroIncidenciaParro || 'Todas'} | Circuito: ${filtroIncidenciaCircuito || 'Todos'}</p>
           <p><strong>Filtros Operativos:</strong> Clasificación: ${filtroIncidenciaClasificacion || 'Todas'} | Incidencia: ${filtroIncidenciaTipo || 'Todas'} | Organismo: ${filtroIncidenciaOrganismo || 'Todos'}</p>
-        </div>
-
-        <div class="stats-container">
-          <div class="stat-box"><strong>Total Actividades</strong><span>${totalActividades}</span></div>
-          <div class="stat-box"><strong>Preventiva</strong><span style="color:#2563eb;">${totalPreventiva}</span></div>
-          <div class="stat-box"><strong>Patrullaje</strong><span style="color:#d97706;">${totalPatrullaje}</span></div>
-          <div class="stat-box"><strong>Efectividad y Rend.</strong><span style="color:#16a34a;">${totalEfectividad}</span></div>
+          <p style="margin-top: 8px; font-size: 12px; font-weight: bold; color: #0f172a;">
+            Total de Registros Encontrados: ${incidenciasFiltradas.length} | Actividades Computadas: ${totalActividades}
+          </p>
         </div>
 
         <table>
@@ -637,6 +542,7 @@ export default function AdminDashboardPage() {
         </div>
 
         <script>
+          // Se espera a que carguen las imágenes y luego se lanza la impresión
           setTimeout(() => {
             window.print();
             window.close();
@@ -1040,8 +946,8 @@ export default function AdminDashboardPage() {
                   <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Ubicación / Circuito Comunal</p>
                   <p className="text-sm font-bold text-gray-800 mb-1">{incidenciaSeleccionada.circuito_comunal}</p>
                   <p className="text-xs text-gray-500 flex flex-col gap-0.5">
-                    <span><strong>Municipio:</strong> {jefePorCircuito.get(incidenciaSeleccionada.circuito_comunal)?.municipio || 'N/A'}</span>
-                    <span><strong>Parroquia:</strong> {jefePorCircuito.get(incidenciaSeleccionada.circuito_comunal)?.parroquia || 'N/A'}</span>
+                    <span><strong>Municipio:</strong> {usuarios.find(u => u.comuna_o_circuito_comunal === incidenciaSeleccionada.circuito_comunal)?.municipio || 'N/A'}</span>
+                    <span><strong>Parroquia:</strong> {usuarios.find(u => u.comuna_o_circuito_comunal === incidenciaSeleccionada.circuito_comunal)?.parroquia || 'N/A'}</span>
                   </p>
                 </div>
                 <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
@@ -1070,7 +976,7 @@ export default function AdminDashboardPage() {
         </div>
       )}
 
-      {/* ==========================================
+      {/* NUEVO: ==========================================
           MODAL DE INFORMACIÓN DEL CIRCUITO COMUNAL
           ========================================== */}
       {circuitoInfoSeleccionado && (
@@ -1088,8 +994,9 @@ export default function AdminDashboardPage() {
               </button>
             </div>
             
+            {/* Buscamos dinámicamente los datos del circuito y sus sectores */}
             {(() => {
-              const jefe = jefePorCircuito.get(circuitoInfoSeleccionado);
+              const jefe = usuarios.find(u => u.comuna_o_circuito_comunal === circuitoInfoSeleccionado);
               const sectores = sectoresDB.filter(s => s.codigo_situr === jefe?.codigo_situr);
               
               return (
@@ -1371,9 +1278,10 @@ export default function AdminDashboardPage() {
                             <td className="p-2 truncate max-w-[160px]" title={`${u.estado} - ${u.municipio} - ${u.parroquia}`}>{u.municipio} - {u.parroquia}</td>
                             <td className="p-2 font-mono font-bold text-amber-700">{u.codigo_situr}</td>
                             
+                            {/* NUEVO: Botón Info en la tabla de Directorio CORREGIDO */}
                             <td className="p-2">
-                              <div className="flex items-center gap-1.5 w-full">
-                                <span className="truncate max-w-[140px]" title={u.comuna_o_circuito_comunal}>{u.comuna_o_circuito_comunal}</span>
+                              <div className="flex items-center gap-1.5 max-w-[140px]">
+                                <span className="truncate" title={u.comuna_o_circuito_comunal}>{u.comuna_o_circuito_comunal}</span>
                                 <button onClick={() => setCircuitoInfoSeleccionado(u.comuna_o_circuito_comunal)} className="text-blue-500 hover:text-blue-700 transition-colors shrink-0" title="Ver detalles del circuito">
                                   <Info size={14} />
                                 </button>
@@ -1549,22 +1457,23 @@ export default function AdminDashboardPage() {
                           </td>
                           <td className="p-3">{new Date(incidencia.fecha_registro).toLocaleString()}</td>
                           
+                          {/* NUEVO: Botón Info en la tabla de Incidencias CORREGIDO */}
                           <td className="p-3 font-bold text-gray-800">
                             <div className="flex flex-col">
-                              <div className="flex items-center gap-1.5 w-full">
-                                <span className="truncate max-w-[150px]" title={incidencia.circuito_comunal}>{incidencia.circuito_comunal}</span>
+                              <div className="flex items-center gap-1.5 max-w-[160px]">
+                                <span className="truncate" title={incidencia.circuito_comunal}>{incidencia.circuito_comunal}</span>
                                 <button onClick={() => setCircuitoInfoSeleccionado(incidencia.circuito_comunal)} className="text-blue-500 hover:text-blue-700 transition-colors shrink-0" title="Ver detalles del circuito">
                                   <Info size={14} />
                                 </button>
                               </div>
                               <span className="text-[9px] font-black text-[#00529b] uppercase tracking-wider">
-                                {jefePorCircuito.get(incidencia.circuito_comunal)?.organismo_responsable ? getSiglas(jefePorCircuito.get(incidencia.circuito_comunal).organismo_responsable) : 'N/A'}
+                                {usuarios.find(u => u.comuna_o_circuito_comunal === incidencia.circuito_comunal)?.organismo_responsable ? getSiglas(usuarios.find(u => u.comuna_o_circuito_comunal === incidencia.circuito_comunal)!.organismo_responsable) : 'N/A'}
                               </span>
                             </div>
                           </td>
 
                           <td className="p-3 text-gray-600">
-                            {jefePorCircuito.get(incidencia.circuito_comunal)?.municipio || 'N/A'} / {jefePorCircuito.get(incidencia.circuito_comunal)?.parroquia || 'N/A'}
+                            {usuarios.find(u => u.comuna_o_circuito_comunal === incidencia.circuito_comunal)?.municipio || 'N/A'} / {usuarios.find(u => u.comuna_o_circuito_comunal === incidencia.circuito_comunal)?.parroquia || 'N/A'}
                           </td>
                           <td className="p-3 text-gray-700">{incidencia.clasificacion}</td>
                           <td className="p-3 text-gray-700">{incidencia.incidencia}</td>
@@ -1611,7 +1520,7 @@ export default function AdminDashboardPage() {
                     <p className="text-blue-100 text-xs font-medium mt-0.5">Monitoreo estadístico avanzado de cuadrantes de paz y operaciones VEN 911</p>
                   </div>
                 </div>
-                <div className="bg-white/10 p-3 rounded-xl backdrop-blur-md border border-white/20 flex flex-wrap items-center gap-3 w-full md:w-auto mt-4 md:mt-0">
+                <div className="bg-white/10 p-3 rounded-xl backdrop-blur-md border border-white/20 flex flex-wrap items-center gap-3 w-full md:w-auto">
                   <div className="flex items-center gap-2">
                     <Calendar size={14} className="text-amber-400" />
                     <input type="date" className="bg-transparent text-white text-xs outline-none font-bold cursor-text [color-scheme:dark]" value={fechaRepDesde} onChange={e => setFechaRepDesde(e.target.value)} />
@@ -1621,20 +1530,6 @@ export default function AdminDashboardPage() {
                     <Calendar size={14} className="text-amber-400" />
                     <input type="date" className="bg-transparent text-white text-xs outline-none font-bold cursor-text [color-scheme:dark]" value={fechaRepHasta} onChange={e => setFechaRepHasta(e.target.value)} />
                   </div>
-                  
-                  {(esSuperUser || isReadOnlyVen911) && (
-                    <>
-                      <span className="text-white/30 hidden sm:block">|</span>
-                      <div className="flex items-center gap-2">
-                        <ShieldAlert size={14} className="text-amber-400" />
-                        <select className="bg-transparent text-white text-xs outline-none font-bold cursor-pointer [&>option]:text-black max-w-[150px] truncate" value={filtroRepOrganismo} onChange={e => setFiltroRepOrganismo(e.target.value)}>
-                          <option value="">TODOS LOS ORGANISMOS</option>
-                          {LISTA_ORGANISMOS.map((org, i) => <option key={i} value={org}>{org}</option>)}
-                        </select>
-                      </div>
-                    </>
-                  )}
-
                 </div>
               </div>
 
@@ -1700,7 +1595,7 @@ export default function AdminDashboardPage() {
                 {/* LADO DERECHO: Tarjetas de TOP y BOTTOM */}
                 <div className="space-y-6">
                   
-                  {/* Tarjeta TOP 5 */}
+                  {/* NUEVO: Tarjeta TOP 5 con botón INFO CORREGIDO */}
                   <div className="bg-white border border-gray-200 p-6 rounded-3xl shadow-sm space-y-4">
                     <div className="flex justify-between items-center border-b pb-3">
                       <h3 className="font-bold text-gray-800 text-sm uppercase tracking-wide flex items-center gap-1.5"><Award size={16} className="text-amber-500" />Top 5 Circuitos Comunales con Mayor Despliegue</h3>
@@ -1710,7 +1605,7 @@ export default function AdminDashboardPage() {
                       {topCircuitos?.length > 0 ? (
                         topCircuitos.map(([circuito, valor], idx) => {
                           const porcentajeCircuito = Math.round(((valor as number) / maxCircuitoValor) * 100);
-                          const jefeCircuito = jefePorCircuito.get(circuito);
+                          const jefeCircuito = usuarios.find(u => u.comuna_o_circuito_comunal === circuito);
                           const organismo = jefeCircuito?.organismo_responsable ? getSiglas(jefeCircuito.organismo_responsable) : 'N/A';
                           
                           return (
@@ -1718,8 +1613,8 @@ export default function AdminDashboardPage() {
                               <span className="text-xs font-black text-gray-400 w-5">#{idx + 1}</span>
                               <div className="flex-1 space-y-1">
                                 <div className="flex justify-between items-end">
-                                  <div className="flex flex-col w-full pr-2">
-                                    <div className="flex items-center gap-1.5 w-full">
+                                  <div className="flex flex-col">
+                                    <div className="flex items-center gap-1.5 max-w-[180px]">
                                       <span className="text-[11px] font-bold text-gray-700 truncate" title={circuito as string}>
                                         {circuito}
                                       </span>
@@ -1729,7 +1624,7 @@ export default function AdminDashboardPage() {
                                     </div>
                                     <span className="text-[9px] font-black text-[#00529b] uppercase tracking-wider">{organismo}</span>
                                   </div>
-                                  <span className="text-[11px] text-gray-900 font-extrabold shrink-0">{valor as number} act.</span>
+                                  <span className="text-[11px] text-gray-900 font-extrabold">{valor as number} act.</span>
                                 </div>
                                 <div className="w-full bg-gray-100 rounded-md h-2 overflow-hidden border"><div className="bg-gradient-to-r from-[#00529b] to-blue-500 h-2 rounded-md transition-all duration-500" style={{ width: `${porcentajeCircuito}%` }}></div></div>
                               </div>
@@ -1744,7 +1639,7 @@ export default function AdminDashboardPage() {
                     </div>
                   </div>
 
-                  {/* Tarjeta BOTTOM 5 */}
+                  {/* NUEVO: Tarjeta BOTTOM 5 con botón INFO CORREGIDO */}
                   <div className="bg-white border border-gray-200 p-6 rounded-3xl shadow-sm space-y-4">
                     <div className="flex justify-between items-center border-b pb-3">
                       <h3 className="font-bold text-gray-800 text-sm uppercase tracking-wide flex items-center gap-1.5">
@@ -1756,7 +1651,7 @@ export default function AdminDashboardPage() {
                       {bottomCircuitos?.length > 0 ? (
                         bottomCircuitos.map(([circuito, valor], idx) => {
                           const porcentajeCircuito = Math.round(((valor as number) / maxCircuitoValor) * 100);
-                          const jefeCircuito = jefePorCircuito.get(circuito);
+                          const jefeCircuito = usuarios.find(u => u.comuna_o_circuito_comunal === circuito);
                           const organismo = jefeCircuito?.organismo_responsable ? getSiglas(jefeCircuito.organismo_responsable) : 'N/A';
                           
                           return (
@@ -1764,8 +1659,8 @@ export default function AdminDashboardPage() {
                               <span className="text-xs font-black text-gray-400 w-5">#{idx + 1}</span>
                               <div className="flex-1 space-y-1">
                                 <div className="flex justify-between items-end">
-                                  <div className="flex flex-col w-full pr-2">
-                                    <div className="flex items-center gap-1.5 w-full">
+                                  <div className="flex flex-col">
+                                    <div className="flex items-center gap-1.5 max-w-[180px]">
                                       <span className="text-[11px] font-bold text-gray-700 truncate" title={circuito as string}>
                                         {circuito}
                                       </span>
@@ -1775,7 +1670,7 @@ export default function AdminDashboardPage() {
                                     </div>
                                     <span className="text-[9px] font-black text-[#00529b] uppercase tracking-wider">{organismo}</span>
                                   </div>
-                                  <span className="text-[11px] text-gray-900 font-extrabold shrink-0">{valor as number} act.</span>
+                                  <span className="text-[11px] text-gray-900 font-extrabold">{valor as number} act.</span>
                                 </div>
                                 <div className="w-full bg-gray-100 rounded-md h-2 overflow-hidden border">
                                   <div className="bg-gradient-to-r from-red-500 to-orange-400 h-2 rounded-md transition-all duration-500" style={{ width: `${Math.max(porcentajeCircuito, 1)}%` }}></div>
