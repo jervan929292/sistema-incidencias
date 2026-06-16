@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
 import { SquarePen, Calendar, Search, FileSpreadsheet, FileText, Filter, ShieldAlert, Activity, ShieldCheck, Siren, Target, Award, TrendingUp, TrendingDown, Settings, Plus, Trash2, Edit3, ChevronRight, UserPlus, UserMinus, User, Star, AlertCircle, Eye, X, Info } from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -18,14 +18,12 @@ const LISTA_ORGANISMOS = [
 // DICCIONARIO PARA OBTENER LAS SIGLAS DEL ORGANISMO
 const getSiglas = (organismo: string) => {
   const orgLow = (organismo || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-  
   if (orgLow.includes('cicpc')) return 'CICPC';
   if (orgLow.includes('cuerpo de policia nacional bolivariana') || orgLow.includes('pnb') || orgLow.includes('cpnb')) return 'CPNB';
   if (orgLow.includes('guardia nacional bolivariana') || orgLow.includes('gnb')) return 'GNB';
   if (orgLow.includes('policia del estado falcon') || orgLow.includes('estadal') || orgLow.includes('polifalcon')) return 'POLIFALCÓN';
   if (orgLow.includes('policia municipal de carirubana')) return 'POLICARIRUBANA';
   if (orgLow.includes('policia municipal de miranda')) return 'POLIMIRANDA';
-  
   return organismo || 'SIN ORGANISMO';
 };
 
@@ -94,7 +92,6 @@ export default function AdminDashboardPage() {
 
   const [fechaRepDesde, setFechaRepDesde] = useState('');
   const [fechaRepHasta, setFechaRepHasta] = useState('');
-  // NUEVO ESTADO: Filtro de organismo para la pestaña de Reportes y Estadísticas
   const [filtroRepOrganismo, setFiltroRepOrganismo] = useState('');
 
   const [catClasificacion, setCatClasificacion] = useState<any[]>([]);
@@ -110,22 +107,28 @@ export default function AdminDashboardPage() {
 
   useEffect(() => {
     const checkAccess = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { window.location.href = '/login'; return; }
-      
-      const { data: adminData } = await supabase.from('directorio_operativo').select('*').eq('id', user.id).single();
-      
-      if (adminData?.rol === 'admin' || adminData?.rol === 'superusuario') {
-        setAdminUser(adminData); 
-        setEsSuperUser(adminData.rol === 'superusuario');
-        setIsReadOnlyVen911(adminData.organismo_responsable === 'VEN 911' && adminData.rol !== 'superusuario');
-        setVerificando(false);
-        fetchDatos(adminData);
-        if (adminData.rol === 'superusuario') {
-          fetchAdmins();
+      try {
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        if (authError || !user) { await supabase.auth.signOut(); window.location.href = '/login'; return; }
+        
+        const { data: adminData, error: dbError } = await supabase.from('directorio_operativo').select('*').eq('id', user.id).single();
+        if (dbError) throw dbError;
+        
+        if (adminData?.rol === 'admin' || adminData?.rol === 'superusuario') {
+          setAdminUser(adminData); 
+          setEsSuperUser(adminData.rol === 'superusuario');
+          setIsReadOnlyVen911(adminData.organismo_responsable === 'VEN 911' && adminData.rol !== 'superusuario');
+          setVerificando(false);
+          fetchDatos(adminData);
+          if (adminData.rol === 'superusuario') {
+            fetchAdmins();
+          }
+        } else {
+          window.location.href = '/dashboard';
         }
-      } else {
-        window.location.href = '/dashboard';
+      } catch (err) {
+        console.error(err);
+        await supabase.auth.signOut(); window.location.href = '/login';
       }
     };
     checkAccess();
@@ -153,68 +156,73 @@ export default function AdminDashboardPage() {
       return; 
     }
     
+    // 1. CARGAR USUARIOS PRIMERO (Necesarios para el filtro posterior)
+    let usuariosProcesados: any[] = [];
     const { data: users, error: errU } = await supabase.from('directorio_operativo').select('*').neq('rol', 'admin').neq('rol', 'superusuario').limit(10000);
-    if (errU) alert("Error cargando usuarios: " + errU.message);
-    else if (users) {
+    if (errU) {
+      alert("Error cargando usuarios: " + errU.message);
+    } else if (users) {
+      usuariosProcesados = (!veTodo && currentUser.organismo_responsable) 
+        ? users.filter(u => matchesOrganismo(u.organismo_responsable, currentUser.organismo_responsable)) 
+        : users;
+      setUsuarios(usuariosProcesados);
+    }
+
+    // 2. CARGAS PARALELAS OPTIMIZADAS (Para evitar tiempos de espera largos)
+    const fetchSectores = async () => {
+      let todosLosSectores: any[] = [];
+      let limite = 1000;
+      let inicio = 0;
+      let hayMas = true;
+      while (hayMas) {
+        const { data: secs } = await supabase.from('sectores').select('*').range(inicio, inicio + limite - 1);
+        if (secs && secs.length > 0) {
+          todosLosSectores = [...todosLosSectores, ...secs];
+          inicio += limite;
+          if (secs.length < limite) hayMas = false; 
+        } else { hayMas = false; }
+      }
+      return todosLosSectores;
+    };
+
+    const fetchIncidencias = async () => {
+      let todasLasIncidencias: any[] = [];
+      let limiteIncs = 1000;
+      let inicioIncs = 0;
+      let hayMasIncs = true;
+      while (hayMasIncs) {
+        const { data: incsBatch } = await supabase.from('incidencias').select('*').range(inicioIncs, inicioIncs + limiteIncs - 1);
+        if (incsBatch && incsBatch.length > 0) {
+          todasLasIncidencias = [...todasLasIncidencias, ...incsBatch];
+          inicioIncs += limiteIncs;
+          if (incsBatch.length < limiteIncs) hayMasIncs = false; 
+        } else { hayMasIncs = false; }
+      }
+      return todasLasIncidencias;
+    };
+
+    const [resSectores, resIncidencias, resCatClas, resCatInc, resCatAct] = await Promise.all([
+      fetchSectores(),
+      fetchIncidencias(),
+      supabase.from('catalogo_clasificacion').select('*').order('nombre'),
+      supabase.from('catalogo_incidencia').select('*').order('nombre'),
+      supabase.from('catalogo_actividad').select('*').order('nombre')
+    ]);
+
+    setSectoresDB(resSectores);
+
+    if (resIncidencias) {
       if (!veTodo && currentUser.organismo_responsable) {
-        const filteredUsers = users.filter(u => matchesOrganismo(u.organismo_responsable, currentUser.organismo_responsable));
-        setUsuarios(filteredUsers);
+        const circuitosAutorizados = new Set(usuariosProcesados.map(u => u.comuna_o_circuito_comunal));
+        setIncidenciasDB(resIncidencias.filter(inc => circuitosAutorizados.has(inc.circuito_comunal)));
       } else {
-        setUsuarios(users);
+        setIncidenciasDB(resIncidencias);
       }
     }
 
-    let todosLosSectores: any[] = [];
-    let limite = 1000;
-    let inicio = 0;
-    let hayMas = true;
-    while (hayMas) {
-      const { data: secs, error: errS } = await supabase.from('sectores').select('*').range(inicio, inicio + limite - 1);
-      if (errS) { console.error("Error cargando sectores:", errS); hayMas = false; }
-      else if (secs && secs.length > 0) {
-        todosLosSectores = [...todosLosSectores, ...secs];
-        inicio += limite;
-        if (secs.length < limite) hayMas = false; 
-      } else { hayMas = false; }
-    }
-    setSectoresDB(todosLosSectores);
-    
-    let todasLasIncidencias: any[] = [];
-    let limiteIncs = 1000;
-    let inicioIncs = 0;
-    let hayMasIncs = true;
-    while (hayMasIncs) {
-      const { data: incsBatch, error: errI } = await supabase.from('incidencias').select('*').range(inicioIncs, inicioIncs + limiteIncs - 1);
-      if (errI) { console.error("Error cargando incidencias:", errI); hayMasIncs = false; }
-      else if (incsBatch && incsBatch.length > 0) {
-        todasLasIncidencias = [...todasLasIncidencias, ...incsBatch];
-        inicioIncs += limiteIncs;
-        if (incsBatch.length < limiteIncs) hayMasIncs = false; 
-      } else { hayMasIncs = false; }
-    }
-    
-    const incs = todasLasIncidencias;
-
-    if (incs) {
-      if (!veTodo && currentUser.organismo_responsable) {
-        const circuitosAutorizados = new Set(
-          (users || [])
-            .filter(u => matchesOrganismo(u.organismo_responsable, currentUser.organismo_responsable))
-            .map(u => u.comuna_o_circuito_comunal)
-        );
-        const filteredIncs = incs.filter(inc => circuitosAutorizados.has(inc.circuito_comunal));
-        setIncidenciasDB(filteredIncs);
-      } else {
-        setIncidenciasDB(incs);
-      }
-    }
-
-    const { data: cClas } = await supabase.from('catalogo_clasificacion').select('*').order('nombre');
-    if (cClas) setCatClasificacion(cClas);
-    const { data: cInc } = await supabase.from('catalogo_incidencia').select('*').order('nombre');
-    if (cInc) setCatIncidencia(cInc);
-    const { data: cAct } = await supabase.from('catalogo_actividad').select('*').order('nombre');
-    if (cAct) setCatActividad(cAct);
+    if (resCatClas.data) setCatClasificacion(resCatClas.data);
+    if (resCatInc.data) setCatIncidencia(resCatInc.data);
+    if (resCatAct.data) setCatActividad(resCatAct.data);
     
     setSelectedIds([]); 
   };
@@ -371,7 +379,6 @@ export default function AdminDashboardPage() {
   const totalPatrullaje = incidenciasFiltradas.filter(i => i.clasificacion?.toUpperCase().includes('PATRULLAJE')).reduce((sum, item) => sum + (Number(item.cantidad) || 0), 0);
   const totalEfectividad = incidenciasFiltradas.filter(i => i.clasificacion?.toUpperCase().includes('OPERATIVIDAD') || i.clasificacion?.toUpperCase().includes('EFECTIVIDAD')).reduce((sum, item) => sum + (Number(item.cantidad) || 0), 0);
 
-  // LOGICA CORREGIDA PARA INCIDENCIAS REPORTE (INCLUYE FILTRO DE ORGANISMO)
   const incidenciasReporte = (incidenciasDB || []).filter(inc => {
     if (fechaRepDesde || fechaRepHasta) {
       if (!inc.fecha_registro) return false;
@@ -386,7 +393,6 @@ export default function AdminDashboardPage() {
       }
     }
 
-    // APLICAR FILTRO DE ORGANISMO EN ESTADÍSTICAS
     if (filtroRepOrganismo) {
       const jefe = usuarios.find(u => u.comuna_o_circuito_comunal === inc.circuito_comunal);
       const orgDelCircuito = jefe?.organismo_responsable || '';
@@ -418,19 +424,27 @@ export default function AdminDashboardPage() {
     
   const maxCircuitoValor = topCircuitos[0]?.[1] || 1;
 
-  const bottomCircuitos = circuitosIncidenciaUnicos
+  // CORRECCIÓN APLICADA: Filtramos los circuitos para obtener SOLO los del organismo seleccionado en Reportes
+  const circuitosValidosReporte = Array.from(
+    new Set(
+      usuarios
+        .filter(u => !filtroRepOrganismo || matchesOrganismo(u.organismo_responsable, filtroRepOrganismo))
+        .map(u => u.comuna_o_circuito_comunal)
+    )
+  ).filter(Boolean);
+
+  // Calculamos el Bottom 5 usando únicamente los circuitos válidos
+  const bottomCircuitos = circuitosValidosReporte
     .map(c => [c, conteoCircuitos[c as string] || 0])
     .sort((a, b) => (a[1] as number) - (b[1] as number))
     .slice(0, 5);
 
-  // REDISEÑO EXCEL DE INCIDENCIAS PARA INCLUIR ESTADÍSTICAS Y FORMATO LIMPIO
   const handleGenerarExcelIncidencias = () => {
     if (incidenciasFiltradas.length === 0) {
       alert("No hay registros para exportar con los filtros actuales.");
       return;
     }
     
-    // Crear matriz de datos estructurada
     const wsData: any[][] = [
       ["REPORTE GENERAL DE INCIDENCIAS OPERATIVAS - VEN 911 FALCÓN"],
       [],
@@ -467,13 +481,11 @@ export default function AdminDashboardPage() {
 
     const ws = XLSX.utils.aoa_to_sheet(wsData);
 
-    // Combinar celdas para el título
     ws['!merges'] = [
-      { s: { r: 0, c: 0 }, e: { r: 0, c: 12 } }, // Título General
-      { s: { r: 2, c: 0 }, e: { r: 2, c: 3 } }   // Título de Estadísticas
+      { s: { r: 0, c: 0 }, e: { r: 0, c: 12 } },
+      { s: { r: 2, c: 0 }, e: { r: 2, c: 3 } }  
     ];
 
-    // Ajustar anchos de columna para que no se vea desordenado
     const wscols = [
       { wch: 20 }, { wch: 15 }, { wch: 20 }, { wch: 25 }, { wch: 35 }, 
       { wch: 25 }, { wch: 25 }, { wch: 40 }, 
@@ -487,7 +499,6 @@ export default function AdminDashboardPage() {
     XLSX.writeFile(wb, 'Reporte_Incidencias_VEN911.xlsx');
   };
 
-  // REDISEÑO DEL PDF PARA INCLUIR LAS ESTADÍSTICAS COMO CUADROS
   const handleGenerarPDFIncidencias = () => {
     if (incidenciasFiltradas.length === 0) {
       alert("No hay registros para exportar con los filtros actuales.");
@@ -536,7 +547,6 @@ export default function AdminDashboardPage() {
           .filters-box p { margin: 4px 0; color: #475569; }
           .filters-box strong { color: #1e293b; }
           
-          /* ESTILOS NUEVOS PARA LAS ESTADÍSTICAS EN EL PDF */
           .stats-container { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 20px; }
           .stat-box { flex: 1; background-color: #f1f5f9; border: 1px solid #cbd5e1; padding: 10px; border-radius: 6px; text-align: center; }
           .stat-box strong { display: block; font-size: 10px; color: #64748b; text-transform: uppercase; margin-bottom: 5px; }
@@ -891,7 +901,7 @@ export default function AdminDashboardPage() {
       const { error: errJefe } = await supabase.from('directorio_operativo')
         .update(datosJefeLimpios)
         .eq('id', editingUsuario.id);
-      
+        
       if (errJefe) throw errJefe;
 
       if (codigoViejo) {
@@ -1336,8 +1346,8 @@ export default function AdminDashboardPage() {
                             <td className="p-2 font-mono font-bold text-amber-700">{u.codigo_situr}</td>
                             
                             <td className="p-2">
-                              <div className="flex items-center gap-1.5 w-full">
-                                <span className="truncate max-w-[140px]" title={u.comuna_o_circuito_comunal}>{u.comuna_o_circuito_comunal}</span>
+                              <div className="flex items-center justify-between gap-1.5 w-full max-w-[160px]">
+                                <span className="truncate flex-1 min-w-0" title={u.comuna_o_circuito_comunal}>{u.comuna_o_circuito_comunal}</span>
                                 <button onClick={() => setCircuitoInfoSeleccionado(u.comuna_o_circuito_comunal)} className="text-blue-500 hover:text-blue-700 transition-colors shrink-0" title="Ver detalles del circuito">
                                   <Info size={14} />
                                 </button>
@@ -1515,13 +1525,13 @@ export default function AdminDashboardPage() {
                           
                           <td className="p-3 font-bold text-gray-800">
                             <div className="flex flex-col">
-                              <div className="flex items-center gap-1.5 w-full">
-                                <span className="truncate max-w-[150px]" title={incidencia.circuito_comunal}>{incidencia.circuito_comunal}</span>
+                              <div className="flex items-center justify-between gap-1.5 w-full max-w-[180px]">
+                                <span className="truncate flex-1 min-w-0" title={incidencia.circuito_comunal}>{incidencia.circuito_comunal}</span>
                                 <button onClick={() => setCircuitoInfoSeleccionado(incidencia.circuito_comunal)} className="text-blue-500 hover:text-blue-700 transition-colors shrink-0" title="Ver detalles del circuito">
                                   <Info size={14} />
                                 </button>
                               </div>
-                              <span className="text-[9px] font-black text-[#00529b] uppercase tracking-wider">
+                              <span className="text-[9px] font-black text-[#00529b] uppercase tracking-wider mt-0.5">
                                 {usuarios.find(u => u.comuna_o_circuito_comunal === incidencia.circuito_comunal)?.organismo_responsable ? getSiglas(usuarios.find(u => u.comuna_o_circuito_comunal === incidencia.circuito_comunal)!.organismo_responsable) : 'N/A'}
                               </span>
                             </div>
@@ -1683,8 +1693,8 @@ export default function AdminDashboardPage() {
                               <div className="flex-1 space-y-1">
                                 <div className="flex justify-between items-end">
                                   <div className="flex flex-col w-full pr-2">
-                                    <div className="flex items-center gap-1.5 w-full">
-                                      <span className="text-[11px] font-bold text-gray-700 truncate" title={circuito as string}>
+                                    <div className="flex items-center justify-between gap-1.5 w-full">
+                                      <span className="text-[11px] font-bold text-gray-700 truncate flex-1 min-w-0" title={circuito as string}>
                                         {circuito}
                                       </span>
                                       <button onClick={() => setCircuitoInfoSeleccionado(circuito as string)} className="text-blue-500 hover:text-blue-700 transition-colors shrink-0" title="Ver detalles del circuito">
@@ -1729,8 +1739,8 @@ export default function AdminDashboardPage() {
                               <div className="flex-1 space-y-1">
                                 <div className="flex justify-between items-end">
                                   <div className="flex flex-col w-full pr-2">
-                                    <div className="flex items-center gap-1.5 w-full">
-                                      <span className="text-[11px] font-bold text-gray-700 truncate" title={circuito as string}>
+                                    <div className="flex items-center justify-between gap-1.5 w-full">
+                                      <span className="text-[11px] font-bold text-gray-700 truncate flex-1 min-w-0" title={circuito as string}>
                                         {circuito}
                                       </span>
                                       <button onClick={() => setCircuitoInfoSeleccionado(circuito as string)} className="text-blue-500 hover:text-blue-700 transition-colors shrink-0" title="Ver detalles del circuito">
