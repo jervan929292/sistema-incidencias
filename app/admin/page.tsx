@@ -2117,8 +2117,7 @@ export default function AdminDashboardPage() {
       )}
     </div>
   );
-<<<<<<< HEAD
+
 }
-=======
-}
->>>>>>> 5e8bb4fa981229dc3d4db1c4842f0a107d038b13
+
+
