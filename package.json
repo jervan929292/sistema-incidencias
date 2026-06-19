@@ -13,13 +13,9 @@
     "@capacitor/cli": "^8.3.4",
     "@capacitor/core": "^8.3.4",
     "@supabase/ssr": "^0.12.0",
-<<<<<<< HEAD
     "@supabase/supabase-js": "^2.108.2",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.8",
-=======
-    "@supabase/supabase-js": "^2.106.2",
->>>>>>> 5e8bb4fa981229dc3d4db1c4842f0a107d038b13
     "lucide-react": "^1.17.0",
     "next": "16.2.6",
     "papaparse": "^5.5.3",
