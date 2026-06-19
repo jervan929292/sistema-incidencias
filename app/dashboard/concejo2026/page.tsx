@@ -229,7 +229,7 @@ export default function ConcejoTerritorialPage() {
                   {/* NUEVA BITÁCORA DE RESEÑAS CRONOLÓGICAS AUTOMATIZADAS */}
                   <div className="space-y-3 bg-amber-50/20 p-4 rounded-xl border border-amber-200">
                     <h4 className="text-[11px] font-black text-amber-800 uppercase flex items-center gap-1.5">
-                      <MessageSquare size={14}/> Bitácora de Reseñas y Eventos (3 Días)
+                      <MessageSquare size={14}/> Bitácora de Reseñas y Eventos 
                     </h4>
                     
                     {/* Caja para escribir nueva nota */}
