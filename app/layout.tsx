@@ -2,6 +2,10 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
+// IMPORTANTE: Asegúrate de que esta ruta coincida con donde guardaste el archivo del banner.
+// Si lo creaste dentro de una carpeta "components", esta línea está perfecta.
+import BannerConcejo2026 from "@/components/BannerConcejo2026"; 
+
 const geistSans = Geist({
   variable: "--font-geist-sans", // Corregí un pequeño doble guion que tenías aquí antes
   subsets: ["latin"],
@@ -33,7 +37,13 @@ export default function RootLayout({
     >
       {/* SE AGREGÓ EL SUPPRESSHYDRATIONWARNING AQUÍ TAMBIÉN */}
       <body suppressHydrationWarning className="min-h-full flex flex-col">
+        
+        {/* AQUÍ COLGAMOS EL CARTEL PUBLICITARIO GLOBAL */}
+        <BannerConcejo2026 />
+
+        {/* Aquí sigue el resto de tu sistema intacto hacia abajo */}
         {children}
+        
       </body>
     </html>
   );
