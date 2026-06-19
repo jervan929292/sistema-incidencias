@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
-import { BarChart3, Shield, MapPin, CheckCircle2, AlertTriangle, Upload, Loader2, Eye, X, UserCheck, Package, Clock, School, ArrowLeft, Flag, FileText, Download } from 'lucide-react';
+import { BarChart3, Shield, MapPin, CheckCircle2, AlertTriangle, Eye, X, UserCheck, Clock, School, ArrowLeft, Flag, FileText, Download } from 'lucide-react';
 import Link from 'next/link';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -12,14 +12,16 @@ export default function SalaSituacionalConcejoPage() {
   const [usuarios, setUsuarios] = useState<any[]>([]);
   const [reportes, setReportes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [subiendoCsv, setSubiendoCsv] = useState(false);
   
+  // ESTADOS DE FILTROS 
   const [filtroMunicipio, setFiltroMunicipio] = useState('');
   const [filtroOrganismo, setFiltroOrganismo] = useState('');
   const [filtroCotillon, setFiltroCotillon] = useState('');
+  const [filtroToma, setFiltroToma] = useState('');
+  const [filtroInstalacion, setFiltroInstalacion] = useState('');
+  const [filtroApertura, setFiltroApertura] = useState('');
   
   const [centroSeleccionado, setCentroSeleccionado] = useState<any | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const descargarTodo = async () => {
@@ -27,7 +29,6 @@ export default function SalaSituacionalConcejoPage() {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
 
-        // Buscamos quién es el admin que inició sesión
         const { data: adminData } = await supabase.from('directorio_operativo').select('*').eq('id', user.id).single();
         setAdminProfile(adminData);
 
@@ -48,91 +49,6 @@ export default function SalaSituacionalConcejoPage() {
     };
     descargarTodo();
   }, []);
-
-  const handleUploadCsv = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setSubiendoCsv(true);
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      try {
-        const text = event.target?.result as string;
-        const delimitador = text.split('\n')[0].includes(';') ? ';' : ',';
-
-        let filas: string[][] = [];
-        let filaActual: string[] = [];
-        let dentroDeComillas = false;
-        let valorActual = '';
-
-        for (let i = 0; i < text.length; i++) {
-          const char = text[i];
-          if (char === '"') {
-            dentroDeComillas = !dentroDeComillas;
-          } else if (char === delimitador && !dentroDeComillas) {
-            filaActual.push(valorActual.trim());
-            valorActual = '';
-          } else if (char === '\n' && !dentroDeComillas) {
-            filaActual.push(valorActual.trim());
-            if (filaActual.some(v => v !== '')) filas.push(filaActual);
-            filaActual = [];
-            valorActual = '';
-          } else if (char !== '\r') {
-            valorActual += char;
-          }
-        }
-        if (valorActual || filaActual.length > 0) {
-          filaActual.push(valorActual.trim());
-          filas.push(filaActual);
-        }
-
-        if (filas.length < 2) throw new Error("El archivo no contiene filas de datos.");
-        const headers = filas[0].map(h => h.replace(/["']/g, '').toUpperCase());
-        const getIdx = (nombresPosibles: string[]) => headers.findIndex(h => nombresPosibles.some(np => h.includes(np)));
-
-        const idxCodCentro = getIdx(['COD_CENTRO', 'COD CENTRO']);
-        const idxNombre = getIdx(['NOMBRE CENTRO', 'NOMBRE_CENTRO']);
-        const idxDireccion = getIdx(['DIRECCION']);
-        const idxComuna = getIdx(['COMUNA', 'CNE']);
-        const idxSitur = getIdx(['SITUR', 'CIRCUITO']);
-        const idxMesa = getIdx(['MESA']);
-
-        if (idxCodCentro === -1 || idxSitur === -1) throw new Error('Columnas obligatorias de CNE y CIRCUITO COMUNAL ausentes.');
-
-        const dataToInsert = [];
-        for (let i = 1; i < filas.length; i++) {
-          const cols = filas[i];
-          if (cols.length > 2 && cols[idxCodCentro]) {
-            dataToInsert.push({
-              "COD_CENTRO": cols[idxCodCentro].replace(/["']/g, ''),
-              "NOMBRE CENTRO": cols[idxNombre] ? cols[idxNombre].replace(/["']/g, '') : '',
-              "DIRECCION": cols[idxDireccion] ? cols[idxDireccion].replace(/["']/g, '') : '',
-              "CODIGO_COMUNA_CNE": cols[idxComuna] ? cols[idxComuna].replace(/["']/g, '') : '',
-              "CODIGO_CIRCUITO_COMUNAL": cols[idxSitur] ? cols[idxSitur].replace(/["']/g, '') : '',
-              "MESA": cols[idxMesa] ? cols[idxMesa].replace(/["']/g, '') : ''
-            });
-          }
-        }
-
-        const tamañoLote = 200;
-        for (let i = 0; i < dataToInsert.length; i += tamañoLote) {
-          const lote = dataToInsert.slice(i, i + tamañoLote);
-          const { error } = await supabase.from('centros_votacion_2026').insert(lote);
-          if (error) throw error;
-        }
-
-        alert(`Carga masiva de ${dataToInsert.length} centros completada.`);
-        window.location.reload();
-
-      } catch (err: any) {
-        alert("Error de procesamiento: " + err.message);
-      } finally {
-        setSubiendoCsv(false);
-        if (e.target) e.target.value = '';
-      }
-    };
-    reader.readAsText(file);
-  };
 
   const mapaJefes = useMemo(() => {
     const mapa = new Map();
@@ -161,7 +77,17 @@ export default function SalaSituacionalConcejoPage() {
   const organismosUnicos = useMemo(() => Array.from(new Set(usuarios.map(u => u.organismo_responsable))).filter(Boolean).sort(), [usuarios]);
 
   const centrosProcesados = useMemo(() => {
-    return centros.map(c => {
+    // FILTRO ANTI-DUPLICADOS: Agrupamos las escuelas por Código CNE
+    const centrosUnicosMap = new Map();
+    centros.forEach(c => {
+      if (!centrosUnicosMap.has(c.COD_CENTRO)) {
+        centrosUnicosMap.set(c.COD_CENTRO, c);
+      }
+    });
+    const centrosUnicos = Array.from(centrosUnicosMap.values());
+
+    // Ahora mapeamos sobre los centros únicos, no sobre toda la base de datos
+    return centrosUnicos.map(c => {
       const jefe = mapaJefes.get(c.CODIGO_CIRCUITO_COMUNAL?.toString().trim());
       const reporte = mapaReportes.get(c.COD_CENTRO);
       
@@ -192,9 +118,13 @@ export default function SalaSituacionalConcejoPage() {
       const matchMuni = !filtroMunicipio || c.municipio === filtroMunicipio;
       const matchOrganismo = !organismoSeguro || c.organismo === organismoSeguro;
       const matchCotillon = !filtroCotillon || c.entrega_cotillon === filtroCotillon;
-      return matchMuni && matchOrganismo && matchCotillon;
+      const matchToma = !filtroToma || c.toma_centro === filtroToma;
+      const matchInstalacion = !filtroInstalacion || c.instalacion_mesas === filtroInstalacion;
+      const matchApertura = !filtroApertura || c.apertura === filtroApertura;
+      
+      return matchMuni && matchOrganismo && matchCotillon && matchToma && matchInstalacion && matchApertura;
     });
-  }, [centros, mapaJefes, mapaReportes, filtroMunicipio, organismoSeguro, filtroCotillon]);
+  }, [centros, mapaJefes, mapaReportes, filtroMunicipio, organismoSeguro, filtroCotillon, filtroToma, filtroInstalacion, filtroApertura]);
 
   const stats = useMemo(() => {
     const total = centrosProcesados.length;
@@ -205,29 +135,28 @@ export default function SalaSituacionalConcejoPage() {
 
   // FUNCIÓN PARA GENERAR EL PDF ORDENADO
   const generarPDF = () => {
-    const doc = new jsPDF('landscape'); // Formato horizontal para que quepan las columnas
+    const doc = new jsPDF('landscape'); 
     
     // Título
     doc.setFontSize(16);
-    doc.text('Reporte General - Operativo Concejo Popular 2026', 14, 20);
+    doc.text('Reporte General - Operativo Consulta Popular 2026', 14, 20);
     
-    // Subtítulo con filtros aplicados
     doc.setFontSize(10);
     doc.setTextColor(100);
     let subtitulo = `Organismo: ${organismoSeguro || 'TODOS'} | Municipio: ${filtroMunicipio || 'TODOS'}`;
     doc.text(subtitulo, 14, 28);
     doc.text(`Totales: ${stats.total} Centros | Cotillón Recibido: ${stats.recibidos} | Pendientes: ${stats.pendientes}`, 14, 34);
 
-    // Tabla de datos
-    const tableColumn = ["CNE", "Centro de Votación", "Municipio", "SITUR", "Custodia", "Cotillón", "Apertura"];
+    const tableColumn = ["CNE", "Centro", "SITUR", "Toma", "Cotillón", "Instalación", "Apertura", "Cierre"];
     const tableRows = centrosProcesados.map(c => [
       c.COD_CENTRO,
       c['NOMBRE CENTRO'],
-      `${c.municipio} (${c.parroquia})`,
       c.CODIGO_CIRCUITO_COMUNAL,
-      `${c.organismo} - ${c.jefe_nombre}`,
+      c.toma_centro,
       c.entrega_cotillon,
-      c.apertura
+      c.instalacion_mesas,
+      c.apertura,
+      c.cierre_mesas
     ]);
 
     autoTable(doc, {
@@ -235,7 +164,7 @@ export default function SalaSituacionalConcejoPage() {
       body: tableRows,
       startY: 40,
       styles: { fontSize: 8 },
-      headStyles: { fillColor: [0, 82, 155] } // Azul institucional
+      headStyles: { fillColor: [0, 82, 155] }
     });
 
     doc.save('Reporte_Electoral_VEN911.pdf');
@@ -262,13 +191,6 @@ export default function SalaSituacionalConcejoPage() {
           <h1 className="text-2xl font-black uppercase tracking-wide flex items-center gap-2"><BarChart3 /> Sala Situacional Operativa</h1>
           <p className="text-xs text-blue-100 font-medium mt-1">Monitoreo y auditoría analítica de despliegues y material electoral en Falcón</p>
         </div>
-        <div className="flex items-center gap-3">
-          {isSuperAdmin && (
-            <>
-              
-            </>
-          )}
-        </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
@@ -286,7 +208,7 @@ export default function SalaSituacionalConcejoPage() {
         </div>
       </div>
 
-      <div className="bg-white p-4 rounded-2xl border shadow-sm flex flex-wrap gap-4">
+      <div className="bg-white p-4 rounded-2xl border shadow-sm flex flex-wrap gap-4 items-end">
         <div className="flex flex-col"><label className="text-[10px] font-bold text-gray-400 mb-1 uppercase">Municipio</label><select value={filtroMunicipio} onChange={e => setFiltroMunicipio(e.target.value)} className="p-2 border rounded-lg bg-white text-xs outline-none font-bold text-gray-700"><option value="">Todos los Municipios</option>{municipiosUnicos.map((m, i) => <option key={i} value={m}>{m}</option>)}</select></div>
         
         {/* CANDADO DE SEGURIDAD: Solo el VEN 911 puede cambiar este filtro */}
@@ -295,6 +217,12 @@ export default function SalaSituacionalConcejoPage() {
         )}
 
         <div className="flex flex-col"><label className="text-[10px] font-bold text-gray-400 mb-1 uppercase">Estatus Cotillón</label><select value={filtroCotillon} onChange={e => setFiltroCotillon(e.target.value)} className="p-2 border rounded-lg bg-white text-xs outline-none font-bold text-gray-700"><option value="">Todos</option><option value="PENDIENTE">PENDIENTE</option><option value="RECIBIDO">RECIBIDO</option></select></div>
+        
+        <div className="flex flex-col"><label className="text-[10px] font-bold text-gray-400 mb-1 uppercase">Toma de Centro</label><select value={filtroToma} onChange={e => setFiltroToma(e.target.value)} className="p-2 border rounded-lg bg-white text-xs outline-none font-bold text-gray-700"><option value="">Todos</option><option value="PENDIENTE">PENDIENTE</option><option value="REALIZADA">REALIZADA</option></select></div>
+        
+        <div className="flex flex-col"><label className="text-[10px] font-bold text-gray-400 mb-1 uppercase">Instalación Mesas</label><select value={filtroInstalacion} onChange={e => setFiltroInstalacion(e.target.value)} className="p-2 border rounded-lg bg-white text-xs outline-none font-bold text-gray-700"><option value="">Todos</option><option value="PENDIENTE">PENDIENTE</option><option value="REALIZADA">REALIZADA</option></select></div>
+        
+        <div className="flex flex-col"><label className="text-[10px] font-bold text-gray-400 mb-1 uppercase">Apertura</label><select value={filtroApertura} onChange={e => setFiltroApertura(e.target.value)} className="p-2 border rounded-lg bg-white text-xs outline-none font-bold text-gray-700"><option value="">Todos</option><option value="PENDIENTE">PENDIENTE</option><option value="REALIZADA">REALIZADA</option></select></div>
       </div>
 
       <div className="bg-white rounded-2xl border shadow-inner overflow-hidden">
@@ -306,6 +234,8 @@ export default function SalaSituacionalConcejoPage() {
                 <th className="p-3">Centro de Votación</th>
                 <th className="p-3">Organismo / Jefe</th>
                 <th className="p-3 text-center">Toma</th>
+                <th className="p-3 text-center">Cotillón</th>
+                <th className="p-3 text-center">Instalación</th>
                 <th className="p-3 text-center">Apertura</th>
                 <th className="p-3 text-center">Cierre</th>
                 <th className="p-3 text-center">Auditoría</th>
@@ -319,6 +249,8 @@ export default function SalaSituacionalConcejoPage() {
                   <td className="p-3"><span className="font-bold text-[#00529b] block">{c.organismo}</span><span className="text-[10px] text-gray-500">{c.jefe_jerarquia} {c.jefe_nombre}</span></td>
                   
                   <td className="p-3 text-center"><span className={`px-2 py-0.5 rounded text-[10px] font-black ${c.toma_centro === 'REALIZADA' ? 'text-emerald-600 bg-emerald-50' : 'text-amber-600 bg-amber-50'}`}>{c.toma_centro}</span></td>
+                  <td className="p-3 text-center"><span className={`px-2 py-0.5 rounded text-[10px] font-black ${c.entrega_cotillon === 'RECIBIDO' ? 'text-emerald-600 bg-emerald-50' : 'text-amber-600 bg-amber-50'}`}>{c.entrega_cotillon}</span></td>
+                  <td className="p-3 text-center"><span className={`px-2 py-0.5 rounded text-[10px] font-black ${c.instalacion_mesas === 'REALIZADA' ? 'text-emerald-600 bg-emerald-50' : 'text-amber-600 bg-amber-50'}`}>{c.instalacion_mesas}</span></td>
                   <td className="p-3 text-center"><span className={`px-2 py-0.5 rounded text-[10px] font-black ${c.apertura === 'REALIZADA' ? 'text-blue-600 bg-blue-50' : 'text-gray-400 bg-gray-50'}`}>{c.apertura}</span></td>
                   <td className="p-3 text-center"><span className={`px-2 py-0.5 rounded text-[10px] font-black ${c.cierre_mesas === 'CERRADO' ? 'text-red-600 bg-red-50' : 'text-gray-400 bg-gray-50'}`}>{c.cierre_mesas}</span></td>
                   
@@ -374,6 +306,7 @@ export default function SalaSituacionalConcejoPage() {
                   <div className="grid grid-cols-2 gap-2 text-[10px] font-black">
                     <div className="bg-white p-2 rounded border">Toma: <span className={centroSeleccionado.toma_centro === 'REALIZADA' ? 'text-emerald-600' : 'text-amber-500'}>{centroSeleccionado.toma_centro}</span></div>
                     <div className="bg-white p-2 rounded border">Cotillón: <span className={centroSeleccionado.entrega_cotillon === 'RECIBIDO' ? 'text-emerald-600' : 'text-amber-500'}>{centroSeleccionado.entrega_cotillon}</span></div>
+                    <div className="bg-white p-2 rounded border col-span-2">Instalación: <span className={centroSeleccionado.instalacion_mesas === 'REALIZADA' ? 'text-emerald-600' : 'text-amber-500'}>{centroSeleccionado.instalacion_mesas}</span></div>
                     <div className="bg-white p-2 rounded border">Apertura: <span className={centroSeleccionado.apertura === 'REALIZADA' ? 'text-emerald-600' : 'text-gray-400'}>{centroSeleccionado.apertura}</span></div>
                     <div className="bg-white p-2 rounded border border-red-100">Cierre: <span className={centroSeleccionado.cierre_mesas === 'CERRADO' ? 'text-red-600' : 'text-gray-400'}>{centroSeleccionado.cierre_mesas}</span></div>
                   </div>
@@ -393,7 +326,7 @@ export default function SalaSituacionalConcejoPage() {
                 <div className="bg-amber-50/30 p-4 rounded-xl border border-amber-100">
                   <h3 className="text-[10px] font-black text-amber-700 uppercase tracking-wider mb-2 flex items-center gap-1"><FileText size={12}/> Novedades Reportadas</h3>
                   <div className="space-y-2 text-xs">
-                    <div><span className="font-bold text-gray-500">Reseña:</span><p className="bg-white p-2 rounded border mt-0.5 text-gray-800">{centroSeleccionado.resena}</p></div>
+                    <div><span className="font-bold text-gray-500">Reseña:</span><p className="bg-white p-2 rounded border mt-0.5 text-gray-800 whitespace-pre-wrap">{centroSeleccionado.resena}</p></div>
                     <div><span className="font-bold text-gray-500">Observaciones:</span><p className="bg-white p-2 rounded border mt-0.5 text-gray-800">{centroSeleccionado.observaciones}</p></div>
                   </div>
                 </div>

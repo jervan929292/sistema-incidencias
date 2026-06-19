@@ -7,6 +7,7 @@ import { usePathname } from 'next/navigation';
 
 export default function BannerConcejo2026() {
   const [rol, setRol] = useState<string | null>(null);
+  const [mostrarBanner, setMostrarBanner] = useState<boolean>(false);
   const [loading, setLoading] = useState(true);
   const pathname = usePathname();
 
@@ -16,13 +17,25 @@ export default function BannerConcejo2026() {
       return;
     }
 
-    const obtenerRol = async () => {
+    const cargarDatos = async () => {
       try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) {
+        // 1. Verificar el interruptor global
+        const { data: config } = await supabase
+          .from('configuracion_sistema')
+          .select('activo')
+          .eq('clave', 'mostrar_banner_concejo')
+          .single();
+
+        if (config && config.activo === false) {
           setLoading(false);
-          return;
+          return; // Si está apagado, nos salimos y no mostramos nada
         }
+
+        setMostrarBanner(true);
+
+        // 2. Obtener el rol del usuario
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
 
         const { data: perfil } = await supabase
           .from('directorio_operativo')
@@ -30,22 +43,21 @@ export default function BannerConcejo2026() {
           .eq('id', user.id)
           .single();
 
-        if (perfil) {
-          setRol(perfil.rol);
-        }
+        if (perfil) setRol(perfil.rol);
+
       } catch (error) {
-        console.error("Error obteniendo rol para banner:", error);
+        console.error("Error cargando banner:", error);
       } finally {
         setLoading(false);
       }
     };
     
-    obtenerRol();
+    cargarDatos();
   }, [pathname]);
 
-  if (pathname === '/login' || pathname === '/' || loading || !rol) return null;
+  // Si está cargando, es el login, no hay rol, o el interruptor está apagado, se oculta.
+  if (pathname === '/login' || pathname === '/' || loading || !rol || !mostrarBanner) return null;
 
-  // ENCABEZADO 1: Para el Superusuario o Administrador (Publicidad de Supervisión)
   if (rol === 'superusuario' || rol === 'admin') {
     return (
       <div className="w-full bg-gradient-to-r from-red-700 via-amber-600 to-red-800 text-white px-4 py-3 flex flex-col md:flex-row items-center justify-between gap-3 shadow-md">
@@ -68,7 +80,6 @@ export default function BannerConcejo2026() {
     );
   }
 
-  // ENCABEZADO 2: Para el Usuario Regular / Jefe de Cuadrante (Publicidad de Carga Territorial)
   if (rol === 'usuario') {
     return (
       <div className="w-full bg-gradient-to-r from-[#00529b] via-blue-600 to-[#003d73] text-white px-4 py-3 flex flex-col md:flex-row items-center justify-between gap-3 shadow-md">
