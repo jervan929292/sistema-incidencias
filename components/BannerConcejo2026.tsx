@@ -78,7 +78,7 @@ export default function BannerConcejo2026() {
             <Vote size={18} className="text-emerald-300" />
           </div>
           <p className="text-xs md:text-sm font-bold tracking-wide uppercase">
-            Atención Jefe de Circuito: <span className="text-emerald-200 font-black">Actualiza las Autoridades de tus Escuelas</span>
+            Registro de Actividades: <span className="text-emerald-200 font-black">Consulta Popular 2026</span>
           </p>
         </div>
         <Link 
