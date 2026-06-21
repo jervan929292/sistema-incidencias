@@ -316,10 +316,10 @@ export default function SalaSituacionalConcejoPage() {
                 <div className="bg-indigo-50/30 p-4 rounded-xl border border-indigo-100">
                   <h3 className="text-[10px] font-black text-indigo-700 uppercase tracking-wider mb-2 flex items-center gap-1"><UserCheck size={12}/> Autoridades Asignadas</h3>
                   <div className="space-y-1.5 text-[10px] text-gray-700 uppercase">
-                    <p><strong className="text-gray-500">Coordinador:</strong> <span className="font-bold bg-white px-1 border rounded">{centroSeleccionado.coord_centro_votacion}</span></p>
-                    <p><strong className="text-gray-500">Pdte. Centro:</strong> <span className="font-bold bg-white px-1 border rounded">{centroSeleccionado.presidenta_centro}</span></p>
-                    <p><strong className="text-gray-500">Pdte. Mesa:</strong> <span className="font-bold bg-white px-1 border rounded">{centroSeleccionado.presidenta_mesa}</span></p>
-                    <p><strong className="text-gray-500">Secretario:</strong> <span className="font-bold bg-white px-1 border rounded">{centroSeleccionado.secretaria}</span></p>
+                    <p><strong className="text-gray-500">Director de Plantel:</strong> <span className="font-bold bg-white px-1 border rounded">{centroSeleccionado.coord_centro_votacion}</span></p>
+                    <p><strong className="text-gray-500">Representante CNE:</strong> <span className="font-bold bg-white px-1 border rounded">{centroSeleccionado.presidenta_centro}</span></p>
+                    <p><strong className="text-gray-500">Representante Comunal:</strong> <span className="font-bold bg-white px-1 border rounded">{centroSeleccionado.presidenta_mesa}</span></p>
+                    <p><strong className="text-gray-500">Secretario CNE:</strong> <span className="font-bold bg-white px-1 border rounded">{centroSeleccionado.secretaria}</span></p>
                   </div>
                 </div>
 
