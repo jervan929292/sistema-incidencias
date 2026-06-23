@@ -235,12 +235,13 @@ export default function ConcejoTerritorialPage() {
                     {/* Caja para escribir nueva nota */}
                     {!estaCerrado && (
                       <div className="flex gap-2">
-                        <input 
-                          type="text" 
+                        {/* CAMBIADO: DE <input> A <textarea> PARA PERMITIR SALTOS DE LÍNEA CON "ENTER" */}
+                        <textarea 
                           placeholder="Escribe un evento (Ej: Despliegue completado)..." 
                           value={entradasResena[esc.COD_CENTRO] || ''} 
                           onChange={e => setEntradasResena(prev => ({ ...prev, [esc.COD_CENTRO]: e.target.value }))}
-                          className="flex-grow p-2.5 border rounded-xl text-xs bg-white outline-none focus:border-amber-500 font-medium"
+                          rows={2}
+                          className="flex-grow p-2.5 border rounded-xl text-xs bg-white outline-none focus:border-amber-500 font-medium resize-y min-h-[44px]"
                         />
                         <button 
                           type="button" 
