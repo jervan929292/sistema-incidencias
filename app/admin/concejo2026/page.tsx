@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
-import { BarChart3, Shield, MapPin, CheckCircle2, AlertTriangle, Eye, X, UserCheck, Clock, School, ArrowLeft, Flag, FileText, Download } from 'lucide-react';
+import { BarChart3, Shield, MapPin, CheckCircle2, AlertTriangle, Eye, X, UserCheck, Clock, School, ArrowLeft, Flag, FileText, Download, Upload, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -13,6 +13,10 @@ export default function SalaSituacionalConcejoPage() {
   const [reportes, setReportes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   
+  // ESTADOS DE SUBIDA DE EXCEL/CSV
+  const [subiendoCsv, setSubiendoCsv] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   // ESTADOS DE FILTROS 
   const [filtroMunicipio, setFiltroMunicipio] = useState('');
   const [filtroOrganismo, setFiltroOrganismo] = useState('');
@@ -50,6 +54,103 @@ export default function SalaSituacionalConcejoPage() {
     descargarTodo();
   }, []);
 
+  // FUNCIÓN INTELIGENTE PARA PROCESAR EL ARCHIVO CSV Y SUBIRLO
+  const handleUploadCsv = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setSubiendoCsv(true);
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const text = event.target?.result as string;
+        const delimitador = text.split('\n')[0].includes(';') ? ';' : ',';
+
+        let filas: string[][] = [];
+        let filaActual: string[] = [];
+        let dentroDeComillas = false;
+        let valorActual = '';
+
+        for (let i = 0; i < text.length; i++) {
+          const char = text[i];
+          if (char === '"') {
+            dentroDeComillas = !dentroDeComillas;
+          } else if (char === delimitador && !dentroDeComillas) {
+            filaActual.push(valorActual.trim());
+            valorActual = '';
+          } else if (char === '\n' && !dentroDeComillas) {
+            filaActual.push(valorActual.trim());
+            if (filaActual.some(v => v !== '')) filas.push(filaActual);
+            filaActual = [];
+            valorActual = '';
+          } else if (char !== '\r') {
+            valorActual += char;
+          }
+        }
+        if (valorActual || filaActual.length > 0) {
+          filaActual.push(valorActual.trim());
+          filas.push(filaActual);
+        }
+
+        // Búsqueda inteligente de la fila de cabeceras (Por si hay filas vacías arriba en el Excel)
+        let headerRowIdx = -1;
+        for (let i = 0; i < filas.length; i++) {
+          if (filas[i].some(cell => cell.toUpperCase().includes('COD CENTRO') || cell.toUpperCase().includes('COD_CENTRO'))) {
+            headerRowIdx = i;
+            break;
+          }
+        }
+
+        if (headerRowIdx === -1) throw new Error("No se encontraron las columnas de datos. Asegúrate de guardar la pestaña 'TM' como CSV.");
+
+        const headers = filas[headerRowIdx].map(h => h.replace(/["']/g, '').toUpperCase());
+        const getIdx = (nombresPosibles: string[]) => headers.findIndex(h => nombresPosibles.some(np => h.includes(np)));
+
+        const idxCodCentro = getIdx(['COD_CENTRO', 'COD CENTRO']);
+        const idxNombre = getIdx(['NOMBRE CENTRO', 'NOMBRE_CENTRO']);
+        const idxDireccion = getIdx(['DIRECCION']);
+        const idxComuna = getIdx(['COMUNA', 'CNE']); // Capturará CODIGO COMUNA CNE
+        const idxSitur = getIdx(['SITUR', 'CIRCUITO']); // Capturará CODIGO CIRCUITO COMUNAL
+        const idxMesa = getIdx(['MESA']);
+
+        if (idxCodCentro === -1 || idxSitur === -1) throw new Error('Las columnas obligatorias (COD CENTRO o CIRCUITO) no están presentes.');
+
+        const dataToInsert = [];
+        for (let i = headerRowIdx + 1; i < filas.length; i++) {
+          const cols = filas[i];
+          if (cols.length > 2 && cols[idxCodCentro]) {
+            dataToInsert.push({
+              "COD_CENTRO": cols[idxCodCentro].replace(/["']/g, ''),
+              "NOMBRE CENTRO": cols[idxNombre] ? cols[idxNombre].replace(/["']/g, '') : '',
+              "DIRECCION": cols[idxDireccion] ? cols[idxDireccion].replace(/["']/g, '') : '',
+              "CODIGO_COMUNA_CNE": cols[idxComuna] ? cols[idxComuna].replace(/["']/g, '') : '',
+              "CODIGO_CIRCUITO_COMUNAL": cols[idxSitur] ? cols[idxSitur].replace(/["']/g, '') : '',
+              "MESA": cols[idxMesa] ? cols[idxMesa].replace(/["']/g, '') : ''
+            });
+          }
+        }
+
+        // Subir a Supabase en lotes para no saturar la red
+        const tamañoLote = 200;
+        for (let i = 0; i < dataToInsert.length; i += tamañoLote) {
+          const lote = dataToInsert.slice(i, i + tamañoLote);
+          const { error } = await supabase.from('centros_votacion_2026').insert(lote);
+          if (error) throw error;
+        }
+
+        alert(`¡Éxito! Se cargaron ${dataToInsert.length} centros de votación correctamente.`);
+        window.location.reload();
+
+      } catch (err: any) {
+        alert("Error de procesamiento: " + err.message);
+      } finally {
+        setSubiendoCsv(false);
+        if (e.target) e.target.value = '';
+      }
+    };
+    reader.readAsText(file);
+  };
+
   const mapaJefes = useMemo(() => {
     const mapa = new Map();
     usuarios.forEach(u => {
@@ -68,9 +169,12 @@ export default function SalaSituacionalConcejoPage() {
     return mapa;
   }, [reportes]);
 
-  // SEGURIDAD: ¿Es VEN 911 o Superusuario?
-  const isSuperAdmin = adminProfile?.rol === 'superusuario' || adminProfile?.organismo_responsable?.toUpperCase() === 'VEN 911';
-  // Si no es VEN 911, forzamos su organismo
+  // SEGURIDAD: ¿Es VEN 911, GNB o Superusuario?
+  const isSuperAdmin = adminProfile?.rol === 'superusuario' || 
+                       adminProfile?.organismo_responsable?.toUpperCase() === 'VEN 911' || 
+                       adminProfile?.organismo_responsable?.toUpperCase() === 'GUARDIA NACIONAL BOLIVARIANA';
+                       
+  // Si no es VEN 911 ni GNB, forzamos su organismo
   const organismoSeguro = isSuperAdmin ? filtroOrganismo : adminProfile?.organismo_responsable;
 
   const municipiosUnicos = useMemo(() => Array.from(new Set(usuarios.map(u => u.municipio))).filter(Boolean).sort(), [usuarios]);
@@ -86,7 +190,6 @@ export default function SalaSituacionalConcejoPage() {
     });
     const centrosUnicos = Array.from(centrosUnicosMap.values());
 
-    // Ahora mapeamos sobre los centros únicos, no sobre toda la base de datos
     return centrosUnicos.map(c => {
       const jefe = mapaJefes.get(c.CODIGO_CIRCUITO_COMUNAL?.toString().trim());
       const reporte = mapaReportes.get(c.COD_CENTRO);
@@ -133,11 +236,9 @@ export default function SalaSituacionalConcejoPage() {
     return { total, recibidos, pendientes };
   }, [centrosProcesados]);
 
-  // FUNCIÓN PARA GENERAR EL PDF ORDENADO
   const generarPDF = () => {
     const doc = new jsPDF('landscape'); 
     
-    // Título
     doc.setFontSize(16);
     doc.text('Reporte General - Operativo Consulta Popular 2026', 14, 20);
     
@@ -175,15 +276,37 @@ export default function SalaSituacionalConcejoPage() {
   return (
     <div className="min-h-screen bg-gray-100 p-6 space-y-4">
       
-      <div className="flex justify-between items-center">
+      <div className="flex justify-between items-center flex-wrap gap-4">
         <Link href="/admin" className="inline-flex items-center gap-1.5 text-gray-500 hover:text-[#00529b] font-bold text-xs uppercase bg-white px-4 py-2 rounded-xl shadow-sm border border-gray-200 transition-colors w-fit">
           <ArrowLeft size={16} /> Volver a Inicio Admin
         </Link>
         
-        {/* BOTÓN DESCARGAR PDF */}
-        <button onClick={generarPDF} className="bg-red-600 hover:bg-red-700 text-white font-bold text-xs px-4 py-2 rounded-xl flex items-center gap-2 shadow-sm transition-colors uppercase">
-          <Download size={16} /> Descargar Reporte PDF
-        </button>
+        <div className="flex gap-2">
+          {/* BOTÓN OCULTO PARA SUBIR EL ARCHIVO CSV */}
+          <input 
+            type="file" 
+            accept=".csv" 
+            ref={fileInputRef} 
+            onChange={handleUploadCsv} 
+            className="hidden" 
+          />
+          
+          {/* BOTÓN VISIBLE CARGAR EXCEL (CSV) SOLO PARA ADMINS */}
+          {isSuperAdmin && (
+            <button 
+              onClick={() => fileInputRef.current?.click()} 
+              disabled={subiendoCsv}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-2 rounded-xl flex items-center gap-2 shadow-sm transition-colors uppercase disabled:bg-emerald-400"
+            >
+              {subiendoCsv ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />} 
+              {subiendoCsv ? 'Procesando Data...' : 'Cargar Centros (CSV)'}
+            </button>
+          )}
+
+          <button onClick={generarPDF} className="bg-red-600 hover:bg-red-700 text-white font-bold text-xs px-4 py-2 rounded-xl flex items-center gap-2 shadow-sm transition-colors uppercase">
+            <Download size={16} /> Descargar Reporte PDF
+          </button>
+        </div>
       </div>
 
       <div className="bg-gradient-to-r from-[#00529b] to-blue-900 p-6 rounded-3xl text-white flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shadow-md">
@@ -211,7 +334,6 @@ export default function SalaSituacionalConcejoPage() {
       <div className="bg-white p-4 rounded-2xl border shadow-sm flex flex-wrap gap-4 items-end">
         <div className="flex flex-col"><label className="text-[10px] font-bold text-gray-400 mb-1 uppercase">Municipio</label><select value={filtroMunicipio} onChange={e => setFiltroMunicipio(e.target.value)} className="p-2 border rounded-lg bg-white text-xs outline-none font-bold text-gray-700"><option value="">Todos los Municipios</option>{municipiosUnicos.map((m, i) => <option key={i} value={m}>{m}</option>)}</select></div>
         
-        {/* CANDADO DE SEGURIDAD: Solo el VEN 911 puede cambiar este filtro */}
         {isSuperAdmin && (
           <div className="flex flex-col"><label className="text-[10px] font-bold text-gray-400 mb-1 uppercase">Organismo</label><select value={filtroOrganismo} onChange={e => setFiltroOrganismo(e.target.value)} className="p-2 border rounded-lg bg-white text-xs outline-none font-bold text-gray-700"><option value="">Todos los Organismos</option>{organismosUnicos.map((o, i) => <option key={i} value={o}>{o}</option>)}</select></div>
         )}
@@ -312,7 +434,6 @@ export default function SalaSituacionalConcejoPage() {
                   </div>
                 </div>
                 
-                {/* MOSTRANDO LAS AUTORIDADES FALTANTES AHORA SÍ */}
                 <div className="bg-indigo-50/30 p-4 rounded-xl border border-indigo-100">
                   <h3 className="text-[10px] font-black text-indigo-700 uppercase tracking-wider mb-2 flex items-center gap-1"><UserCheck size={12}/> Autoridades Asignadas</h3>
                   <div className="space-y-1.5 text-[10px] text-gray-700 uppercase">
