@@ -181,16 +181,8 @@ export default function SalaSituacionalConcejoPage() {
   const organismosUnicos = useMemo(() => Array.from(new Set(usuarios.map(u => u.organismo_responsable))).filter(Boolean).sort(), [usuarios]);
 
   const centrosProcesados = useMemo(() => {
-    // FILTRO ANTI-DUPLICADOS: Agrupamos las escuelas por Código CNE
-    const centrosUnicosMap = new Map();
-    centros.forEach(c => {
-      if (!centrosUnicosMap.has(c.COD_CENTRO)) {
-        centrosUnicosMap.set(c.COD_CENTRO, c);
-      }
-    });
-    const centrosUnicos = Array.from(centrosUnicosMap.values());
-
-    return centrosUnicos.map(c => {
+    // SIN FILTRO ANTI-DUPLICADOS: Mapeamos directamente sobre todos los centros (Mesas)
+    return centros.map(c => {
       const jefe = mapaJefes.get(c.CODIGO_CIRCUITO_COMUNAL?.toString().trim());
       const reporte = mapaReportes.get(c.COD_CENTRO);
       
@@ -246,12 +238,12 @@ export default function SalaSituacionalConcejoPage() {
     doc.setTextColor(100);
     let subtitulo = `Organismo: ${organismoSeguro || 'TODOS'} | Municipio: ${filtroMunicipio || 'TODOS'}`;
     doc.text(subtitulo, 14, 28);
-    doc.text(`Totales: ${stats.total} Centros | Cotillón Recibido: ${stats.recibidos} | Pendientes: ${stats.pendientes}`, 14, 34);
+    doc.text(`Totales: ${stats.total} Centros (Mesas) | Cotillón Recibido: ${stats.recibidos} | Pendientes: ${stats.pendientes}`, 14, 34);
 
-    const tableColumn = ["CNE", "Centro", "SITUR", "Toma", "Cotillón", "Instalación", "Apertura", "Cierre"];
+    const tableColumn = ["CNE", "Centro / Mesa", "SITUR", "Toma", "Cotillón", "Instalación", "Apertura", "Cierre"];
     const tableRows = centrosProcesados.map(c => [
       c.COD_CENTRO,
-      c['NOMBRE CENTRO'],
+      `${c['NOMBRE CENTRO']} (Mesa: ${c.MESA || '1'})`,
       c.CODIGO_CIRCUITO_COMUNAL,
       c.toma_centro,
       c.entrega_cotillon,
@@ -318,7 +310,7 @@ export default function SalaSituacionalConcejoPage() {
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
         <div className="bg-white border rounded-2xl p-4 flex items-center justify-between shadow-sm">
-          <div><p className="text-[10px] font-bold text-gray-400 uppercase">Centros Filtrados</p><p className="text-2xl font-black text-gray-800 mt-1">{stats.total}</p></div>
+          <div><p className="text-[10px] font-bold text-gray-400 uppercase">Centros / Mesas Filtrados</p><p className="text-2xl font-black text-gray-800 mt-1">{stats.total}</p></div>
           <div className="bg-blue-50 text-[#00529b] p-3 rounded-full"><MapPin size={24}/></div>
         </div>
         <div className="bg-white border rounded-2xl p-4 flex items-center justify-between shadow-sm">
@@ -367,7 +359,7 @@ export default function SalaSituacionalConcejoPage() {
               {centrosProcesados.map((c, i) => (
                 <tr key={i} className="hover:bg-gray-50 transition-colors">
                   <td className="p-3 font-mono font-bold text-gray-500">CNE: {c.COD_CENTRO}<br/>STR: {c.CODIGO_CIRCUITO_COMUNAL}</td>
-                  <td className="p-3 font-black text-gray-800 uppercase max-w-[200px] truncate" title={c['NOMBRE CENTRO']}>{c['NOMBRE CENTRO']}<br/><span className="text-[10px] text-gray-400 font-medium">{c.municipio} ({c.parroquia})</span></td>
+                  <td className="p-3 font-black text-gray-800 uppercase max-w-[200px] truncate" title={c['NOMBRE CENTRO']}>{c['NOMBRE CENTRO']}<br/><span className="text-[10px] text-gray-400 font-medium">{c.municipio} ({c.parroquia}) - Mesa: {c.MESA || '1'}</span></td>
                   <td className="p-3"><span className="font-bold text-[#00529b] block">{c.organismo}</span><span className="text-[10px] text-gray-500">{c.jefe_jerarquia} {c.jefe_nombre}</span></td>
                   
                   <td className="p-3 text-center"><span className={`px-2 py-0.5 rounded text-[10px] font-black ${c.toma_centro === 'REALIZADA' ? 'text-emerald-600 bg-emerald-50' : 'text-amber-600 bg-amber-50'}`}>{c.toma_centro}</span></td>
@@ -397,7 +389,7 @@ export default function SalaSituacionalConcejoPage() {
                 <School size={22} />
                 <div>
                   <h2 className="text-base font-black uppercase text-gray-900">Expediente Operativo Electoral</h2>
-                  <p className="text-[11px] font-mono text-gray-500 font-bold">CNE: {centroSeleccionado.COD_CENTRO} | Última Actualización: {centroSeleccionado.fecha_reporte}</p>
+                  <p className="text-[11px] font-mono text-gray-500 font-bold">CNE: {centroSeleccionado.COD_CENTRO} | Mesa: {centroSeleccionado.MESA || '1'} | Última Act.: {centroSeleccionado.fecha_reporte}</p>
                 </div>
               </div>
               <button onClick={() => setCentroSeleccionado(null)} className="text-gray-400 hover:text-red-600 bg-gray-100 p-1.5 rounded-full"><X size={18} /></button>
@@ -409,7 +401,7 @@ export default function SalaSituacionalConcejoPage() {
                   <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-wider mb-2">Datos del Centro</h3>
                   <p className="text-sm font-black text-gray-800 uppercase leading-snug">{centroSeleccionado['NOMBRE CENTRO']}</p>
                   <p className="text-xs text-gray-500 mt-1">{centroSeleccionado.DIRECCION}</p>
-                  <p className="text-[11px] font-bold text-gray-700 mt-2">{centroSeleccionado.municipio} - {centroSeleccionado.parroquia} (Mesas: {centroSeleccionado.MESA})</p>
+                  <p className="text-[11px] font-bold text-gray-700 mt-2">{centroSeleccionado.municipio} - {centroSeleccionado.parroquia} (Mesa: {centroSeleccionado.MESA})</p>
                 </div>
 
                 <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100">
