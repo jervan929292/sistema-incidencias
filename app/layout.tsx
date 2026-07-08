@@ -3,6 +3,8 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
 import BannerConcejo2026 from "@/components/BannerConcejo2026"; 
+// IMPORTAMOS EL VIGILANTE DE MANTENIMIENTO
+import ControlMantenimiento from "@/components/ControlMantenimiento"; 
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -31,9 +33,15 @@ export default function RootLayout({
     <html
       lang="es"
       suppressHydrationWarning
+      /* Le decimos explícitamente al navegador que la página es de tema claro */
+      style={{ colorScheme: 'light' }}
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body suppressHydrationWarning className="min-h-full flex flex-col">
+      {/* FORZAMOS EL FONDO CLARO Y EL TEXTO OSCURO GLOBALMENTE AQUÍ */}
+      <body suppressHydrationWarning className="min-h-full flex flex-col bg-gray-50 text-gray-900">
+        
+        {/* VIGILANTE GLOBAL: EXPULSA USUARIOS SI HAY MANTENIMIENTO */}
+        <ControlMantenimiento />
         
         {/* CARTEL PUBLICITARIO GLOBAL */}
         <BannerConcejo2026 />
