@@ -53,6 +53,7 @@ export default function SalaSituacionalConcejoPage() {
     descargarTodo();
   }, []);
 
+  // FUNCIÓN ACTUALIZADA: Lee las escuelas distribuidas en múltiples columnas horizontales
   const handleUploadFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -64,48 +65,61 @@ export default function SalaSituacionalConcejoPage() {
       try {
         const fileData = event.target?.result;
         const workbook = XLSX.read(fileData, { type: 'binary' });
-        const sheetName = workbook.SheetNames.includes('TM') ? 'TM' : workbook.SheetNames[0];
+        const sheetName = workbook.SheetNames[0]; 
         const worksheet = workbook.Sheets[sheetName];
-        const rawFilas = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
-        const filas = rawFilas.map((row: any) => row.map((cell: any) => String(cell).trim()));
+        
+        // Convertimos a JSON manteniendo la estructura de objetos por clave
+        const rawFilas = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+        
+        if (rawFilas.length === 0) throw new Error("El archivo no contiene filas válidas.");
 
-        let headerRowIdx = -1;
-        for (let i = 0; i < filas.length; i++) {
-          if (filas[i].some((cell: string) => cell.toUpperCase().includes('COD CENTRO') || cell.toUpperCase().includes('COD_CENTRO'))) {
-            headerRowIdx = i;
-            break;
-          }
+        const dataToInsert: any[] = [];
+        let escuelasContadas = 0;
+
+        rawFilas.forEach((row: any) => {
+          // Buscador inteligente de nombres de columnas principales
+          const findKey = (names: string[]) => 
+            Object.keys(row).find(k => names.some(n => k.toUpperCase().trim().includes(n.toUpperCase())));
+
+          const siturKey = findKey(['CODIGO_CIRCUITO_COMUNAL', 'CODIGO SITUR', 'CIRCUITO', 'SITUR']);
+          const comunaKey = Richmond_Get_Key(row, ['NOMBRE DEL CIRCUITO COMUNAL O COMUNA', 'COMUNA', 'CIRCUITO COMUNAL']);
+          
+          const situr = situr = siturLimpio(row, situr);
+          const comuna = (row[comunaKey] || '').toString().trim();
+          
+          if (!situr) return; 
+
+          // Mapeamos todas las columnas que hagan referencia al nombre de los planteles
+          const columnasEscuelas = Object.keys(row).filter(key => key.toUpperCase().includes('NOMBRE CENTRO'));
+
+          let contadorEscuelaLocal = 1;
+
+          columnasEscuelas.forEach((columna) => {
+            const nombreEscuela = row[columna].toString().trim();
+            
+            if (nombreEscuela && nombreEscuela !== '') {
+              // Generamos una clave única compuesta para evitar colisiones de clave primaria
+              const cneVirtual = `${situr}-${contadorEscuelaLocal}`;
+              
+              dataToInsert.push({
+                "COD_CENTRO": cneVirtual,
+                "NOMBRE CENTRO": nombreEscuela,
+                "DIRECCION": "DIRECCIÓN EN EVALUACIÓN",
+                "CODIGO_COMUNA_CNE": comuna,
+                "CODIGO_CIRCUITO_COMUNAL": situr
+              });
+              
+              contadorEscuelaLocal++;
+              escuelasContadas++;
+            }
+          });
+        });
+
+        if (dataToInsert.length === 0) {
+          throw new Error("No se estructuró ninguna escuela. Valide las cabeceras de su columna 'NOMBRE CENTRO'.");
         }
 
-        if (headerRowIdx === -1) throw new Error("No se encontraron las columnas de datos. Asegúrate de tener la columna COD CENTRO.");
-
-        const headers = filas[headerRowIdx].map((h: string) => h.replace(/["']/g, '').toUpperCase());
-        const getIdx = (nombresPosibles: string[]) => headers.findIndex((h: string) => nombresPosibles.some(np => h.includes(np)));
-
-        const idxCodCentro = getIdx(['COD_CENTRO', 'COD CENTRO']);
-        const idxNombre = getIdx(['NOMBRE CENTRO', 'NOMBRE_CENTRO']);
-        const idxDireccion = getIdx(['DIRECCION']);
-        const idxComuna = getIdx(['COMUNA', 'CNE']); 
-        const idxSitur = getIdx(['SITUR', 'CIRCUITO']); 
-        const idxMesa = getIdx(['MESA']);
-
-        if (idxCodCentro === -1 || idxSitur === -1) throw new Error('Las columnas obligatorias (COD CENTRO o CIRCUITO) no están presentes.');
-
-        const dataToInsert = [];
-        for (let i = headerRowIdx + 1; i < filas.length; i++) {
-          const cols = filas[i];
-          if (cols.length > 2 && cols[idxCodCentro] && cols[idxCodCentro] !== '') {
-            dataToInsert.push({
-              "COD_CENTRO": cols[idxCodCentro].replace(/["']/g, ''),
-              "NOMBRE CENTRO": cols[idxNombre] ? cols[idxNombre].replace(/["']/g, '') : '',
-              "DIRECCION": cols[idxDireccion] ? cols[idxDireccion].replace(/["']/g, '') : '',
-              "CODIGO_COMUNA_CNE": cols[idxComuna] ? cols[idxComuna].replace(/["']/g, '') : '',
-              "CODIGO_CIRCUITO_COMUNAL": cols[idxSitur] ? cols[idxSitur].replace(/["']/g, '') : '',
-              "MESA": cols[idxMesa] ? cols[idxMesa].replace(/["']/g, '') : ''
-            });
-          }
-        }
-
+        // Subida en lotes controlados a Supabase
         const tamañoLote = 200;
         for (let i = 0; i < dataToInsert.length; i += tamañoLote) {
           const lote = dataToInsert.slice(i, i + tamañoLote);
@@ -113,7 +127,7 @@ export default function SalaSituacionalConcejoPage() {
           if (error) throw error;
         }
 
-        alert(`¡Éxito! Se cargaron ${dataToInsert.length} planteles correctamente.`);
+        alert(`¡Éxito! Módulo de un-pivoting completado. Se inyectaron ${escuelasContadas} escuelas a la base de datos operativa.`);
         window.location.reload();
 
       } catch (err: any) {
@@ -125,6 +139,17 @@ export default function SalaSituacionalConcejoPage() {
     };
     reader.readAsBinaryString(file);
   };
+
+  // Función auxiliar interna para buscar llaves dinámicas
+  function Richmond_Get_Key(obj: any, targets: string[]): string {
+    const key = Object.keys(obj).find(k => targets.some(t => k.toUpperCase().trim() === t.toUpperCase()));
+    return key || '';
+  }
+
+  function siturLimpio(row: any, key: string | undefined): string {
+    if(!key || !row[key]) return '';
+    return row[key].toString().trim();
+  }
 
   const mapaJefes = useMemo(() => {
     const mapa = new Map();
@@ -154,7 +179,6 @@ export default function SalaSituacionalConcejoPage() {
   const organismosUnicos = useMemo(() => Array.from(new Set(usuarios.map(u => u.organismo_responsable))).filter(Boolean).sort(), [usuarios]);
 
   const centrosProcesados = useMemo(() => {
-    // FILTRO ANTI-DUPLICADOS (Agrupación por CNE) para ver la escuela una sola vez
     const centrosUnicosMap = new Map();
     centros.forEach(c => {
       if (!centrosUnicosMap.has(c.COD_CENTRO)) {
@@ -180,7 +204,7 @@ export default function SalaSituacionalConcejoPage() {
         escuela_apta: reporte?.escuela_apta || 'PENDIENTE',
         responsable_inspeccion: reporte?.responsable_inspeccion || 'NO REGISTRADO',
         organismos_presentes: reporte?.organismos_presentes || 'NO REGISTRADOS',
-        cierre_mesas: reporte?.cierre_mesas || 'PENDIENTE', // Usado como Estatus de Inspección (CERRADO/PENDIENTE)
+        cierre_mesas: reporte?.cierre_mesas || 'PENDIENTE', 
         resena: reporte?.resena || 'Sin novedades registradas.',
         fecha_reporte: reporte?.fecha_reporte ? new Date(reporte.fecha_reporte).toLocaleString('es-VE') : 'Sin reporte'
       };
@@ -194,7 +218,6 @@ export default function SalaSituacionalConcejoPage() {
     });
   }, [centros, mapaJefes, mapaReportes, filtroMunicipio, organismoSeguro, filtroAptitud, filtroEstatus]);
 
-  // ESTADÍSTICAS REFORMULADAS PARA INSPECCIONES
   const stats = useMemo(() => {
     const total = centrosProcesados.length;
     const inspeccionadas = centrosProcesados.filter(c => c.cierre_mesas === 'CERRADO').length;
@@ -205,7 +228,6 @@ export default function SalaSituacionalConcejoPage() {
     return { total, inspeccionadas, pendientes, aptas, noAptas };
   }, [centrosProcesados]);
 
-  // NUEVO REPORTE PDF
   const generarPDF = () => {
     const doc = new jsPDF('landscape'); 
     
@@ -240,7 +262,6 @@ export default function SalaSituacionalConcejoPage() {
     doc.save('Reporte_Inspeccion_Escolar_VEN911.pdf');
   };
 
-  // NUEVO REPORTE EXCEL
   const generarExcel = () => {
     if (centrosProcesados.length === 0) {
       alert("No hay registros para exportar con los filtros actuales.");
@@ -331,7 +352,6 @@ export default function SalaSituacionalConcejoPage() {
         </div>
       </div>
 
-      {/* NUEVAS TARJETAS ESTADÍSTICAS */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 pt-2">
         <div className="bg-white border rounded-2xl p-4 flex items-center justify-between shadow-sm">
           <div><p className="text-[10px] font-bold text-gray-400 uppercase">Planteles Filtrados</p><p className="text-2xl font-black text-gray-800 mt-1">{stats.total}</p></div>
@@ -351,7 +371,6 @@ export default function SalaSituacionalConcejoPage() {
         </div>
       </div>
 
-      {/* NUEVOS FILTROS */}
       <div className="bg-white p-4 rounded-2xl border shadow-sm flex flex-wrap gap-4 items-end">
         <div className="flex flex-col"><label className="text-[10px] font-bold text-gray-400 mb-1 uppercase">Municipio</label><select value={filtroMunicipio} onChange={e => setFiltroMunicipio(e.target.value)} className="p-2 border rounded-lg bg-white text-xs outline-none font-bold text-gray-700"><option value="">Todos los Municipios</option>{municipiosUnicos.map((m, i) => <option key={i} value={m}>{m}</option>)}</select></div>
         
