@@ -1,7 +1,8 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { School, UserCheck, Save, Shield, MapPin, MessageSquare, ArrowLeft, CheckCircle2, Circle, Plus, Clock, SearchCheck } from 'lucide-react';
+// Importamos 'Edit' para el nuevo botón de modificar
+import { School, UserCheck, Save, Shield, MapPin, MessageSquare, ArrowLeft, CheckCircle2, Circle, Plus, Clock, SearchCheck, Edit } from 'lucide-react';
 import Link from 'next/link';
 
 export default function ConcejoTerritorialPage() {
@@ -121,7 +122,7 @@ export default function ConcejoTerritorialPage() {
           responsable_inspeccion: escuela.responsable_inspeccion || '',
           organismos_presentes: escuela.organismos_presentes || '',
           resena: escuela.resena || '',
-          cierre_mesas: esCierreFinal ? 'CERRADO' : escuela.cierre_mesas, // Bloquea o desbloquea la edición
+          cierre_mesas: esCierreFinal ? 'CERRADO' : escuela.cierre_mesas, 
           fecha_reporte: new Date().toISOString()
         }, { onConflict: 'cod_centro' });
 
@@ -131,7 +132,7 @@ export default function ConcejoTerritorialPage() {
         alert(`INSPECCIÓN FINALIZADA: El reporte de la escuela "${escuela['NOMBRE CENTRO']}" ha sido cerrado y enviado con éxito al VEN 911.`);
         window.location.reload();
       } else {
-        alert(`Cambios de "${escuela['NOMBRE CENTRO']}" guardados en el sistema.`);
+        alert(`Expediente de "${escuela['NOMBRE CENTRO']}" actualizado en el sistema.`);
       }
     } catch (err: any) {
       alert("Error al guardar: " + err.message);
@@ -204,7 +205,7 @@ export default function ConcejoTerritorialPage() {
                       <div className="space-y-3">
                         {/* 1. ¿Escuela Apta? */}
                         <div>
-                          <label className="block text-[10px] font-black text-gray-500 uppercase mb-2">Estatus de la Infraestructura:</label>
+                          <label className="block text-[10px] font-black text-gray-500 uppercase mb-2">Estatus de la Infraestructura <span className="text-red-500">*</span></label>
                           <div className="flex gap-2">
                             <button 
                               type="button"
@@ -310,6 +311,12 @@ export default function ConcejoTerritorialPage() {
                           type="button"
                           disabled={guardandoId === esc.id}
                           onClick={() => {
+                            // VALIDACIÓN OBLIGATORIA DE APTA / NO APTA
+                            if (esc.escuela_apta !== 'APTA' && esc.escuela_apta !== 'NO APTA') {
+                              alert("⚠️ ALTO: Debe seleccionar obligatoriamente si la infraestructura está 'APTA' o 'NO APTA' antes de finalizar la inspección.");
+                              return;
+                            }
+
                             if(confirm("¿Está seguro de finalizar? Una vez enviado, el expediente se bloqueará.")) {
                               guardarCambiosCentro(esc, true);
                             }
@@ -320,9 +327,26 @@ export default function ConcejoTerritorialPage() {
                         </button>
                       </>
                     ) : (
-                      <span className="text-xs font-black text-emerald-600 bg-emerald-50 border border-emerald-200 px-4 py-2 rounded-xl uppercase flex items-center gap-1.5">
-                        <CheckCircle2 size={16}/> Reporte Enviado Exitosamente al VEN 911
-                      </span>
+                      <div className="flex items-center gap-3 w-full sm:w-auto flex-col sm:flex-row">
+                        <span className="text-xs font-black text-emerald-600 bg-emerald-50 border border-emerald-200 px-4 py-2.5 rounded-xl uppercase flex items-center gap-1.5 w-full sm:w-auto justify-center">
+                          <CheckCircle2 size={16}/> Reporte Enviado
+                        </span>
+                        
+                        {/* NUEVO BOTÓN DE EDICIÓN */}
+                        <button 
+                          type="button"
+                          disabled={guardandoId === esc.id}
+                          onClick={() => {
+                            if(confirm("¿Desea reabrir este reporte para corregir algún error o agregar información?")) {
+                              handleInputChange(esc.id, 'cierre_mesas', 'PENDIENTE');
+                              guardarCambiosCentro({ ...esc, cierre_mesas: 'PENDIENTE' }, false);
+                            }
+                          }}
+                          className="w-full sm:w-auto px-5 py-2.5 bg-amber-100 hover:bg-amber-200 text-amber-700 font-black rounded-xl text-xs uppercase transition-colors shadow-sm flex items-center justify-center gap-1.5"
+                        >
+                          <Edit size={14}/> Editar Reporte
+                        </button>
+                      </div>
                     )}
                   </div>
 
