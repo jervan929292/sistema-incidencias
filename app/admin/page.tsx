@@ -51,6 +51,8 @@ export default function AdminDashboardPage() {
   const [filtroMunicipio, setFiltroMunicipio] = useState('');
   const [filtroParroquia, setFiltroParroquia] = useState('');
   const [filtroCircuito, setFiltroCircuito] = useState(''); 
+  // NUEVO FILTRO PARA DIRECTORIO
+  const [filtroDirectorioOrganismo, setFiltroDirectorioOrganismo] = useState('');
 
   const [adminUser, setAdminUser] = useState<any>(null);
   const [esSuperUser, setEsSuperUser] = useState(false);
@@ -156,7 +158,7 @@ export default function AdminDashboardPage() {
       return; 
     }
     
-    // 1. CARGAR USUARIOS PRIMERO (Necesarios para el filtro posterior)
+    // 1. CARGAR USUARIOS PRIMERO
     let usuariosProcesados: any[] = [];
     const { data: users, error: errU } = await supabase.from('directorio_operativo').select('*').neq('rol', 'admin').neq('rol', 'superusuario').limit(10000);
     if (errU) {
@@ -168,7 +170,7 @@ export default function AdminDashboardPage() {
       setUsuarios(usuariosProcesados);
     }
 
-    // 2. CARGAS PARALELAS OPTIMIZADAS (Para evitar tiempos de espera largos)
+    // 2. CARGAS PARALELAS OPTIMIZADAS
     const fetchSectores = async () => {
       let todosLosSectores: any[] = [];
       let limite = 1000;
@@ -299,11 +301,13 @@ export default function AdminDashboardPage() {
     ).map(u => u.comuna_o_circuito_comunal))
   ).filter(Boolean).sort();
 
+  // ACTUALIZACIÓN LÓGICA DE FILTRADO PARA INCLUIR ORGANISMO
   const usuariosFiltrados = usuarios.filter(u => {
     const matchMunicipio = filtroMunicipio === '' || u.municipio === filtroMunicipio;
     const matchParroquia = filtroParroquia === '' || u.parroquia === filtroParroquia;
     const matchCircuito = filtroCircuito === '' || u.comuna_o_circuito_comunal === filtroCircuito;
-    return matchMunicipio && matchParroquia && matchCircuito;
+    const matchOrganismo = filtroDirectorioOrganismo === '' || matchesOrganismo(u.organismo_responsable, filtroDirectorioOrganismo);
+    return matchMunicipio && matchParroquia && matchCircuito && matchOrganismo;
   });
 
   const handleDescargarCredenciales = () => {
@@ -424,7 +428,6 @@ export default function AdminDashboardPage() {
     
   const maxCircuitoValor = topCircuitos[0]?.[1] || 1;
 
-  // CORRECCIÓN APLICADA: Filtramos los circuitos para obtener SOLO los del organismo seleccionado en Reportes
   const circuitosValidosReporte = Array.from(
     new Set(
       usuarios
@@ -433,7 +436,6 @@ export default function AdminDashboardPage() {
     )
   ).filter(Boolean);
 
-  // Calculamos el Bottom 5 usando únicamente los circuitos válidos
   const bottomCircuitos = circuitosValidosReporte
     .map(c => [c, conteoCircuitos[c as string] || 0])
     .sort((a, b) => (a[1] as number) - (b[1] as number))
@@ -1224,8 +1226,9 @@ export default function AdminDashboardPage() {
                 </div>
               </div>
 
+              {/* FILTROS DIRECTORIO */}
               <div className="flex flex-wrap gap-4 mb-6 bg-gray-50 p-4 rounded-2xl border border-gray-200">
-                <div className="flex flex-col">
+                <div className="flex flex-col flex-1 min-w-[200px]">
                   <label className="text-xs font-bold text-gray-500 mb-1">Filtrar por Municipio</label>
                   <select 
                     value={filtroMunicipio} 
@@ -1237,7 +1240,7 @@ export default function AdminDashboardPage() {
                   </select>
                 </div>
                 
-                <div className="flex flex-col">
+                <div className="flex flex-col flex-1 min-w-[200px]">
                   <label className="text-xs font-bold text-gray-500 mb-1">Filtrar por Parroquia</label>
                   <select 
                     value={filtroParroquia} 
@@ -1250,7 +1253,7 @@ export default function AdminDashboardPage() {
                   </select>
                 </div>
 
-                <div className="flex flex-col">
+                <div className="flex flex-col flex-1 min-w-[200px]">
                   <label className="text-xs font-bold text-gray-500 mb-1">Filtrar por Circuito</label>
                   <select 
                     value={filtroCircuito} 
@@ -1262,6 +1265,21 @@ export default function AdminDashboardPage() {
                     {circuitosUnicos.map((c, i) => <option key={i} value={c as string}>{c}</option>)}
                   </select>
                 </div>
+
+                {/* FILTRO ORGANISMO SOLO PARA SUPER USUARIOS / LECTORES GLOBALES */}
+                {(esSuperUser || isReadOnlyVen911) && (
+                  <div className="flex flex-col flex-1 min-w-[200px]">
+                    <label className="text-xs font-bold text-[#00529b] mb-1">Filtrar por Organismo</label>
+                    <select 
+                      value={filtroDirectorioOrganismo} 
+                      onChange={(e) => setFiltroDirectorioOrganismo(e.target.value)}
+                      className="p-2 border border-blue-200 rounded-lg bg-blue-50 text-[#00529b] text-sm font-bold outline-none shadow-sm cursor-pointer"
+                    >
+                      <option value="">TODOS LOS ORGANISMOS</option>
+                      {LISTA_ORGANISMOS.map((org, i) => <option key={i} value={org}>{org}</option>)}
+                    </select>
+                  </div>
+                )}
               </div>
 
               {mostrarFormualioManual && !isReadOnlyVen911 && (
@@ -2117,7 +2135,4 @@ export default function AdminDashboardPage() {
       )}
     </div>
   );
-
 }
-
-
