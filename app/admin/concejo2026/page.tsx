@@ -82,10 +82,15 @@ export default function SalaSituacionalConcejoPage() {
             Object.keys(row).find(k => names.some(n => k.toUpperCase().trim().includes(n.toUpperCase())));
 
           const siturKey = findKey(['CODIGO_CIRCUITO_COMUNAL', 'CODIGO SITUR', 'CIRCUITO', 'SITUR']);
-          const comunaKey = Richmond_Get_Key(row, ['NOMBRE DEL CIRCUITO COMUNAL O COMUNA', 'COMUNA', 'CIRCUITO COMUNAL']);
+          const comunaKey = findKey(['NOMBRE DEL CIRCUITO COMUNAL O COMUNA', 'COMUNA', 'CIRCUITO COMUNAL']);
           
-          const situr = situr = siturLimpio(row, situr);
-          const comuna = (row[comunaKey] || '').toString().trim();
+          // === CORRECCIÓN AQUÍ: Evitamos la reasignación con const ===
+          let situr = '';
+          if (siturKey && row[siturKey]) {
+            situr = row[siturKey].toString().trim();
+          }
+          
+          const comuna = (comunaKey && row[comunaKey] ? row[comunaKey].toString().trim() : '');
           
           if (!situr) return; 
 
@@ -139,17 +144,6 @@ export default function SalaSituacionalConcejoPage() {
     };
     reader.readAsBinaryString(file);
   };
-
-  // Función auxiliar interna para buscar llaves dinámicas
-  function Richmond_Get_Key(obj: any, targets: string[]): string {
-    const key = Object.keys(obj).find(k => targets.some(t => k.toUpperCase().trim() === t.toUpperCase()));
-    return key || '';
-  }
-
-  function siturLimpio(row: any, key: string | undefined): string {
-    if(!key || !row[key]) return '';
-    return row[key].toString().trim();
-  }
 
   const mapaJefes = useMemo(() => {
     const mapa = new Map();
