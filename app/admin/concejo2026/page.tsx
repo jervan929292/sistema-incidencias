@@ -35,13 +35,32 @@ export default function SalaSituacionalConcejoPage() {
         const { data: adminData } = await supabase.from('directorio_operativo').select('*').eq('id', user.id).single();
         setAdminProfile(adminData);
 
+        // Carga de todos los registros superando la barrera de 1000
+        const fetchTodosLosCentros = async () => {
+          let todosLosCentros: any[] = [];
+          let limite = 1000;
+          let inicio = 0;
+          let hayMas = true;
+          while (hayMas) {
+            const { data: batch } = await supabase.from('centros_votacion_2026').select('*').range(inicio, inicio + limite - 1);
+            if (batch && batch.length > 0) {
+              todosLosCentros = [...todosLosCentros, ...batch];
+              inicio += limite;
+              if (batch.length < limite) hayMas = false; 
+            } else { 
+              hayMas = false; 
+            }
+          }
+          return todosLosCentros;
+        };
+
         const [resCentros, resUsuarios, resReportes] = await Promise.all([
-          supabase.from('centros_votacion_2026').select('*'),
-          supabase.from('directorio_operativo').select('*').neq('rol', 'admin').neq('rol', 'superusuario'),
-          supabase.from('reportes_concejo_2026').select('*').order('fecha_reporte', { ascending: false })
+          fetchTodosLosCentros(),
+          supabase.from('directorio_operativo').select('*').neq('rol', 'admin').neq('rol', 'superusuario').limit(5000),
+          supabase.from('reportes_concejo_2026').select('*').order('fecha_reporte', { ascending: false }).limit(5000)
         ]);
 
-        if (resCentros.data) setCentros(resCentros.data);
+        if (resCentros) setCentros(resCentros);
         if (resUsuarios.data) setUsuarios(resUsuarios.data);
         if (resReportes.data) setReportes(resReportes.data);
       } catch (err) {
@@ -84,7 +103,6 @@ export default function SalaSituacionalConcejoPage() {
           const siturKey = findKey(['CODIGO_CIRCUITO_COMUNAL', 'CODIGO SITUR', 'CIRCUITO', 'SITUR']);
           const comunaKey = findKey(['NOMBRE DEL CIRCUITO COMUNAL O COMUNA', 'COMUNA', 'CIRCUITO COMUNAL']);
           
-          // === CORRECCIÓN AQUÍ: Evitamos la reasignación con const ===
           let situr = '';
           if (siturKey && row[siturKey]) {
             situr = row[siturKey].toString().trim();
