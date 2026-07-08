@@ -1,8 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-// Importamos 'Edit' para el nuevo botón de modificar
-import { School, UserCheck, Save, Shield, MapPin, MessageSquare, ArrowLeft, CheckCircle2, Circle, Plus, Clock, SearchCheck, Edit } from 'lucide-react';
+import { School, UserCheck, Save, Shield, MapPin, MessageSquare, ArrowLeft, CheckCircle2, Plus, Clock, SearchCheck } from 'lucide-react';
 import Link from 'next/link';
 
 export default function ConcejoTerritorialPage() {
@@ -57,7 +56,7 @@ export default function ConcejoTerritorialPage() {
                 escuela_apta: rep.escuela_apta || 'PENDIENTE',
                 responsable_inspeccion: rep.responsable_inspeccion || '',
                 organismos_presentes: rep.organismos_presentes || '',
-                cierre_mesas: rep.cierre_mesas || 'PENDIENTE' // Usamos esta columna nativa como flag de "Inspección Finalizada"
+                cierre_mesas: rep.cierre_mesas || 'PENDIENTE'
               };
             });
             
@@ -102,6 +101,7 @@ export default function ConcejoTerritorialPage() {
           cod_centro: escuela.COD_CENTRO,
           codigo_situr: jefe.codigo_situr,
           resena: bitacoraActualizada,
+          cierre_mesas: 'CERRADO', // Garantiza que la bitácora mantenga el estatus completado
           fecha_reporte: ahora.toISOString()
         }, { onConflict: 'cod_centro' });
     } catch (err) {
@@ -109,7 +109,7 @@ export default function ConcejoTerritorialPage() {
     }
   };
 
-  const guardarCambiosCentro = async (escuela: any, esCierreFinal = false) => {
+  const guardarCambiosCentro = async (escuela: any) => {
     setGuardandoId(escuela.id);
     try {
       const { error } = await supabase
@@ -117,25 +117,20 @@ export default function ConcejoTerritorialPage() {
         .upsert({
           cod_centro: escuela.COD_CENTRO,
           codigo_situr: jefe.codigo_situr,
-          // ÚNICOS PUNTOS A EVALUAR EN EL SISTEMA
           escuela_apta: escuela.escuela_apta,
           responsable_inspeccion: escuela.responsable_inspeccion || '',
           organismos_presentes: escuela.organismos_presentes || '',
           resena: escuela.resena || '',
-          cierre_mesas: esCierreFinal ? 'CERRADO' : escuela.cierre_mesas, 
+          cierre_mesas: 'CERRADO', // Se guarda directamente como CERRADO (Completado) para la Sala Situacional
           fecha_reporte: new Date().toISOString()
         }, { onConflict: 'cod_centro' });
 
       if (error) throw error;
       
-      if (esCierreFinal) {
-        alert(`INSPECCIÓN FINALIZADA: El reporte de la escuela "${escuela['NOMBRE CENTRO']}" ha sido cerrado y enviado con éxito al VEN 911.`);
-        window.location.reload();
-      } else {
-        alert(`Expediente de "${escuela['NOMBRE CENTRO']}" actualizado en el sistema.`);
-      }
+      alert(`✅ ÉXITO: Reporte de la escuela "${escuela['NOMBRE CENTRO']}" guardado y sincronizado con el VEN 911.`);
+      window.location.reload();
     } catch (err: any) {
-      alert("Error al guardar: " + err.message);
+      alert("Error al guardar en el sistema: " + err.message);
     } finally {
       setGuardandoId(null);
     }
@@ -179,13 +174,13 @@ export default function ConcejoTerritorialPage() {
             </div>
           ) : (
             escuelas.map((esc, index) => {
-              const estaFinalizado = esc.cierre_mesas === 'CERRADO';
+              const estaSincronizado = esc.cierre_mesas === 'CERRADO';
               
               return (
-                <div key={esc.id} className={`bg-white rounded-2xl border p-6 shadow-sm flex flex-col gap-6 relative overflow-hidden transition-all ${estaFinalizado ? 'border-emerald-300 bg-emerald-50/10' : 'border-gray-200'}`}>
+                <div key={esc.id} className={`bg-white rounded-2xl border p-6 shadow-sm flex flex-col gap-6 relative overflow-hidden transition-all ${estaSincronizado ? 'border-emerald-200 bg-emerald-50/5' : 'border-gray-200'}`}>
                   
-                  <div className={`absolute top-0 right-0 text-white text-[10px] font-black px-3 py-1 rounded-bl-xl ${estaFinalizado ? 'bg-emerald-600' : 'bg-amber-500'}`}>
-                    {estaFinalizado ? 'DIAGNÓSTICO ENVIADO' : `PLANTEL ${index + 1} DE ${escuelas.length}`}
+                  <div className={`absolute top-0 right-0 text-white text-[10px] font-black px-3 py-1 rounded-bl-xl ${estaSincronizado ? 'bg-emerald-600' : 'bg-amber-500'}`}>
+                    {estaSincronizado ? 'DIAGNÓSTICO SINCRONIZADO' : `PLANTEL ${index + 1} DE ${escuelas.length}`}
                   </div>
 
                   <div className="border-b pb-4">
@@ -209,7 +204,6 @@ export default function ConcejoTerritorialPage() {
                           <div className="flex gap-2">
                             <button 
                               type="button"
-                              disabled={estaFinalizado}
                               onClick={() => handleInputChange(esc.id, 'escuela_apta', 'APTA')}
                               className={`flex-1 p-2.5 rounded-xl text-xs font-black transition-all border ${esc.escuela_apta === 'APTA' ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm' : 'bg-white text-gray-400 border-gray-200 hover:bg-gray-50'}`}
                             >
@@ -217,7 +211,6 @@ export default function ConcejoTerritorialPage() {
                             </button>
                             <button 
                               type="button"
-                              disabled={estaFinalizado}
                               onClick={() => handleInputChange(esc.id, 'escuela_apta', 'NO APTA')}
                               className={`flex-1 p-2.5 rounded-xl text-xs font-black transition-all border ${esc.escuela_apta === 'NO APTA' ? 'bg-red-600 text-white border-red-600 shadow-sm' : 'bg-white text-gray-400 border-gray-200 hover:bg-gray-50'}`}
                             >
@@ -231,9 +224,8 @@ export default function ConcejoTerritorialPage() {
                           <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Responsable de la Evaluación</label>
                           <input 
                             type="text" 
-                            disabled={estaFinalizado} 
                             placeholder="Nombre completo y rango del evaluador..."
-                            className="w-full p-2.5 border rounded-xl text-xs bg-white outline-none focus:border-blue-500 font-bold uppercase disabled:bg-gray-100" 
+                            className="w-full p-2.5 border rounded-xl text-xs bg-white outline-none focus:border-blue-500 font-bold uppercase" 
                             value={esc.responsable_inspeccion || ''} 
                             onChange={e => handleInputChange(esc.id, 'responsable_inspeccion', e.target.value)} 
                           />
@@ -243,9 +235,8 @@ export default function ConcejoTerritorialPage() {
                         <div>
                           <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Organismos Presentes en la Inspección</label>
                           <textarea 
-                            disabled={estaFinalizado} 
                             placeholder="Ej: VEN 911, POLIFALCON, BRICOMILES, BOMBEROS..."
-                            className="w-full p-2.5 border rounded-xl text-xs bg-white outline-none focus:border-blue-500 font-bold uppercase h-16 resize-none disabled:bg-gray-100" 
+                            className="w-full p-2.5 border rounded-xl text-xs bg-white outline-none focus:border-blue-500 font-bold uppercase h-16 resize-none" 
                             value={esc.organismos_presentes || ''} 
                             onChange={e => handleInputChange(esc.id, 'organismos_presentes', e.target.value)} 
                           />
@@ -253,30 +244,28 @@ export default function ConcejoTerritorialPage() {
                       </div>
                     </div>
 
-                    {/* BITÁCORA PARA DETALLES ADICIONALES (Fallas eléctricas, agua, etc) */}
+                    {/* BITÁCORA PARA DETALLES ADICIONALES */}
                     <div className="space-y-3 bg-amber-50/10 p-4 rounded-xl border border-amber-200">
                       <h4 className="text-[11px] font-black text-amber-800 uppercase flex items-center gap-1.5">
                         <MessageSquare size={14}/> Bitácora de Novedades y Necesidades
                       </h4>
                       
-                      {!estaFinalizado && (
-                        <div className="flex gap-2">
-                          <textarea 
-                            placeholder="Escriba aquí deficiencias (Ej: Filtración en el techo, sin servicio de agua)..." 
-                            value={entradasResena[esc.COD_CENTRO] || ''} 
-                            onChange={e => setEntradasResena(prev => ({ ...prev, [esc.COD_CENTRO]: e.target.value }))}
-                            rows={2}
-                            className="flex-grow p-2.5 border rounded-xl text-xs bg-white outline-none focus:border-amber-500 font-medium resize-none min-h-[44px]"
-                          />
-                          <button 
-                            type="button" 
-                            onClick={() => agregarEntradaBitacora(esc)}
-                            className="bg-amber-500 hover:bg-amber-600 text-white font-bold px-4 py-2 rounded-xl flex items-center gap-1 text-xs uppercase shadow-sm shrink-0"
-                          >
-                            <Plus size={16}/> Añadir
-                          </button>
-                        </div>
-                      )}
+                      <div className="flex gap-2">
+                        <textarea 
+                          placeholder="Escriba aquí deficiencias (Ej: Filtración en el techo, sin servicio de agua)..." 
+                          value={entradasResena[esc.COD_CENTRO] || ''} 
+                          onChange={e => setEntradasResena(prev => ({ ...prev, [esc.COD_CENTRO]: e.target.value }))}
+                          rows={2}
+                          className="flex-grow p-2.5 border rounded-xl text-xs bg-white outline-none focus:border-amber-500 font-medium resize-none min-h-[44px]"
+                        />
+                        <button 
+                          type="button" 
+                          onClick={() => agregarEntradaBitacora(esc)}
+                          className="bg-amber-500 hover:bg-amber-600 text-white font-bold px-4 py-2 rounded-xl flex items-center gap-1 text-xs uppercase shadow-sm shrink-0"
+                        >
+                          <Plus size={16}/> Añadir
+                        </button>
+                      </div>
 
                       <div className="bg-white rounded-xl border p-3 min-h-[90px] max-h-40 overflow-y-auto space-y-2 divide-y divide-gray-50">
                         {esc.resena ? (
@@ -295,59 +284,32 @@ export default function ConcejoTerritorialPage() {
                     </div>
                   </div>
 
-                  {/* CONTROLES DE GUARDADO Y DESPACHO */}
-                  <div className="flex flex-col sm:flex-row justify-end items-center border-t border-gray-200 pt-4 gap-3">
-                    {!estaFinalizado ? (
-                      <>
-                        <button 
-                          type="button"
-                          disabled={guardandoId === esc.id}
-                          onClick={() => guardarCambiosCentro(esc, false)}
-                          className="w-full sm:w-auto px-5 py-2.5 bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold rounded-xl text-xs uppercase transition-colors"
-                        >
-                          Guardar Borrador
-                        </button>
-                        <button 
-                          type="button"
-                          disabled={guardandoId === esc.id}
-                          onClick={() => {
-                            // VALIDACIÓN OBLIGATORIA DE APTA / NO APTA
-                            if (esc.escuela_apta !== 'APTA' && esc.escuela_apta !== 'NO APTA') {
-                              alert("⚠️ ALTO: Debe seleccionar obligatoriamente si la infraestructura está 'APTA' o 'NO APTA' antes de finalizar la inspección.");
-                              return;
-                            }
-
-                            if(confirm("¿Está seguro de finalizar? Una vez enviado, el expediente se bloqueará.")) {
-                              guardarCambiosCentro(esc, true);
-                            }
-                          }}
-                          className="w-full sm:w-auto px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl text-xs uppercase transition-colors shadow-sm flex items-center justify-center gap-1.5"
-                        >
-                          <CheckCircle2 size={14}/> Finalizar Inspección
-                        </button>
-                      </>
-                    ) : (
-                      <div className="flex items-center gap-3 w-full sm:w-auto flex-col sm:flex-row">
-                        <span className="text-xs font-black text-emerald-600 bg-emerald-50 border border-emerald-200 px-4 py-2.5 rounded-xl uppercase flex items-center gap-1.5 w-full sm:w-auto justify-center">
-                          <CheckCircle2 size={16}/> Reporte Enviado
+                  {/* CONTROLES DE GUARDADO DIRECTO */}
+                  <div className="flex flex-col sm:flex-row justify-between items-center border-t border-gray-200 pt-4 gap-3">
+                    <div className="w-full sm:w-auto">
+                      {estaSincronizado && (
+                        <span className="text-xs font-black text-emerald-600 bg-emerald-50 border border-emerald-200 px-4 py-2.5 rounded-xl uppercase flex items-center gap-1.5 justify-center">
+                          <CheckCircle2 size={16}/> Sincronizado en Sala Central
                         </span>
-                        
-                        {/* NUEVO BOTÓN DE EDICIÓN */}
-                        <button 
-                          type="button"
-                          disabled={guardandoId === esc.id}
-                          onClick={() => {
-                            if(confirm("¿Desea reabrir este reporte para corregir algún error o agregar información?")) {
-                              handleInputChange(esc.id, 'cierre_mesas', 'PENDIENTE');
-                              guardarCambiosCentro({ ...esc, cierre_mesas: 'PENDIENTE' }, false);
-                            }
-                          }}
-                          className="w-full sm:w-auto px-5 py-2.5 bg-amber-100 hover:bg-amber-200 text-amber-700 font-black rounded-xl text-xs uppercase transition-colors shadow-sm flex items-center justify-center gap-1.5"
-                        >
-                          <Edit size={14}/> Editar Reporte
-                        </button>
-                      </div>
-                    )}
+                      )}
+                    </div>
+
+                    <button 
+                      type="button"
+                      disabled={guardandoId === esc.id}
+                      onClick={() => {
+                        // VALIDACIÓN ESTRICTA
+                        if (esc.escuela_apta !== 'APTA' && esc.escuela_apta !== 'NO APTA') {
+                          alert("⚠️ ALTO: Debe seleccionar obligatoriamente si la infraestructura está 'APTA' o 'NO APTA' antes de guardar.");
+                          return;
+                        }
+                        guardarCambiosCentro(esc);
+                      }}
+                      className="w-full sm:w-auto px-8 py-3.5 bg-[#00529b] hover:bg-[#003d73] text-white font-black rounded-xl text-xs uppercase transition-all shadow-md flex items-center justify-center gap-2"
+                    >
+                      <Save size={16} />
+                      {guardandoId === esc.id ? 'Sincronizando...' : 'Guardar Inspección'}
+                    </button>
                   </div>
 
                 </div>
