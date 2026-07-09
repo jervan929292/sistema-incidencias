@@ -87,7 +87,6 @@ export default function SalaSituacionalConcejoPage() {
     descargarTodo();
   }, []);
 
-  // Función Auxiliar de Limpieza
   const normalizarNombre = (nombre: string) => {
     return nombre ? nombre.toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w\s]/gi, '').replace(/\s+/g, ' ').trim() : '';
   };
@@ -100,26 +99,26 @@ export default function SalaSituacionalConcejoPage() {
     return mapa;
   }, [usuarios]);
 
-  // CORRECCIÓN CLAVE: Agrupar reportes Viejos y Nuevos
-  // Como los códigos CNE cambiaron, ahora mapeamos los reportes priorizando la unión por SITUR y Nombre.
-  const mapaReportes = useMemo(() => {
-    const mapa = new Map();
-    // Invertimos el arreglo para que los reportes más nuevos (los que quedaron CERRADOS) reescriban a los viejos
+  // CORRECCIÓN MÁXIMA: Lógica de recuperación múltiple
+  const { mapaReportesExactos, reportesHuerfanosPorSitur } = useMemo(() => {
+    const mapaExacto = new Map();
+    const huerfanos: Record<string, any[]> = {};
+
     [...reportes].reverse().forEach(r => {
-      // 1. Guardar usando la llave primaria directa (CNE viejo o nuevo)
-      if (r.cod_centro) mapa.set(r.cod_centro.toString().trim(), r);
+      // 1. Mapeo exacto si coincide el ID nuevo
+      if (r.cod_centro) mapaExacto.set(r.cod_centro.toString().trim(), r);
       
-      // 2. RESCATE DE HISTORIAL: Crear un puente para recuperar reportes huérfanos
-      // Si el reporte está CERRADO y tiene llave SITUR, lo asociamos para cruzarlo luego con el circuito
+      // 2. Acumulamos los reportes completados en su respectivo SITUR para rescatarlos
       if (r.cierre_mesas === 'CERRADO' && r.codigo_situr) {
-          const llavePuente = `RESCATE_${r.codigo_situr.toString().trim()}`;
-          // Si el circuito ya tiene un reporte rescatado, lo acumulamos (para circuitos con múltiples escuelas)
-          if(!mapa.has(llavePuente)) {
-            mapa.set(llavePuente, r);
-          }
+        const siturLimpio = r.codigo_situr.toString().trim();
+        if (!huerfanos[siturLimpio]) {
+          huerfanos[siturLimpio] = [];
+        }
+        huerfanos[siturLimpio].push(r);
       }
     });
-    return mapa;
+    
+    return { mapaReportesExactos: mapaExacto, reportesHuerfanosPorSitur: huerfanos };
   }, [reportes]);
 
   const isSuperAdmin = adminProfile?.rol === 'superusuario' || 
@@ -132,11 +131,10 @@ export default function SalaSituacionalConcejoPage() {
   const organismosUnicos = useMemo(() => Array.from(new Set(usuarios.map(u => u.organismo_responsable))).filter(Boolean).sort(), [usuarios]);
 
   const centrosProcesados = useMemo(() => {
-    // FILTRO ANTI-DUPLICADOS (Agrupación por Nombre de Escuela Extremadamente Limpio)
     const centrosUnicosMap = new Map();
     
-    // Contabilizar asignaciones previas para distribuir los reportes rescatados
-    const circuitosConReporteGastado = new Set();
+    // Clonamos la bolsa de huérfanos para ir sacando de a uno
+    const huerfanosDisponibles = JSON.parse(JSON.stringify(reportesHuerfanosPorSitur));
 
     centros.forEach(c => {
       const nombreLimpio = normalizarNombre(c['NOMBRE CENTRO']);
@@ -144,23 +142,21 @@ export default function SalaSituacionalConcejoPage() {
         centrosUnicosMap.set(nombreLimpio, c);
       }
     });
+    
     const centrosUnicos = Array.from(centrosUnicosMap.values());
 
     return centrosUnicos.map(c => {
       const codigoSiturLimpio = c.CODIGO_CIRCUITO_COMUNAL?.toString().trim();
       const jefe = mapaJefes.get(codigoSiturLimpio);
       
-      // Intentamos recuperar el reporte con el ID oficial de la fila
-      let reporte = mapaReportes.get(c.COD_CENTRO?.toString().trim());
+      // Intentamos recuperar el reporte con el ID exacto
+      let reporte = mapaReportesExactos.get(c.COD_CENTRO?.toString().trim());
 
-      // Si la escuela no tiene un reporte oficial asignado por el ID nuevo, 
-      // verificamos si existe un reporte "viejo" CERRADO atascado en su mismo circuito
+      // Si no existe, SACAMOS un reporte de la "bolsa" de este SITUR
       if ((!reporte || reporte.cierre_mesas !== 'CERRADO') && codigoSiturLimpio) {
-        const puenteSitur = `RESCATE_${codigoSiturLimpio}`;
-        if (mapaReportes.has(puenteSitur) && !circuitosConReporteGastado.has(codigoSiturLimpio)) {
-            reporte = mapaReportes.get(puenteSitur);
-            // Marcamos este reporte de rescate como "ya gastado" para no duplicarlo en la siguiente escuela del mismo circuito
-            circuitosConReporteGastado.add(codigoSiturLimpio);
+        if (huerfanosDisponibles[codigoSiturLimpio] && huerfanosDisponibles[codigoSiturLimpio].length > 0) {
+            // Sacamos el primer reporte viejo disponible para asignarlo a esta escuela
+            reporte = huerfanosDisponibles[codigoSiturLimpio].shift();
         }
       }
       
@@ -189,7 +185,7 @@ export default function SalaSituacionalConcejoPage() {
       
       return matchMuni && matchOrganismo && matchAptitud && matchEstatus;
     });
-  }, [centros, mapaJefes, mapaReportes, filtroMunicipio, organismoSeguro, filtroAptitud, filtroEstatus]);
+  }, [centros, mapaJefes, mapaReportesExactos, reportesHuerfanosPorSitur, filtroMunicipio, organismoSeguro, filtroAptitud, filtroEstatus]);
 
   const stats = useMemo(() => {
     const total = centrosProcesados.length;
