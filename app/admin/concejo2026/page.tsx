@@ -13,9 +13,6 @@ export default function SalaSituacionalConcejoPage() {
   const [usuarios, setUsuarios] = useState<any[]>([]);
   const [reportes, setReportes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  
-  const [subiendoCsv, setSubiendoCsv] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [filtroMunicipio, setFiltroMunicipio] = useState('');
   const [filtroOrganismo, setFiltroOrganismo] = useState('');
@@ -99,16 +96,13 @@ export default function SalaSituacionalConcejoPage() {
     return mapa;
   }, [usuarios]);
 
-  // CORRECCIÓN MÁXIMA: Lógica de recuperación múltiple
   const { mapaReportesExactos, reportesHuerfanosPorSitur } = useMemo(() => {
     const mapaExacto = new Map();
     const huerfanos: Record<string, any[]> = {};
 
     [...reportes].reverse().forEach(r => {
-      // 1. Mapeo exacto si coincide el ID nuevo
       if (r.cod_centro) mapaExacto.set(r.cod_centro.toString().trim(), r);
       
-      // 2. Acumulamos los reportes completados en su respectivo SITUR para rescatarlos
       if (r.cierre_mesas === 'CERRADO' && r.codigo_situr) {
         const siturLimpio = r.codigo_situr.toString().trim();
         if (!huerfanos[siturLimpio]) {
@@ -132,8 +126,6 @@ export default function SalaSituacionalConcejoPage() {
 
   const centrosProcesados = useMemo(() => {
     const centrosUnicosMap = new Map();
-    
-    // Clonamos la bolsa de huérfanos para ir sacando de a uno
     const huerfanosDisponibles = JSON.parse(JSON.stringify(reportesHuerfanosPorSitur));
 
     centros.forEach(c => {
@@ -149,13 +141,10 @@ export default function SalaSituacionalConcejoPage() {
       const codigoSiturLimpio = c.CODIGO_CIRCUITO_COMUNAL?.toString().trim();
       const jefe = mapaJefes.get(codigoSiturLimpio);
       
-      // Intentamos recuperar el reporte con el ID exacto
       let reporte = mapaReportesExactos.get(c.COD_CENTRO?.toString().trim());
 
-      // Si no existe, SACAMOS un reporte de la "bolsa" de este SITUR
       if ((!reporte || reporte.cierre_mesas !== 'CERRADO') && codigoSiturLimpio) {
         if (huerfanosDisponibles[codigoSiturLimpio] && huerfanosDisponibles[codigoSiturLimpio].length > 0) {
-            // Sacamos el primer reporte viejo disponible para asignarlo a esta escuela
             reporte = huerfanosDisponibles[codigoSiturLimpio].shift();
         }
       }
@@ -174,7 +163,7 @@ export default function SalaSituacionalConcejoPage() {
         responsable_inspeccion: reporte?.responsable_inspeccion || 'NO REGISTRADO',
         organismos_presentes: reporte?.organismos_presentes || 'NO REGISTRADOS',
         cierre_mesas: reporte?.cierre_mesas || 'PENDIENTE', 
-        resena: reporte?.resena || 'Sin novedades registradas.',
+        resena: reporte?.resena || '',
         fecha_reporte: reporte?.fecha_reporte ? new Date(reporte.fecha_reporte).toLocaleString('es-VE') : 'Sin reporte'
       };
     }).filter(c => {
@@ -189,100 +178,160 @@ export default function SalaSituacionalConcejoPage() {
 
   const stats = useMemo(() => {
     const total = centrosProcesados.length;
-    const inspeccionadas = centrosProcesados.filter(c => c.cierre_mesas === 'CERRADO').length;
-    const pendientes = total - inspeccionadas;
-    const aptas = centrosProcesados.filter(c => c.escuela_apta === 'APTA').length;
-    const noAptas = centrosProcesados.filter(c => c.escuela_apta === 'NO APTA').length;
+    
+    const reportesRealesFiltrados = reportes.filter(r => {
+      const jefe = mapaJefes.get(r.codigo_situr?.toString().trim());
+      const matchMuni = !filtroMunicipio || jefe?.municipio === filtroMunicipio;
+      const matchOrg = !organismoSeguro || jefe?.organismo_responsable === organismoSeguro;
+      const matchAptitud = !filtroAptitud || r.escuela_apta === filtroAptitud;
+      const matchEstatus = !filtroEstatus || r.cierre_mesas === filtroEstatus;
+      
+      return matchMuni && matchOrg && matchAptitud && matchEstatus;
+    });
 
-    return { total, inspeccionadas, pendientes, aptas, noAptas };
-  }, [centrosProcesados]);
+    const inspeccionadasReal = reportesRealesFiltrados.filter(r => r.cierre_mesas === 'CERRADO').length;
+    const aptasReal = reportesRealesFiltrados.filter(r => r.cierre_mesas === 'CERRADO' && r.escuela_apta === 'APTA').length;
+    const noAptasReal = reportesRealesFiltrados.filter(r => r.cierre_mesas === 'CERRADO' && r.escuela_apta === 'NO APTA').length;
+    
+    const pendientesCalculados = Math.max(0, total - inspeccionadasReal);
 
+    return { total, inspeccionadas: inspeccionadasReal, pendientes: pendientesCalculados, aptas: aptasReal, noAptas: noAptasReal };
+  }, [centrosProcesados, reportes, mapaJefes, filtroMunicipio, organismoSeguro, filtroAptitud, filtroEstatus]);
+
+  // =========================================================================
+  // EXPORTADORES PDF Y EXCEL (TOTALMENTE REDISEÑADOS CON SOLO LAS 6 COLUMNAS)
+  // =========================================================================
   const generarPDF = () => {
     const doc = new jsPDF('landscape'); 
     
     doc.setFontSize(16);
-    doc.text('Reporte General - Diagnóstico de Infraestructura Escolar', 14, 20);
+    doc.text('Expedientes de Infraestructura Escolar (Inspecciones Realizadas)', 14, 20);
     
     doc.setFontSize(10);
     doc.setTextColor(100);
     let subtitulo = `Organismo: ${organismoSeguro || 'TODOS'} | Municipio: ${filtroMunicipio || 'TODOS'}`;
     doc.text(subtitulo, 14, 28);
-    doc.text(`Planteles: ${stats.total} | Inspeccionados: ${stats.inspeccionadas} | Pendientes: ${stats.pendientes} | Aptos: ${stats.aptas} | No Aptos: ${stats.noAptas}`, 14, 34);
+    doc.text(`Total Inspeccionadas en este reporte: ${stats.inspeccionadas} | Aptas: ${stats.aptas} | No Aptas: ${stats.noAptas}`, 14, 34);
 
-    const tableColumn = ["CNE", "Plantel Educativo", "SITUR", "Municipio", "Estado Físico", "Estatus Inspección", "Últ. Actualización"];
-    const tableRows = centrosProcesados.map(c => [
-      c.COD_CENTRO,
-      c['NOMBRE CENTRO'],
-      c.CODIGO_CIRCUITO_COMUNAL,
-      c.municipio,
-      c.escuela_apta,
-      c.cierre_mesas === 'CERRADO' ? 'COMPLETADA' : 'PENDIENTE',
-      c.fecha_reporte
-    ]);
+    // FILTRO ESTRICTO: Solo descargamos las que ya fueron inspeccionadas (CERRADO)
+    const escuelasInspeccionadas = centrosProcesados.filter(c => c.cierre_mesas === 'CERRADO');
+
+    if(escuelasInspeccionadas.length === 0) {
+      alert("No hay escuelas inspeccionadas con este filtro para generar el PDF.");
+      return;
+    }
+
+    // AQUI ESTÁN LAS 6 COLUMNAS EXACTAS QUE PEDISTE, NADA MÁS.
+    const tableColumn = [
+      "Municipio", 
+      "Nombre de la Escuela", 
+      "Comuna", 
+      "Organismo", 
+      "Apta/No Apta", 
+      "Reseña Escrita por el Funcionario"
+    ];
+    
+    const tableRows = escuelasInspeccionadas.map(c => {
+      // Limpiamos la reseña por si está vacía
+      let textoResena = c.resena ? c.resena.trim() : '';
+      if (textoResena === 'Sin novedades registradas.' || textoResena === 'null' || textoResena === 'undefined') {
+        textoResena = ''; 
+      }
+
+      return [
+        c.municipio,
+        c['NOMBRE CENTRO'],
+        c.comuna,
+        c.organismo,
+        c.escuela_apta,
+        textoResena // Reseña completa
+      ];
+    });
 
     autoTable(doc, {
       head: [tableColumn],
       body: tableRows,
       startY: 40,
-      styles: { fontSize: 8 },
-      headStyles: { fillColor: [0, 82, 155] }
+      styles: { 
+        fontSize: 8, 
+        cellPadding: 4,
+        overflow: 'linebreak' // GARANTIZA QUE LA RESEÑA SE LEA HASTA ABAJO SIN CORTARSE
+      },
+      headStyles: { fillColor: [0, 82, 155], textColor: [255, 255, 255] },
+      columnStyles: {
+        0: { cellWidth: 25 }, // Municipio
+        1: { cellWidth: 45 }, // Nombre Escuela
+        2: { cellWidth: 35 }, // Comuna
+        3: { cellWidth: 30 }, // Organismo
+        4: { cellWidth: 20 }, // Apta / No Apta
+        5: { cellWidth: 'auto' } // Reseña Escrita por el Funcionario (Se lleva todo el espacio sobrante de la hoja)
+      }
     });
 
-    doc.save('Reporte_Inspeccion_Escolar_VEN911.pdf');
+    doc.save('Expedientes_Completos_Escuelas.pdf');
   };
 
   const generarExcel = () => {
-    if (centrosProcesados.length === 0) {
-      alert("No hay registros para exportar con los filtros actuales.");
+    // FILTRO ESTRICTO: Solo descargamos las que ya fueron inspeccionadas (CERRADO)
+    const escuelasInspeccionadas = centrosProcesados.filter(c => c.cierre_mesas === 'CERRADO');
+
+    if (escuelasInspeccionadas.length === 0) {
+      alert("No hay escuelas inspeccionadas con este filtro para generar el Excel.");
       return;
     }
 
     const wsData: any[][] = [
-      ["REPORTE GENERAL DE DIAGNÓSTICO E INSPECCIÓN ESCOLAR - VEN 911"],
+      ["EXPEDIENTES DE INFRAESTRUCTURA ESCOLAR - INSPECCIONES REALIZADAS"],
       [],
-      ["ESTADÍSTICAS DEL FILTRO APLICADO"],
+      ["ESTADÍSTICAS DEL REPORTE"],
       [`Organismo: ${organismoSeguro || 'TODOS'}`, `Municipio: ${filtroMunicipio || 'TODOS'}`],
-      [`Totales: ${stats.total}`, `Inspeccionados: ${stats.inspeccionadas}`, `Pendientes: ${stats.pendientes}`, `Aptos: ${stats.aptas}`, `No Aptos: ${stats.noAptas}`],
+      [`Total Inspeccionadas: ${stats.inspeccionadas}`, `Aptas: ${stats.aptas}`, `No Aptas: ${stats.noAptas}`],
       [],
+      // AQUI ESTÁN LAS 6 COLUMNAS EXACTAS QUE PEDISTE, NADA MÁS.
       [
-        "CNE", "PLANTEL EDUCATIVO", "SITUR / CIRCUITO", 
-        "MUNICIPIO", "PARROQUIA", "ORGANISMO CUSTODIO", "JEFE ASIGNADO (DB)", 
-        "TELÉFONO", "RESPONSABLE DE INSPECCIÓN", "ORGANISMOS PRESENTES", 
-        "ESTADO INFRAESTRUCTURA", "ESTATUS DEL REPORTE", "ÚLTIMA ACTUALIZACIÓN"
+        "Municipio", 
+        "Nombre de la Escuela", 
+        "Comuna", 
+        "Organismo", 
+        "Apta/No Apta", 
+        "Reseña Escrita por el Funcionario"
       ]
     ];
 
-    centrosProcesados.forEach(c => {
+    escuelasInspeccionadas.forEach(c => {
+      let textoResena = c.resena ? c.resena.trim() : '';
+      if (textoResena === 'Sin novedades registradas.' || textoResena === 'null' || textoResena === 'undefined') {
+        textoResena = ''; 
+      }
+
       wsData.push([
-        c.COD_CENTRO,
-        c['NOMBRE CENTRO'],
-        c.CODIGO_CIRCUITO_COMUNAL,
         c.municipio,
-        c.parroquia,
+        c['NOMBRE CENTRO'],
+        c.comuna,
         c.organismo,
-        `${c.jefe_jerarquia} ${c.jefe_nombre}`,
-        c.jefe_telefono,
-        c.responsable_inspeccion,
-        c.organismos_presentes,
         c.escuela_apta,
-        c.cierre_mesas === 'CERRADO' ? 'COMPLETADA' : 'PENDIENTE',
-        c.fecha_reporte
+        textoResena // Reseña completa
       ]);
     });
 
     const ws = XLSX.utils.aoa_to_sheet(wsData);
 
-    ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 12 } }];
+    ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 5 } }];
     ws['!cols'] = [
-      { wch: 12 }, { wch: 45 }, { wch: 20 }, { wch: 15 }, 
-      { wch: 20 }, { wch: 30 }, { wch: 35 }, { wch: 15 }, 
-      { wch: 30 }, { wch: 30 }, { wch: 22 }, { wch: 22 }, { wch: 20 }
+      { wch: 15 }, // Municipio
+      { wch: 50 }, // Escuela
+      { wch: 35 }, // Comuna
+      { wch: 25 }, // Organismo
+      { wch: 15 }, // Apta / No Apta
+      { wch: 100 } // Reseña (Ancha para Excel)
     ];
 
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Inspecciones');
-    XLSX.writeFile(wb, 'Reporte_Inspecciones_Escolares.xlsx');
+    XLSX.utils.book_append_sheet(wb, ws, 'Expedientes');
+    XLSX.writeFile(wb, 'Expedientes_Completos_Escuelas.xlsx');
   };
+
+  const handleUploadFile = () => {};
 
   if (loading) return <div className="p-8 text-center font-bold animate-pulse text-[#00529b]">Cargando Sala Analítica Regional...</div>;
 
