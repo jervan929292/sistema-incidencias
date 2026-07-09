@@ -1,7 +1,7 @@
 'use client';
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
-import { BarChart3, Shield, MapPin, CheckCircle2, AlertTriangle, Eye, X, UserCheck, Clock, School, ArrowLeft, FileText, Download, FileSpreadsheet, SearchCheck, Building } from 'lucide-react';
+import { BarChart3, Shield, MapPin, CheckCircle2, AlertTriangle, Eye, X, UserCheck, Clock, School, ArrowLeft, FileText, Download, Upload, Loader2, FileSpreadsheet, SearchCheck, Building } from 'lucide-react';
 import Link from 'next/link';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -13,8 +13,10 @@ export default function SalaSituacionalConcejoPage() {
   const [usuarios, setUsuarios] = useState<any[]>([]);
   const [reportes, setReportes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  const [subiendoCsv, setSubiendoCsv] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // NUEVOS ESTADOS DE FILTROS 
   const [filtroMunicipio, setFiltroMunicipio] = useState('');
   const [filtroOrganismo, setFiltroOrganismo] = useState('');
   const [filtroAptitud, setFiltroAptitud] = useState('');
@@ -31,7 +33,6 @@ export default function SalaSituacionalConcejoPage() {
         const { data: adminData } = await supabase.from('directorio_operativo').select('*').eq('id', user.id).single();
         setAdminProfile(adminData);
 
-        // Carga de todos los registros superando la barrera de 1000
         const fetchTodosLosCentros = async () => {
           let todosLosCentros: any[] = [];
           let limite = 1000;
@@ -50,15 +51,33 @@ export default function SalaSituacionalConcejoPage() {
           return todosLosCentros;
         };
 
+        const fetchTodosLosReportes = async () => {
+          let todosLosReportes: any[] = [];
+          let limite = 1000;
+          let inicio = 0;
+          let hayMas = true;
+          while (hayMas) {
+            const { data: batch } = await supabase.from('reportes_concejo_2026').select('*').order('fecha_reporte', { ascending: false }).range(inicio, inicio + limite - 1);
+            if (batch && batch.length > 0) {
+              todosLosReportes = [...todosLosReportes, ...batch];
+              inicio += limite;
+              if (batch.length < limite) hayMas = false; 
+            } else { 
+              hayMas = false; 
+            }
+          }
+          return todosLosReportes;
+        };
+
         const [resCentros, resUsuarios, resReportes] = await Promise.all([
           fetchTodosLosCentros(),
           supabase.from('directorio_operativo').select('*').neq('rol', 'admin').neq('rol', 'superusuario').limit(5000),
-          supabase.from('reportes_concejo_2026').select('*').order('fecha_reporte', { ascending: false }).limit(5000)
+          fetchTodosLosReportes()
         ]);
 
         if (resCentros) setCentros(resCentros);
         if (resUsuarios.data) setUsuarios(resUsuarios.data);
-        if (resReportes.data) setReportes(resReportes.data);
+        if (resReportes) setReportes(resReportes);
       } catch (err) {
         console.error(err);
       } finally {
@@ -68,6 +87,11 @@ export default function SalaSituacionalConcejoPage() {
     descargarTodo();
   }, []);
 
+  // Función Auxiliar de Limpieza
+  const normalizarNombre = (nombre: string) => {
+    return nombre ? nombre.toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w\s]/gi, '').replace(/\s+/g, ' ').trim() : '';
+  };
+
   const mapaJefes = useMemo(() => {
     const mapa = new Map();
     usuarios.forEach(u => {
@@ -76,11 +100,23 @@ export default function SalaSituacionalConcejoPage() {
     return mapa;
   }, [usuarios]);
 
+  // CORRECCIÓN CLAVE: Agrupar reportes Viejos y Nuevos
+  // Como los códigos CNE cambiaron, ahora mapeamos los reportes priorizando la unión por SITUR y Nombre.
   const mapaReportes = useMemo(() => {
     const mapa = new Map();
-    reportes.forEach(r => {
-      if (r.cod_centro && !mapa.has(r.cod_centro)) {
-        mapa.set(r.cod_centro, r);
+    // Invertimos el arreglo para que los reportes más nuevos (los que quedaron CERRADOS) reescriban a los viejos
+    [...reportes].reverse().forEach(r => {
+      // 1. Guardar usando la llave primaria directa (CNE viejo o nuevo)
+      if (r.cod_centro) mapa.set(r.cod_centro.toString().trim(), r);
+      
+      // 2. RESCATE DE HISTORIAL: Crear un puente para recuperar reportes huérfanos
+      // Si el reporte está CERRADO y tiene llave SITUR, lo asociamos para cruzarlo luego con el circuito
+      if (r.cierre_mesas === 'CERRADO' && r.codigo_situr) {
+          const llavePuente = `RESCATE_${r.codigo_situr.toString().trim()}`;
+          // Si el circuito ya tiene un reporte rescatado, lo acumulamos (para circuitos con múltiples escuelas)
+          if(!mapa.has(llavePuente)) {
+            mapa.set(llavePuente, r);
+          }
       }
     });
     return mapa;
@@ -96,17 +132,37 @@ export default function SalaSituacionalConcejoPage() {
   const organismosUnicos = useMemo(() => Array.from(new Set(usuarios.map(u => u.organismo_responsable))).filter(Boolean).sort(), [usuarios]);
 
   const centrosProcesados = useMemo(() => {
+    // FILTRO ANTI-DUPLICADOS (Agrupación por Nombre de Escuela Extremadamente Limpio)
     const centrosUnicosMap = new Map();
+    
+    // Contabilizar asignaciones previas para distribuir los reportes rescatados
+    const circuitosConReporteGastado = new Set();
+
     centros.forEach(c => {
-      if (!centrosUnicosMap.has(c.COD_CENTRO)) {
-        centrosUnicosMap.set(c.COD_CENTRO, c);
+      const nombreLimpio = normalizarNombre(c['NOMBRE CENTRO']);
+      if (nombreLimpio && !centrosUnicosMap.has(nombreLimpio)) {
+        centrosUnicosMap.set(nombreLimpio, c);
       }
     });
     const centrosUnicos = Array.from(centrosUnicosMap.values());
 
     return centrosUnicos.map(c => {
-      const jefe = mapaJefes.get(c.CODIGO_CIRCUITO_COMUNAL?.toString().trim());
-      const reporte = mapaReportes.get(c.COD_CENTRO);
+      const codigoSiturLimpio = c.CODIGO_CIRCUITO_COMUNAL?.toString().trim();
+      const jefe = mapaJefes.get(codigoSiturLimpio);
+      
+      // Intentamos recuperar el reporte con el ID oficial de la fila
+      let reporte = mapaReportes.get(c.COD_CENTRO?.toString().trim());
+
+      // Si la escuela no tiene un reporte oficial asignado por el ID nuevo, 
+      // verificamos si existe un reporte "viejo" CERRADO atascado en su mismo circuito
+      if ((!reporte || reporte.cierre_mesas !== 'CERRADO') && codigoSiturLimpio) {
+        const puenteSitur = `RESCATE_${codigoSiturLimpio}`;
+        if (mapaReportes.has(puenteSitur) && !circuitosConReporteGastado.has(codigoSiturLimpio)) {
+            reporte = mapaReportes.get(puenteSitur);
+            // Marcamos este reporte de rescate como "ya gastado" para no duplicarlo en la siguiente escuela del mismo circuito
+            circuitosConReporteGastado.add(codigoSiturLimpio);
+        }
+      }
       
       return {
         ...c,
