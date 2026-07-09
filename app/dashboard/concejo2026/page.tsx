@@ -10,6 +10,9 @@ export default function ConcejoTerritorialPage() {
   const [loading, setLoading] = useState(true);
   const [guardandoId, setGuardandoId] = useState<string | number | null>(null);
   
+  // ESTADO NUEVO: Saber qué escuela se está editando
+  const [editandoId, setEditandoId] = useState<string | number | null>(null);
+
   // Estado local temporal para la nueva reseña de la bitácora
   const [entradasResena, setEntradasResena] = useState<{[key: string]: string}>({});
 
@@ -148,13 +151,17 @@ export default function ConcejoTerritorialPage() {
 
     const nuevaLinea = `${estampa} ${textoNota}`;
     
-    const bitacoraActualizada = escuela.resena 
-      ? `${escuela.resena}\n${nuevaLinea}`
+    let resenaBase = escuela.resena || '';
+    if (resenaBase === 'Sin novedades registradas.') resenaBase = '';
+
+    const bitacoraActualizada = resenaBase 
+      ? `${resenaBase}\n${nuevaLinea}`
       : nuevaLinea;
 
     setEscuelas(prev => prev.map(esc => esc.cod_centro_real === escuela.cod_centro_real ? { ...esc, resena: bitacoraActualizada } : esc));
     setEntradasResena(prev => ({ ...prev, [llave]: '' }));
 
+    // Auto-guardado opcional de la bitácora
     try {
       await supabase
         .from('reportes_concejo_2026')
@@ -172,6 +179,12 @@ export default function ConcejoTerritorialPage() {
   };
 
   const guardarCambiosCentro = async (escuela: any) => {
+    // VALIDACIÓN ESTRICTA
+    if (escuela.escuela_apta !== 'APTA' && escuela.escuela_apta !== 'NO APTA') {
+      alert("⚠️ ALTO: Debe seleccionar obligatoriamente si la infraestructura está 'APTA' o 'NO APTA' antes de guardar.");
+      return;
+    }
+
     setGuardandoId(escuela.id_centro);
     try {
       const payload: any = {
@@ -199,7 +212,6 @@ export default function ConcejoTerritorialPage() {
       window.location.reload(); 
     } catch (err: any) {
       alert("Error al guardar en el sistema: " + err.message);
-    } finally {
       setGuardandoId(null);
     }
   };
@@ -305,15 +317,19 @@ export default function ConcejoTerritorialPage() {
           ) : (
             escuelas.map((esc, index) => {
               const estaSincronizado = esc.cierre_mesas === 'CERRADO';
+              const estaEditando = editandoId === esc.id_centro;
+              
+              // LA LÓGICA DE BLOQUEO: Se bloquea si está sincronizado Y no se le ha dado al botón "Editar"
+              const isLocked = estaSincronizado && !estaEditando;
               
               return (
-                <div key={esc.id_centro} className={`bg-white rounded-2xl border p-6 shadow-sm flex flex-col gap-6 relative overflow-hidden transition-all ${estaSincronizado ? 'border-emerald-200 bg-emerald-50/5' : 'border-gray-200'}`}>
+                <div key={esc.id_centro} className={`bg-white rounded-2xl border p-6 shadow-sm flex flex-col gap-6 relative overflow-hidden transition-all ${estaSincronizado ? 'border-emerald-200 bg-emerald-50/5' : 'border-gray-200'} ${estaEditando ? 'ring-2 ring-amber-300' : ''}`}>
                   
-                  <div className={`absolute top-0 right-0 text-white text-[10px] font-black px-3 py-1 rounded-bl-xl flex items-center gap-2 ${estaSincronizado ? 'bg-emerald-600' : 'bg-amber-500'}`}>
-                    {estaSincronizado ? 'DIAGNÓSTICO SINCRONIZADO' : `PLANTEL ${index + 1} DE ${escuelas.length}`}
+                  <div className={`absolute top-0 right-0 text-white text-[10px] font-black px-3 py-1 rounded-bl-xl flex items-center gap-2 ${estaSincronizado ? (estaEditando ? 'bg-amber-500' : 'bg-emerald-600') : 'bg-amber-500'}`}>
+                    {estaSincronizado ? (estaEditando ? 'MODO EDICIÓN ACTIVADO' : 'DIAGNÓSTICO SINCRONIZADO') : `PLANTEL ${index + 1} DE ${escuelas.length}`}
                   </div>
 
-                  <div className="border-b pb-4 flex justify-between items-start">
+                  <div className="border-b pb-4 flex justify-between items-start mt-2">
                     <div>
                       <div className="flex items-center gap-2 text-[#00529b] mb-1">
                         <School size={20} />
@@ -323,7 +339,6 @@ export default function ConcejoTerritorialPage() {
                       <p className="text-xs text-gray-500 font-medium">{esc.DIRECCION}</p>
                     </div>
                     
-                    {/* BOTÓN ELIMINAR ESCUELA */}
                     <button 
                       onClick={() => eliminarEscuela(esc.id_centro, esc['NOMBRE CENTRO'])}
                       className="bg-red-50 text-red-600 hover:bg-red-600 hover:text-white border border-red-200 p-2 rounded-lg transition-colors flex items-center justify-center"
@@ -345,15 +360,17 @@ export default function ConcejoTerritorialPage() {
                           <div className="flex gap-2">
                             <button 
                               type="button"
+                              disabled={isLocked}
                               onClick={() => handleInputChange(esc.id_centro, 'escuela_apta', 'APTA')}
-                              className={`flex-1 p-2.5 rounded-xl text-xs font-black transition-all border ${esc.escuela_apta === 'APTA' ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm' : 'bg-white text-gray-400 border-gray-200 hover:bg-gray-50'}`}
+                              className={`flex-1 p-2.5 rounded-xl text-xs font-black transition-all border ${esc.escuela_apta === 'APTA' ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm' : 'bg-white text-gray-400 border-gray-200 hover:bg-gray-50'} ${isLocked ? 'opacity-60 cursor-not-allowed' : ''}`}
                             >
                               ESCUELA APTA
                             </button>
                             <button 
                               type="button"
+                              disabled={isLocked}
                               onClick={() => handleInputChange(esc.id_centro, 'escuela_apta', 'NO APTA')}
-                              className={`flex-1 p-2.5 rounded-xl text-xs font-black transition-all border ${esc.escuela_apta === 'NO APTA' ? 'bg-red-600 text-white border-red-600 shadow-sm' : 'bg-white text-gray-400 border-gray-200 hover:bg-gray-50'}`}
+                              className={`flex-1 p-2.5 rounded-xl text-xs font-black transition-all border ${esc.escuela_apta === 'NO APTA' ? 'bg-red-600 text-white border-red-600 shadow-sm' : 'bg-white text-gray-400 border-gray-200 hover:bg-gray-50'} ${isLocked ? 'opacity-60 cursor-not-allowed' : ''}`}
                             >
                               NO APTA
                             </button>
@@ -365,9 +382,9 @@ export default function ConcejoTerritorialPage() {
                           <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Responsable de la Evaluación</label>
                           <input 
                             type="text" 
-                            disabled={estaSincronizado} 
+                            disabled={isLocked} 
                             placeholder="Nombre completo y rango del evaluador..."
-                            className="w-full p-2.5 border rounded-xl text-xs bg-white outline-none focus:border-blue-500 font-bold uppercase disabled:bg-gray-100" 
+                            className="w-full p-2.5 border rounded-xl text-xs bg-white outline-none focus:border-blue-500 font-bold uppercase disabled:bg-gray-100 disabled:text-gray-500" 
                             value={esc.responsable_inspeccion || ''} 
                             onChange={e => handleInputChange(esc.id_centro, 'responsable_inspeccion', e.target.value)} 
                           />
@@ -377,9 +394,9 @@ export default function ConcejoTerritorialPage() {
                         <div>
                           <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Organismos Presentes en la Inspección</label>
                           <textarea 
-                            disabled={estaSincronizado} 
+                            disabled={isLocked} 
                             placeholder="Ej: VEN 911, POLIFALCON, BRICOMILES, BOMBEROS..."
-                            className="w-full p-2.5 border rounded-xl text-xs bg-white outline-none focus:border-blue-500 font-bold uppercase h-16 resize-none disabled:bg-gray-100" 
+                            className="w-full p-2.5 border rounded-xl text-xs bg-white outline-none focus:border-blue-500 font-bold uppercase h-16 resize-none disabled:bg-gray-100 disabled:text-gray-500" 
                             value={esc.organismos_presentes || ''} 
                             onChange={e => handleInputChange(esc.id_centro, 'organismos_presentes', e.target.value)} 
                           />
@@ -388,75 +405,126 @@ export default function ConcejoTerritorialPage() {
                     </div>
 
                     {/* BITÁCORA PARA DETALLES ADICIONALES */}
-                    <div className="space-y-3 bg-amber-50/10 p-4 rounded-xl border border-amber-200">
-                      <h4 className="text-[11px] font-black text-amber-800 uppercase flex items-center gap-1.5">
+                    <div className="space-y-3 bg-amber-50/10 p-4 rounded-xl border border-amber-200 flex flex-col">
+                      <h4 className="text-[11px] font-black text-amber-800 uppercase flex items-center gap-1.5 shrink-0">
                         <MessageSquare size={14}/> Bitácora de Novedades y Necesidades
                       </h4>
                       
-                      <div className="flex gap-2">
+                      {/* COMPONENTE DE AÑADIR RÁPIDO (Se desactiva al bloquear) */}
+                      <div className="flex gap-2 shrink-0">
                         <textarea 
+                          disabled={isLocked}
                           placeholder="Escriba aquí deficiencias (Ej: Filtración en el techo, sin servicio de agua)..." 
                           value={entradasResena[esc.cod_centro_real || ''] || ''} 
                           onChange={e => setEntradasResena(prev => ({ ...prev, [esc.cod_centro_real || '']: e.target.value }))}
                           rows={2}
-                          className="flex-grow p-2.5 border rounded-xl text-xs bg-white outline-none focus:border-amber-500 font-medium resize-none min-h-[44px]"
+                          className="flex-grow p-2.5 border rounded-xl text-xs bg-white outline-none focus:border-amber-500 font-medium resize-none min-h-[44px] disabled:bg-gray-100"
                         />
                         <button 
                           type="button" 
+                          disabled={isLocked}
                           onClick={() => agregarEntradaBitacora(esc)}
-                          className="bg-amber-500 hover:bg-amber-600 text-white font-bold px-4 py-2 rounded-xl flex items-center gap-1 text-xs uppercase shadow-sm shrink-0"
+                          className="bg-amber-500 hover:bg-amber-600 text-white font-bold px-4 py-2 rounded-xl flex items-center gap-1 text-xs uppercase shadow-sm shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           <Plus size={16}/> Añadir
                         </button>
                       </div>
 
-                      <div className="bg-white rounded-xl border p-3 min-h-[90px] max-h-40 overflow-y-auto space-y-2 divide-y divide-gray-50">
-                        {esc.resena && esc.resena !== 'Sin novedades registradas.' ? (
-                          esc.resena.split('\n').map((linea: string, lIdx: number) => (
-                            <p key={lIdx} className="text-[11px] text-gray-700 font-medium pt-1.5 first:pt-0 leading-relaxed">
-                              <span className="text-[#00529b] font-mono font-bold mr-1.5 inline-flex items-center gap-0.5">
-                                <Clock size={10}/> {linea.match(/\[.*?\]/)?.[0] || ''}
-                              </span>
-                              {linea.replace(/\[.*?\]/, '').trim()}
-                            </p>
-                          ))
-                        ) : (
-                          <p className="text-[11px] text-gray-400 italic text-center py-4">No hay novedades registradas en este plantel.</p>
-                        )}
-                      </div>
+                      {/* VISTA DE BITÁCORA: Cuadro bloqueado (lista) vs Cuadro editable (textarea) */}
+                      {isLocked ? (
+                        <div className="bg-white rounded-xl border p-3 min-h-[90px] max-h-48 overflow-y-auto space-y-2 divide-y divide-gray-50 grow">
+                          {esc.resena && esc.resena !== 'Sin novedades registradas.' ? (
+                            esc.resena.split('\n').map((linea: string, lIdx: number) => (
+                              <p key={lIdx} className="text-[11px] text-gray-700 font-medium pt-1.5 first:pt-0 leading-relaxed">
+                                <span className="text-[#00529b] font-mono font-bold mr-1.5 inline-flex items-center gap-0.5">
+                                  <Clock size={10}/> {linea.match(/\[.*?\]/)?.[0] || ''}
+                                </span>
+                                {linea.replace(/\[.*?\]/, '').trim()}
+                              </p>
+                            ))
+                          ) : (
+                            <p className="text-[11px] text-gray-400 italic text-center py-4">No hay novedades registradas en este plantel.</p>
+                          )}
+                        </div>
+                      ) : (
+                        <textarea 
+                          className="w-full p-3 border rounded-xl text-xs bg-white outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-200 font-medium min-h-[120px] resize-y grow"
+                          value={esc.resena === 'Sin novedades registradas.' ? '' : esc.resena}
+                          onChange={e => handleInputChange(esc.id_centro, 'resena', e.target.value)}
+                          placeholder="Puede editar todo el historial de la reseña directamente aquí..."
+                        />
+                      )}
                     </div>
                   </div>
 
-                  {/* CONTROLES DE GUARDADO DIRECTO */}
+                  {/* CONTROLES DE GUARDADO Y EDICIÓN */}
                   <div className="flex flex-col sm:flex-row justify-between items-center border-t border-gray-200 pt-4 gap-3">
                     <div className="w-full sm:w-auto">
-                      {estaSincronizado && (
+                      {estaSincronizado && !estaEditando && (
                         <span className="text-xs font-black text-emerald-600 bg-emerald-50 border border-emerald-200 px-4 py-2.5 rounded-xl uppercase flex items-center gap-1.5 justify-center">
                           <CheckCircle2 size={16}/> Sincronizado en Sala Central
                         </span>
                       )}
+                      {estaEditando && (
+                        <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-3 py-1 rounded-lg">
+                          Los campos están desbloqueados. Realice sus cambios.
+                        </span>
+                      )}
                     </div>
 
-                    <button 
-                      type="button"
-                      disabled={guardandoId === esc.id_centro}
-                      onClick={() => {
-                        // VALIDACIÓN ESTRICTA
-                        if (esc.escuela_apta !== 'APTA' && esc.escuela_apta !== 'NO APTA') {
-                          alert("⚠️ ALTO: Debe seleccionar obligatoriamente si la infraestructura está 'APTA' o 'NO APTA' antes de guardar.");
-                          return;
-                        }
-                        guardarCambiosCentro(esc);
-                      }}
-                      className={`w-full sm:w-auto px-8 py-3.5 font-black rounded-xl text-xs uppercase transition-all shadow-md flex items-center justify-center gap-2 ${estaSincronizado ? 'bg-amber-100 text-amber-800 hover:bg-amber-200' : ''}`}
-                      style={!estaSincronizado ? { backgroundColor: '#00529b', color: '#ffffff' } : {}}
-                    >
-                      {estaSincronizado ? (
-                        <><Edit size={16} /> Editar Reporte</>
+                    {estaSincronizado ? (
+                      isLocked ? (
+                        // BOTÓN DE DESBLOQUEO (MODO VISTA)
+                        <button 
+                          type="button"
+                          onClick={() => setEditandoId(esc.id_centro)}
+                          className="w-full sm:w-auto px-8 py-3.5 font-black rounded-xl text-xs uppercase transition-all shadow-md flex items-center justify-center gap-2 bg-amber-100 text-amber-800 hover:bg-amber-200"
+                        >
+                          <Edit size={16} /> Editar Reporte
+                        </button>
                       ) : (
-                        <><Save size={16} /> {guardandoId === esc.id_centro ? 'Sincronizando...' : 'Guardar Inspección'}</>
-                      )}
-                    </button>
+                        // BOTONES DE GUARDADO Y CANCELAR (MODO EDICIÓN)
+                        <div className="flex gap-2 w-full sm:w-auto">
+                          <button 
+                            type="button"
+                            onClick={() => {
+                              if (confirm("Se descartarán todos los cambios no guardados y el reporte volverá a su estado anterior. ¿Desea cancelar?")) {
+                                window.location.reload();
+                              }
+                            }}
+                            className="flex-1 sm:flex-none px-6 py-3.5 font-black rounded-xl text-xs uppercase transition-all shadow-md bg-gray-200 text-gray-700 hover:bg-gray-300"
+                          >
+                            Cancelar
+                          </button>
+                          <button 
+                            type="button"
+                            disabled={guardandoId === esc.id_centro}
+                            onClick={() => {
+                              if (confirm("Los cambios se guardarán con éxito. Por favor dele Aceptar para modificar el registro o Cancelar para dejarlo como estaba antes.")) {
+                                guardarCambiosCentro(esc);
+                              } else {
+                                window.location.reload();
+                              }
+                            }}
+                            className="flex-1 sm:flex-none px-8 py-3.5 font-black rounded-xl text-xs uppercase transition-all shadow-md flex items-center justify-center gap-2 bg-emerald-600 text-white hover:bg-emerald-700"
+                          >
+                            {guardandoId === esc.id_centro ? 'Guardando...' : <><Save size={16}/> Guardar Cambios</>}
+                          </button>
+                        </div>
+                      )
+                    ) : (
+                      // BOTÓN GUARDAR (NUEVO REPORTE)
+                      <button 
+                        type="button"
+                        disabled={guardandoId === esc.id_centro}
+                        onClick={() => guardarCambiosCentro(esc)}
+                        className="w-full sm:w-auto px-8 py-3.5 font-black rounded-xl text-xs uppercase transition-all shadow-md flex items-center justify-center gap-2"
+                        style={{ backgroundColor: '#00529b', color: '#ffffff' }}
+                      >
+                        <Save size={16} /> {guardandoId === esc.id_centro ? 'Sincronizando...' : 'Guardar Inspección'}
+                      </button>
+                    )}
+
                   </div>
 
                 </div>
