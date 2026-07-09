@@ -1,7 +1,7 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
-import { School, UserCheck, Save, Shield, MapPin, MessageSquare, ArrowLeft, CheckCircle2, Plus, Clock, SearchCheck } from 'lucide-react';
+import { School, UserCheck, Save, Shield, MapPin, MessageSquare, ArrowLeft, CheckCircle2, Plus, Clock, SearchCheck, Edit } from 'lucide-react';
 import Link from 'next/link';
 
 export default function ConcejoTerritorialPage() {
@@ -28,35 +28,95 @@ export default function ConcejoTerritorialPage() {
         if (userData) {
           setJefe(userData);
           
-          const { data: centros } = await supabase
-            .from('centros_votacion_2026')
-            .select('*')
-            .eq('CODIGO_CIRCUITO_COMUNAL', userData.codigo_situr);
+          // Función con paginación para traer todas las escuelas del cuadrante
+          const fetchCentrosAsignados = async () => {
+            let todosLosCentros: any[] = [];
+            let limite = 1000;
+            let inicio = 0;
+            let hayMas = true;
+            while (hayMas) {
+              const { data: batch } = await supabase.from('centros_votacion_2026')
+                .select('*')
+                .eq('CODIGO_CIRCUITO_COMUNAL', userData.codigo_situr)
+                .range(inicio, inicio + limite - 1);
+                
+              if (batch && batch.length > 0) {
+                todosLosCentros = [...todosLosCentros, ...batch];
+                inicio += limite;
+                if (batch.length < limite) hayMas = false; 
+              } else { 
+                hayMas = false; 
+              }
+            }
+            return todosLosCentros;
+          };
 
+          const centros = await fetchCentrosAsignados();
+
+          // Descargamos todos los reportes de este SITUR (nuevos y viejos)
           const { data: reportesExistentes } = await supabase
             .from('reportes_concejo_2026')
             .select('*')
-            .eq('codigo_situr', userData.codigo_situr);
+            .eq('codigo_situr', userData.codigo_situr)
+            .order('fecha_reporte', { ascending: false })
+            .limit(5000);
 
           if (centros) {
-            // Agrupamos las escuelas por Código CNE para evaluar la infraestructura una sola vez
+            // Función auxiliar para normalizar nombres
+            const normalizarNombre = (nombre: string) => {
+              return nombre ? nombre.toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w\s]/gi, '').replace(/\s+/g, ' ').trim() : '';
+            };
+
+            // Creamos un mapa de reportes exactos y una bolsa de rescate (reportes viejos huérfanos)
+            const mapaReportesExactos = new Map();
+            const bolsaHuerfanos: any[] = [];
+
+            if (reportesExistentes) {
+              [...reportesExistentes].reverse().forEach(r => {
+                if (r.cod_centro) mapaReportesExactos.set(r.cod_centro.toString().trim(), r);
+                // Si el reporte está CERRADO, se va a la bolsa de rescate del cuadrante
+                if (r.cierre_mesas === 'CERRADO') bolsaHuerfanos.push(r);
+              });
+            }
+
+            // Agrupamos las escuelas por Nombre (Anti-duplicados extremos)
             const centrosUnicosMap = new Map();
             centros.forEach((c: any) => {
-              if (!centrosUnicosMap.has(c.COD_CENTRO)) {
-                centrosUnicosMap.set(c.COD_CENTRO, c);
+              const nombreLimpio = normalizarNombre(c['NOMBRE CENTRO']);
+              if (nombreLimpio && !centrosUnicosMap.has(nombreLimpio)) {
+                centrosUnicosMap.set(nombreLimpio, c);
               }
             });
             const centrosUnicos = Array.from(centrosUnicosMap.values());
 
+            const huerfanosDisponibles = [...bolsaHuerfanos];
+
             const centrosConReportes = centrosUnicos.map((c: any) => {
-              const rep = reportesExistentes?.find((r: any) => r.cod_centro === c.COD_CENTRO) || {};
+              // 1. Buscamos el reporte por ID exacto
+              let rep = mapaReportesExactos.get(c.COD_CENTRO?.toString().trim());
+
+              // 2. Si no hay reporte exacto CERRADO, sacamos uno de la bolsa
+              if (!rep || rep.cierre_mesas !== 'CERRADO') {
+                if (huerfanosDisponibles.length > 0) {
+                  rep = huerfanosDisponibles.shift(); // Saca el primer reporte viejo
+                } else {
+                  rep = {}; // Si no hay más reportes en la bolsa, queda en blanco
+                }
+              }
+
               return { 
                 ...c, 
                 ...rep,
-                escuela_apta: rep.escuela_apta || 'PENDIENTE',
-                responsable_inspeccion: rep.responsable_inspeccion || '',
-                organismos_presentes: rep.organismos_presentes || '',
-                cierre_mesas: rep.cierre_mesas || 'PENDIENTE'
+                // Usamos el ID original de la escuela SIEMPRE para que los próximos guardados caigan en el código CNE nuevo
+                // PERO mostramos la data del reporte viejo si se rescató
+                cod_centro_real: c.COD_CENTRO, 
+                id_reporte_viejo: rep?.id || null, // Guardamos el ID interno del reporte viejo por si lo editamos
+                
+                escuela_apta: rep?.escuela_apta || 'PENDIENTE',
+                responsable_inspeccion: rep?.responsable_inspeccion || '',
+                organismos_presentes: rep?.organismos_presentes || '',
+                cierre_mesas: rep?.cierre_mesas || 'PENDIENTE',
+                resena: rep?.resena || ''
               };
             });
             
@@ -77,7 +137,7 @@ export default function ConcejoTerritorialPage() {
   };
 
   const agregarEntradaBitacora = async (escuela: any) => {
-    const textoNota = entradasResena[escuela.COD_CENTRO]?.trim();
+    const textoNota = entradasResena[escuela.cod_centro_real]?.trim();
     if (!textoNota) return;
 
     const ahora = new Date();
@@ -91,19 +151,21 @@ export default function ConcejoTerritorialPage() {
       ? `${escuela.resena}\n${nuevaLinea}`
       : nuevaLinea;
 
-    setEscuelas(prev => prev.map(esc => esc.COD_CENTRO === escuela.COD_CENTRO ? { ...esc, resena: bitacoraActualizada } : esc));
-    setEntradasResena(prev => ({ ...prev, [escuela.COD_CENTRO]: '' }));
+    setEscuelas(prev => prev.map(esc => esc.cod_centro_real === escuela.cod_centro_real ? { ...esc, resena: bitacoraActualizada } : esc));
+    setEntradasResena(prev => ({ ...prev, [escuela.cod_centro_real]: '' }));
 
     try {
       await supabase
         .from('reportes_concejo_2026')
         .upsert({
-          cod_centro: escuela.COD_CENTRO,
+          // Si tenía un reporte viejo, actualizamos ESA fila. Si es nuevo, usamos el CNE nuevo.
+          id: escuela.id_reporte_viejo || undefined, 
+          cod_centro: escuela.cod_centro_real,
           codigo_situr: jefe.codigo_situr,
           resena: bitacoraActualizada,
-          cierre_mesas: 'CERRADO', // Garantiza que la bitácora mantenga el estatus completado
+          cierre_mesas: 'CERRADO',
           fecha_reporte: ahora.toISOString()
-        }, { onConflict: 'cod_centro' });
+        }, { onConflict: 'id' }); // Conflict resolution en ID para que reescriba su propia fila
     } catch (err) {
       console.error("Error en auto-guardado de bitácora:", err);
     }
@@ -112,23 +174,32 @@ export default function ConcejoTerritorialPage() {
   const guardarCambiosCentro = async (escuela: any) => {
     setGuardandoId(escuela.id);
     try {
+      const payload: any = {
+        cod_centro: escuela.cod_centro_real, // Obligamos a que de ahora en adelante use el CNE nuevo
+        codigo_situr: jefe.codigo_situr,
+        escuela_apta: escuela.escuela_apta,
+        responsable_inspeccion: escuela.responsable_inspeccion || '',
+        organismos_presentes: escuela.organismos_presentes || '',
+        resena: escuela.resena || '',
+        cierre_mesas: 'CERRADO', 
+        fecha_reporte: new Date().toISOString()
+      };
+
+      // Si rescató un reporte viejo, le inyectamos su ID de tabla para que lo actualice 
+      // y no cree una fila duplicada en la base de datos de reportes.
+      if (escuela.id_reporte_viejo) {
+        payload.id = escuela.id_reporte_viejo;
+      }
+
+      // Upsert: Si mandamos un ID que ya existe, lo actualiza. Si no, lo crea (basado en cod_centro)
       const { error } = await supabase
         .from('reportes_concejo_2026')
-        .upsert({
-          cod_centro: escuela.COD_CENTRO,
-          codigo_situr: jefe.codigo_situr,
-          escuela_apta: escuela.escuela_apta,
-          responsable_inspeccion: escuela.responsable_inspeccion || '',
-          organismos_presentes: escuela.organismos_presentes || '',
-          resena: escuela.resena || '',
-          cierre_mesas: 'CERRADO', // Se guarda directamente como CERRADO (Completado) para la Sala Situacional
-          fecha_reporte: new Date().toISOString()
-        }, { onConflict: 'cod_centro' });
+        .upsert(payload, { onConflict: escuela.id_reporte_viejo ? 'id' : 'cod_centro' });
 
       if (error) throw error;
       
       alert(`✅ ÉXITO: Reporte de la escuela "${escuela['NOMBRE CENTRO']}" guardado y sincronizado con el VEN 911.`);
-      window.location.reload();
+      window.location.reload(); // Recargamos para refrescar la bolsa de reportes
     } catch (err: any) {
       alert("Error al guardar en el sistema: " + err.message);
     } finally {
@@ -186,7 +257,8 @@ export default function ConcejoTerritorialPage() {
                   <div className="border-b pb-4">
                     <div className="flex items-center gap-2 text-[#00529b] mb-1">
                       <School size={20} />
-                      <span className="text-xs font-black">CNE: {esc.COD_CENTRO}</span>
+                      {/* Mostrar el CNE Nuevo y si se rescató uno viejo, mostrar una marquita */}
+                      <span className="text-xs font-black">CNE: {esc.cod_centro_real} {esc.id_reporte_viejo && <span className="text-amber-500 ml-1" title="Reporte histórico recuperado">★</span>}</span>
                     </div>
                     <h3 className="text-base font-black text-gray-800 uppercase">{esc['NOMBRE CENTRO']}</h3>
                     <p className="text-xs text-gray-500 font-medium">{esc.DIRECCION}</p>
@@ -253,8 +325,8 @@ export default function ConcejoTerritorialPage() {
                       <div className="flex gap-2">
                         <textarea 
                           placeholder="Escriba aquí deficiencias (Ej: Filtración en el techo, sin servicio de agua)..." 
-                          value={entradasResena[esc.COD_CENTRO] || ''} 
-                          onChange={e => setEntradasResena(prev => ({ ...prev, [esc.COD_CENTRO]: e.target.value }))}
+                          value={entradasResena[esc.cod_centro_real] || ''} 
+                          onChange={e => setEntradasResena(prev => ({ ...prev, [esc.cod_centro_real]: e.target.value }))}
                           rows={2}
                           className="flex-grow p-2.5 border rounded-xl text-xs bg-white outline-none focus:border-amber-500 font-medium resize-none min-h-[44px]"
                         />
@@ -305,10 +377,13 @@ export default function ConcejoTerritorialPage() {
                         }
                         guardarCambiosCentro(esc);
                       }}
-                      className="w-full sm:w-auto px-8 py-3.5 bg-[#00529b] hover:bg-[#003d73] text-white font-black rounded-xl text-xs uppercase transition-all shadow-md flex items-center justify-center gap-2"
+                      className={`w-full sm:w-auto px-8 py-3.5 font-black rounded-xl text-xs uppercase transition-all shadow-md flex items-center justify-center gap-2 ${estaSincronizado ? 'bg-amber-100 text-amber-800 hover:bg-amber-200' : 'bg-[#00529b] text-white hover:bg-[#003d73]'}`}
                     >
-                      <Save size={16} />
-                      {guardandoId === esc.id ? 'Sincronizando...' : 'Guardar Inspección'}
+                      {estaSincronizado ? (
+                        <><Edit size={16} /> Editar Reporte</>
+                      ) : (
+                        <><Save size={16} /> {guardandoId === esc.id ? 'Sincronizando...' : 'Guardar Inspección'}</>
+                      )}
                     </button>
                   </div>
 
