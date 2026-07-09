@@ -1,7 +1,7 @@
 'use client';
-import { useEffect, useState, useMemo, useRef } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
-import { BarChart3, Shield, MapPin, CheckCircle2, AlertTriangle, Eye, X, UserCheck, Clock, School, ArrowLeft, FileText, Download, Upload, Loader2, FileSpreadsheet, SearchCheck, Building } from 'lucide-react';
+import { BarChart3, Shield, MapPin, CheckCircle2, AlertTriangle, Eye, X, UserCheck, Clock, School, ArrowLeft, FileText, Download, FileSpreadsheet, SearchCheck, Building } from 'lucide-react';
 import Link from 'next/link';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -13,10 +13,6 @@ export default function SalaSituacionalConcejoPage() {
   const [usuarios, setUsuarios] = useState<any[]>([]);
   const [reportes, setReportes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  
-  // ESTADOS DE SUBIDA DE EXCEL/CSV
-  const [subiendoCsv, setSubiendoCsv] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // NUEVOS ESTADOS DE FILTROS 
   const [filtroMunicipio, setFiltroMunicipio] = useState('');
@@ -71,97 +67,6 @@ export default function SalaSituacionalConcejoPage() {
     };
     descargarTodo();
   }, []);
-
-  // FUNCIÓN ACTUALIZADA: Lee las escuelas distribuidas en múltiples columnas horizontales
-  const handleUploadFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setSubiendoCsv(true);
-    const reader = new FileReader();
-    
-    reader.onload = async (event) => {
-      try {
-        const fileData = event.target?.result;
-        const workbook = XLSX.read(fileData, { type: 'binary' });
-        const sheetName = workbook.SheetNames[0]; 
-        const worksheet = workbook.Sheets[sheetName];
-        
-        // Convertimos a JSON manteniendo la estructura de objetos por clave
-        const rawFilas = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
-        
-        if (rawFilas.length === 0) throw new Error("El archivo no contiene filas válidas.");
-
-        const dataToInsert: any[] = [];
-        let escuelasContadas = 0;
-
-        rawFilas.forEach((row: any) => {
-          // Buscador inteligente de nombres de columnas principales
-          const findKey = (names: string[]) => 
-            Object.keys(row).find(k => names.some(n => k.toUpperCase().trim().includes(n.toUpperCase())));
-
-          const siturKey = findKey(['CODIGO_CIRCUITO_COMUNAL', 'CODIGO SITUR', 'CIRCUITO', 'SITUR']);
-          const comunaKey = findKey(['NOMBRE DEL CIRCUITO COMUNAL O COMUNA', 'COMUNA', 'CIRCUITO COMUNAL']);
-          
-          let situr = '';
-          if (siturKey && row[siturKey]) {
-            situr = row[siturKey].toString().trim();
-          }
-          
-          const comuna = (comunaKey && row[comunaKey] ? row[comunaKey].toString().trim() : '');
-          
-          if (!situr) return; 
-
-          // Mapeamos todas las columnas que hagan referencia al nombre de los planteles
-          const columnasEscuelas = Object.keys(row).filter(key => key.toUpperCase().includes('NOMBRE CENTRO'));
-
-          let contadorEscuelaLocal = 1;
-
-          columnasEscuelas.forEach((columna) => {
-            const nombreEscuela = row[columna].toString().trim();
-            
-            if (nombreEscuela && nombreEscuela !== '') {
-              // Generamos una clave única compuesta para evitar colisiones de clave primaria
-              const cneVirtual = `${situr}-${contadorEscuelaLocal}`;
-              
-              dataToInsert.push({
-                "COD_CENTRO": cneVirtual,
-                "NOMBRE CENTRO": nombreEscuela,
-                "DIRECCION": "DIRECCIÓN EN EVALUACIÓN",
-                "CODIGO_COMUNA_CNE": comuna,
-                "CODIGO_CIRCUITO_COMUNAL": situr
-              });
-              
-              contadorEscuelaLocal++;
-              escuelasContadas++;
-            }
-          });
-        });
-
-        if (dataToInsert.length === 0) {
-          throw new Error("No se estructuró ninguna escuela. Valide las cabeceras de su columna 'NOMBRE CENTRO'.");
-        }
-
-        // Subida en lotes controlados a Supabase
-        const tamañoLote = 200;
-        for (let i = 0; i < dataToInsert.length; i += tamañoLote) {
-          const lote = dataToInsert.slice(i, i + tamañoLote);
-          const { error } = await supabase.from('centros_votacion_2026').insert(lote);
-          if (error) throw error;
-        }
-
-        alert(`¡Éxito! Módulo de un-pivoting completado. Se inyectaron ${escuelasContadas} escuelas a la base de datos operativa.`);
-        window.location.reload();
-
-      } catch (err: any) {
-        alert("Error de procesamiento: " + err.message);
-      } finally {
-        setSubiendoCsv(false);
-        if (e.target) e.target.value = '';
-      }
-    };
-    reader.readAsBinaryString(file);
-  };
 
   const mapaJefes = useMemo(() => {
     const mapa = new Map();
@@ -338,15 +243,6 @@ export default function SalaSituacionalConcejoPage() {
         </Link>
         
         <div className="flex gap-2 flex-wrap">
-          <input type="file" accept=".csv, .xlsx, .xls" ref={fileInputRef} onChange={handleUploadFile} className="hidden" />
-          
-          {isSuperAdmin && (
-            <button onClick={() => fileInputRef.current?.click()} disabled={subiendoCsv} className="bg-[#00529b] hover:bg-[#003d73] text-white font-bold text-xs px-4 py-2 rounded-xl flex items-center gap-2 shadow-sm transition-colors uppercase disabled:bg-blue-400">
-              {subiendoCsv ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />} 
-              {subiendoCsv ? 'Procesando Data...' : 'Cargar Planteles (Excel/CSV)'}
-            </button>
-          )}
-
           <button onClick={generarExcel} className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-2 rounded-xl flex items-center gap-2 shadow-sm transition-colors uppercase">
             <FileSpreadsheet size={16} /> Descargar Excel
           </button>
