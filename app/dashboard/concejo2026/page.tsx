@@ -1,17 +1,26 @@
 'use client';
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { School, UserCheck, Save, Shield, MapPin, MessageSquare, ArrowLeft, CheckCircle2, Plus, Clock, SearchCheck, Edit } from 'lucide-react';
+import { School, UserCheck, Save, Shield, MapPin, MessageSquare, ArrowLeft, CheckCircle2, Plus, Clock, SearchCheck, Edit, Trash2, X, Loader2, Building } from 'lucide-react';
 import Link from 'next/link';
 
 export default function ConcejoTerritorialPage() {
   const [jefe, setJefe] = useState<any>(null);
   const [escuelas, setEscuelas] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [guardandoId, setGuardandoId] = useState<number | null>(null);
+  const [guardandoId, setGuardandoId] = useState<string | number | null>(null);
   
   // Estado local temporal para la nueva reseña de la bitácora
   const [entradasResena, setEntradasResena] = useState<{[key: string]: string}>({});
+
+  // ESTADOS PARA EL MODAL DE NUEVA ESCUELA
+  const [mostrarModalNueva, setMostrarModalNueva] = useState(false);
+  const [nuevaEscuela, setNuevaEscuela] = useState({
+    nombreCentro: '',
+    direccion: 'DIRECCIÓN EN EVALUACIÓN'
+  });
+  const [guardandoNueva, setGuardandoNueva] = useState(false);
+  const [centroSeleccionado, setCentroSeleccionado] = useState<any | null>(null);
 
   useEffect(() => {
     const cargarDatos = async () => {
@@ -28,7 +37,6 @@ export default function ConcejoTerritorialPage() {
         if (userData) {
           setJefe(userData);
           
-          // Función con paginación para traer todas las escuelas del cuadrante
           const fetchCentrosAsignados = async () => {
             let todosLosCentros: any[] = [];
             let limite = 1000;
@@ -53,7 +61,6 @@ export default function ConcejoTerritorialPage() {
 
           const centros = await fetchCentrosAsignados();
 
-          // Descargamos todos los reportes de este SITUR (nuevos y viejos)
           const { data: reportesExistentes } = await supabase
             .from('reportes_concejo_2026')
             .select('*')
@@ -62,24 +69,20 @@ export default function ConcejoTerritorialPage() {
             .limit(5000);
 
           if (centros) {
-            // Función auxiliar para normalizar nombres
             const normalizarNombre = (nombre: string) => {
               return nombre ? nombre.toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w\s]/gi, '').replace(/\s+/g, ' ').trim() : '';
             };
 
-            // Creamos un mapa de reportes exactos y una bolsa de rescate (reportes viejos huérfanos)
             const mapaReportesExactos = new Map();
             const bolsaHuerfanos: any[] = [];
 
             if (reportesExistentes) {
               [...reportesExistentes].reverse().forEach(r => {
                 if (r.cod_centro) mapaReportesExactos.set(r.cod_centro.toString().trim(), r);
-                // Si el reporte está CERRADO, se va a la bolsa de rescate del cuadrante
                 if (r.cierre_mesas === 'CERRADO') bolsaHuerfanos.push(r);
               });
             }
 
-            // Agrupamos las escuelas por Nombre (Anti-duplicados extremos)
             const centrosUnicosMap = new Map();
             centros.forEach((c: any) => {
               const nombreLimpio = normalizarNombre(c['NOMBRE CENTRO']);
@@ -92,25 +95,22 @@ export default function ConcejoTerritorialPage() {
             const huerfanosDisponibles = [...bolsaHuerfanos];
 
             const centrosConReportes = centrosUnicos.map((c: any) => {
-              // 1. Buscamos el reporte por ID exacto
               let rep = mapaReportesExactos.get(c.COD_CENTRO?.toString().trim());
 
-              // 2. Si no hay reporte exacto CERRADO, sacamos uno de la bolsa
               if (!rep || rep.cierre_mesas !== 'CERRADO') {
                 if (huerfanosDisponibles.length > 0) {
-                  rep = huerfanosDisponibles.shift(); // Saca el primer reporte viejo
+                  rep = huerfanosDisponibles.shift(); 
                 } else {
-                  rep = {}; // Si no hay más reportes en la bolsa, queda en blanco
+                  rep = {}; 
                 }
               }
 
               return { 
                 ...c, 
                 ...rep,
-                // Usamos el ID original de la escuela SIEMPRE para que los próximos guardados caigan en el código CNE nuevo
-                // PERO mostramos la data del reporte viejo si se rescató
+                id_centro: c.id, 
                 cod_centro_real: c.COD_CENTRO, 
-                id_reporte_viejo: rep?.id || null, // Guardamos el ID interno del reporte viejo por si lo editamos
+                id_reporte_viejo: rep?.id || null, 
                 
                 escuela_apta: rep?.escuela_apta || 'PENDIENTE',
                 responsable_inspeccion: rep?.responsable_inspeccion || '',
@@ -132,12 +132,13 @@ export default function ConcejoTerritorialPage() {
     cargarDatos();
   }, []);
 
-  const handleInputChange = (id: number, campo: string, valor: string) => {
-    setEscuelas(prev => prev.map(esc => esc.id === id ? { ...esc, [campo]: valor } : esc));
+  const handleInputChange = (idCentro: string | number, campo: string, valor: string) => {
+    setEscuelas(prev => prev.map(esc => esc.id_centro === idCentro ? { ...esc, [campo]: valor } : esc));
   };
 
   const agregarEntradaBitacora = async (escuela: any) => {
-    const textoNota = entradasResena[escuela.cod_centro_real]?.trim();
+    const llave = escuela.cod_centro_real || '';
+    const textoNota = entradasResena[llave]?.trim();
     if (!textoNota) return;
 
     const ahora = new Date();
@@ -152,31 +153,30 @@ export default function ConcejoTerritorialPage() {
       : nuevaLinea;
 
     setEscuelas(prev => prev.map(esc => esc.cod_centro_real === escuela.cod_centro_real ? { ...esc, resena: bitacoraActualizada } : esc));
-    setEntradasResena(prev => ({ ...prev, [escuela.cod_centro_real]: '' }));
+    setEntradasResena(prev => ({ ...prev, [llave]: '' }));
 
     try {
       await supabase
         .from('reportes_concejo_2026')
         .upsert({
-          // Si tenía un reporte viejo, actualizamos ESA fila. Si es nuevo, usamos el CNE nuevo.
           id: escuela.id_reporte_viejo || undefined, 
           cod_centro: escuela.cod_centro_real,
-          codigo_situr: jefe.codigo_situr,
+          codigo_situr: jefe?.codigo_situr,
           resena: bitacoraActualizada,
           cierre_mesas: 'CERRADO',
           fecha_reporte: ahora.toISOString()
-        }, { onConflict: 'id' }); // Conflict resolution en ID para que reescriba su propia fila
+        }, { onConflict: 'id' }); 
     } catch (err) {
       console.error("Error en auto-guardado de bitácora:", err);
     }
   };
 
   const guardarCambiosCentro = async (escuela: any) => {
-    setGuardandoId(escuela.id);
+    setGuardandoId(escuela.id_centro);
     try {
       const payload: any = {
-        cod_centro: escuela.cod_centro_real, // Obligamos a que de ahora en adelante use el CNE nuevo
-        codigo_situr: jefe.codigo_situr,
+        cod_centro: escuela.cod_centro_real, 
+        codigo_situr: jefe?.codigo_situr,
         escuela_apta: escuela.escuela_apta,
         responsable_inspeccion: escuela.responsable_inspeccion || '',
         organismos_presentes: escuela.organismos_presentes || '',
@@ -185,13 +185,10 @@ export default function ConcejoTerritorialPage() {
         fecha_reporte: new Date().toISOString()
       };
 
-      // Si rescató un reporte viejo, le inyectamos su ID de tabla para que lo actualice 
-      // y no cree una fila duplicada en la base de datos de reportes.
       if (escuela.id_reporte_viejo) {
         payload.id = escuela.id_reporte_viejo;
       }
 
-      // Upsert: Si mandamos un ID que ya existe, lo actualiza. Si no, lo crea (basado en cod_centro)
       const { error } = await supabase
         .from('reportes_concejo_2026')
         .upsert(payload, { onConflict: escuela.id_reporte_viejo ? 'id' : 'cod_centro' });
@@ -199,11 +196,55 @@ export default function ConcejoTerritorialPage() {
       if (error) throw error;
       
       alert(`✅ ÉXITO: Reporte de la escuela "${escuela['NOMBRE CENTRO']}" guardado y sincronizado con el VEN 911.`);
-      window.location.reload(); // Recargamos para refrescar la bolsa de reportes
+      window.location.reload(); 
     } catch (err: any) {
       alert("Error al guardar en el sistema: " + err.message);
     } finally {
       setGuardandoId(null);
+    }
+  };
+
+  const eliminarEscuela = async (idTablaEscuela: string | number, nombreEscuela: string) => {
+    if (confirm(`⚠️ ALERTA: ¿Está seguro que desea ELIMINAR la escuela "${nombreEscuela}"? \n\nEsta acción borrará el plantel de la base de datos de su cuadrante permanentemente.`)) {
+      try {
+        const { error } = await supabase.from('centros_votacion_2026').delete().eq('id', idTablaEscuela);
+        if (error) throw error;
+        alert(`La escuela "${nombreEscuela}" ha sido eliminada con éxito.`);
+        setEscuelas(prev => prev.filter(e => e.id_centro !== idTablaEscuela));
+      } catch (err: any) {
+        alert("Error al eliminar la escuela: " + err.message);
+      }
+    }
+  };
+
+  const procesarNuevaEscuela = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!nuevaEscuela.nombreCentro.trim()) return;
+    
+    setGuardandoNueva(true);
+    try {
+      const cneGenerado = `${jefe?.codigo_situr || 'N/A'}-EXT-${Date.now().toString().slice(-6)}`;
+      
+      const payload = {
+        "COD_CENTRO": cneGenerado,
+        "NOMBRE CENTRO": nuevaEscuela.nombreCentro.trim().toUpperCase(),
+        "DIRECCION": nuevaEscuela.direccion.trim().toUpperCase(),
+        "CODIGO_COMUNA_CNE": jefe?.comuna_o_circuito_comunal || '',
+        "CODIGO_CIRCUITO_COMUNAL": jefe?.codigo_situr || ''
+      };
+
+      const { error } = await supabase.from('centros_votacion_2026').insert([payload]);
+      
+      if (error) throw error;
+
+      alert(`✅ Escuela "${payload['NOMBRE CENTRO']}" añadida con éxito al circuito ${jefe?.codigo_situr}.`);
+      setMostrarModalNueva(false);
+      window.location.reload(); 
+      
+    } catch (err: any) {
+      alert("Error al añadir la escuela: " + err.message);
+    } finally {
+      setGuardandoNueva(false);
     }
   };
 
@@ -236,32 +277,60 @@ export default function ConcejoTerritorialPage() {
           </div>
         </div>
 
+        {/* BOTÓN PARA AÑADIR ESCUELA FALTANTE */}
+        <div className="flex justify-end">
+          <button 
+            onClick={() => setMostrarModalNueva(true)}
+            className="px-6 py-3 rounded-xl flex items-center gap-2 text-xs uppercase shadow-md transition-all font-black hover:opacity-90"
+            style={{ backgroundColor: '#00529b', color: '#ffffff' }}
+          >
+            <Plus size={18} color="#ffffff" /> Añadir Escuela que no está registrada
+          </button>
+        </div>
+
         {/* Lista de Escuelas */}
         <div className="space-y-4">
           {escuelas.length === 0 ? (
             <div className="bg-white p-12 rounded-2xl border text-center flex flex-col items-center justify-center text-gray-400">
               <School size={48} className="mb-4 opacity-20" />
               <p className="font-bold text-lg">Sin Escuelas Asignadas para Inspección</p>
+              <button 
+                onClick={() => setMostrarModalNueva(true)}
+                className="mt-4 px-6 py-3 rounded-xl font-black text-xs uppercase shadow-md hover:opacity-90"
+                style={{ backgroundColor: '#00529b', color: '#ffffff' }}
+              >
+                Añadir una escuela manualmente
+              </button>
             </div>
           ) : (
             escuelas.map((esc, index) => {
               const estaSincronizado = esc.cierre_mesas === 'CERRADO';
               
               return (
-                <div key={esc.id} className={`bg-white rounded-2xl border p-6 shadow-sm flex flex-col gap-6 relative overflow-hidden transition-all ${estaSincronizado ? 'border-emerald-200 bg-emerald-50/5' : 'border-gray-200'}`}>
+                <div key={esc.id_centro} className={`bg-white rounded-2xl border p-6 shadow-sm flex flex-col gap-6 relative overflow-hidden transition-all ${estaSincronizado ? 'border-emerald-200 bg-emerald-50/5' : 'border-gray-200'}`}>
                   
-                  <div className={`absolute top-0 right-0 text-white text-[10px] font-black px-3 py-1 rounded-bl-xl ${estaSincronizado ? 'bg-emerald-600' : 'bg-amber-500'}`}>
+                  <div className={`absolute top-0 right-0 text-white text-[10px] font-black px-3 py-1 rounded-bl-xl flex items-center gap-2 ${estaSincronizado ? 'bg-emerald-600' : 'bg-amber-500'}`}>
                     {estaSincronizado ? 'DIAGNÓSTICO SINCRONIZADO' : `PLANTEL ${index + 1} DE ${escuelas.length}`}
                   </div>
 
-                  <div className="border-b pb-4">
-                    <div className="flex items-center gap-2 text-[#00529b] mb-1">
-                      <School size={20} />
-                      {/* Mostrar el CNE Nuevo y si se rescató uno viejo, mostrar una marquita */}
-                      <span className="text-xs font-black">CNE: {esc.cod_centro_real} {esc.id_reporte_viejo && <span className="text-amber-500 ml-1" title="Reporte histórico recuperado">★</span>}</span>
+                  <div className="border-b pb-4 flex justify-between items-start">
+                    <div>
+                      <div className="flex items-center gap-2 text-[#00529b] mb-1">
+                        <School size={20} />
+                        <span className="text-xs font-black">CNE: {esc.cod_centro_real} {esc.id_reporte_viejo && <span className="text-amber-500 ml-1" title="Reporte histórico recuperado">★</span>}</span>
+                      </div>
+                      <h3 className="text-base font-black text-gray-800 uppercase">{esc['NOMBRE CENTRO']}</h3>
+                      <p className="text-xs text-gray-500 font-medium">{esc.DIRECCION}</p>
                     </div>
-                    <h3 className="text-base font-black text-gray-800 uppercase">{esc['NOMBRE CENTRO']}</h3>
-                    <p className="text-xs text-gray-500 font-medium">{esc.DIRECCION}</p>
+                    
+                    {/* BOTÓN ELIMINAR ESCUELA */}
+                    <button 
+                      onClick={() => eliminarEscuela(esc.id_centro, esc['NOMBRE CENTRO'])}
+                      className="bg-red-50 text-red-600 hover:bg-red-600 hover:text-white border border-red-200 p-2 rounded-lg transition-colors flex items-center justify-center"
+                      title="Eliminar esta escuela de la base de datos"
+                    >
+                      <Trash2 size={18} />
+                    </button>
                   </div>
 
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -276,14 +345,14 @@ export default function ConcejoTerritorialPage() {
                           <div className="flex gap-2">
                             <button 
                               type="button"
-                              onClick={() => handleInputChange(esc.id, 'escuela_apta', 'APTA')}
+                              onClick={() => handleInputChange(esc.id_centro, 'escuela_apta', 'APTA')}
                               className={`flex-1 p-2.5 rounded-xl text-xs font-black transition-all border ${esc.escuela_apta === 'APTA' ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm' : 'bg-white text-gray-400 border-gray-200 hover:bg-gray-50'}`}
                             >
                               ESCUELA APTA
                             </button>
                             <button 
                               type="button"
-                              onClick={() => handleInputChange(esc.id, 'escuela_apta', 'NO APTA')}
+                              onClick={() => handleInputChange(esc.id_centro, 'escuela_apta', 'NO APTA')}
                               className={`flex-1 p-2.5 rounded-xl text-xs font-black transition-all border ${esc.escuela_apta === 'NO APTA' ? 'bg-red-600 text-white border-red-600 shadow-sm' : 'bg-white text-gray-400 border-gray-200 hover:bg-gray-50'}`}
                             >
                               NO APTA
@@ -296,10 +365,11 @@ export default function ConcejoTerritorialPage() {
                           <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Responsable de la Evaluación</label>
                           <input 
                             type="text" 
+                            disabled={estaSincronizado} 
                             placeholder="Nombre completo y rango del evaluador..."
-                            className="w-full p-2.5 border rounded-xl text-xs bg-white outline-none focus:border-blue-500 font-bold uppercase" 
+                            className="w-full p-2.5 border rounded-xl text-xs bg-white outline-none focus:border-blue-500 font-bold uppercase disabled:bg-gray-100" 
                             value={esc.responsable_inspeccion || ''} 
-                            onChange={e => handleInputChange(esc.id, 'responsable_inspeccion', e.target.value)} 
+                            onChange={e => handleInputChange(esc.id_centro, 'responsable_inspeccion', e.target.value)} 
                           />
                         </div>
 
@@ -307,10 +377,11 @@ export default function ConcejoTerritorialPage() {
                         <div>
                           <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Organismos Presentes en la Inspección</label>
                           <textarea 
+                            disabled={estaSincronizado} 
                             placeholder="Ej: VEN 911, POLIFALCON, BRICOMILES, BOMBEROS..."
-                            className="w-full p-2.5 border rounded-xl text-xs bg-white outline-none focus:border-blue-500 font-bold uppercase h-16 resize-none" 
+                            className="w-full p-2.5 border rounded-xl text-xs bg-white outline-none focus:border-blue-500 font-bold uppercase h-16 resize-none disabled:bg-gray-100" 
                             value={esc.organismos_presentes || ''} 
-                            onChange={e => handleInputChange(esc.id, 'organismos_presentes', e.target.value)} 
+                            onChange={e => handleInputChange(esc.id_centro, 'organismos_presentes', e.target.value)} 
                           />
                         </div>
                       </div>
@@ -325,8 +396,8 @@ export default function ConcejoTerritorialPage() {
                       <div className="flex gap-2">
                         <textarea 
                           placeholder="Escriba aquí deficiencias (Ej: Filtración en el techo, sin servicio de agua)..." 
-                          value={entradasResena[esc.cod_centro_real] || ''} 
-                          onChange={e => setEntradasResena(prev => ({ ...prev, [esc.cod_centro_real]: e.target.value }))}
+                          value={entradasResena[esc.cod_centro_real || ''] || ''} 
+                          onChange={e => setEntradasResena(prev => ({ ...prev, [esc.cod_centro_real || '']: e.target.value }))}
                           rows={2}
                           className="flex-grow p-2.5 border rounded-xl text-xs bg-white outline-none focus:border-amber-500 font-medium resize-none min-h-[44px]"
                         />
@@ -340,7 +411,7 @@ export default function ConcejoTerritorialPage() {
                       </div>
 
                       <div className="bg-white rounded-xl border p-3 min-h-[90px] max-h-40 overflow-y-auto space-y-2 divide-y divide-gray-50">
-                        {esc.resena ? (
+                        {esc.resena && esc.resena !== 'Sin novedades registradas.' ? (
                           esc.resena.split('\n').map((linea: string, lIdx: number) => (
                             <p key={lIdx} className="text-[11px] text-gray-700 font-medium pt-1.5 first:pt-0 leading-relaxed">
                               <span className="text-[#00529b] font-mono font-bold mr-1.5 inline-flex items-center gap-0.5">
@@ -368,7 +439,7 @@ export default function ConcejoTerritorialPage() {
 
                     <button 
                       type="button"
-                      disabled={guardandoId === esc.id}
+                      disabled={guardandoId === esc.id_centro}
                       onClick={() => {
                         // VALIDACIÓN ESTRICTA
                         if (esc.escuela_apta !== 'APTA' && esc.escuela_apta !== 'NO APTA') {
@@ -377,12 +448,13 @@ export default function ConcejoTerritorialPage() {
                         }
                         guardarCambiosCentro(esc);
                       }}
-                      className={`w-full sm:w-auto px-8 py-3.5 font-black rounded-xl text-xs uppercase transition-all shadow-md flex items-center justify-center gap-2 ${estaSincronizado ? 'bg-amber-100 text-amber-800 hover:bg-amber-200' : 'bg-[#00529b] text-white hover:bg-[#003d73]'}`}
+                      className={`w-full sm:w-auto px-8 py-3.5 font-black rounded-xl text-xs uppercase transition-all shadow-md flex items-center justify-center gap-2 ${estaSincronizado ? 'bg-amber-100 text-amber-800 hover:bg-amber-200' : ''}`}
+                      style={!estaSincronizado ? { backgroundColor: '#00529b', color: '#ffffff' } : {}}
                     >
                       {estaSincronizado ? (
                         <><Edit size={16} /> Editar Reporte</>
                       ) : (
-                        <><Save size={16} /> {guardandoId === esc.id ? 'Sincronizando...' : 'Guardar Inspección'}</>
+                        <><Save size={16} /> {guardandoId === esc.id_centro ? 'Sincronizando...' : 'Guardar Inspección'}</>
                       )}
                     </button>
                   </div>
@@ -392,8 +464,86 @@ export default function ConcejoTerritorialPage() {
             })
           )}
         </div>
-
       </div>
+
+      {/* ==========================================
+          MODAL PARA AÑADIR NUEVA ESCUELA MANUALMENTE
+          ========================================== */}
+      {mostrarModalNueva && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
+          <div className="bg-white rounded-[2rem] p-8 max-w-md w-full shadow-2xl border">
+            
+            <div className="flex justify-between items-start border-b pb-3 mb-6">
+              <h3 className="text-xl font-black text-[#00529b] flex items-center gap-2 uppercase">
+                <School size={24} /> Añadir Escuela
+              </h3>
+              <button onClick={() => setMostrarModalNueva(false)} className="text-gray-400 hover:text-red-500"><X size={20}/></button>
+            </div>
+
+            <form onSubmit={procesarNuevaEscuela} className="space-y-4">
+              
+              {/* CAMPOS PRE-LLENADOS Y BLOQUEADOS */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-gray-100 p-3 rounded-xl border border-gray-200">
+                  <label className="block text-[9px] font-bold text-gray-500 uppercase">CÓDIGO SITUR</label>
+                  <p className="font-mono text-sm font-black text-gray-800">{jefe?.codigo_situr}</p>
+                </div>
+                <div className="bg-gray-100 p-3 rounded-xl border border-gray-200">
+                  <label className="block text-[9px] font-bold text-gray-500 uppercase">CNE VIRTUAL</label>
+                  <p className="font-mono text-xs font-black text-gray-800 flex items-center gap-1">
+                    <Clock size={12}/> AUTOMÁTICO
+                  </p>
+                </div>
+              </div>
+
+              {/* CAMPOS A LLENAR A MANO */}
+              <div>
+                <label className="block text-xs font-bold text-gray-600 mb-1 uppercase">NOMBRE CENTRO (ESCUELA)</label>
+                <input 
+                  type="text" 
+                  required
+                  placeholder="Escriba el nombre exacto del plantel..."
+                  className="w-full p-3 border rounded-xl text-sm font-black uppercase text-gray-800 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
+                  value={nuevaEscuela.nombreCentro}
+                  onChange={e => setNuevaEscuela({...nuevaEscuela, nombreCentro: e.target.value.toUpperCase()})}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-600 mb-1 uppercase">DIRECCIÓN (Opcional)</label>
+                <textarea 
+                  rows={2}
+                  placeholder="Ej: Sector Centro, Calle Principal..."
+                  className="w-full p-3 border rounded-xl text-xs font-bold uppercase text-gray-800 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 resize-none"
+                  value={nuevaEscuela.direccion}
+                  onChange={e => setNuevaEscuela({...nuevaEscuela, direccion: e.target.value.toUpperCase()})}
+                />
+              </div>
+
+              <div className="pt-4 flex gap-3">
+                <button 
+                  type="button"
+                  onClick={() => setMostrarModalNueva(false)}
+                  className="w-1/3 bg-gray-200 text-gray-700 font-bold p-3 rounded-xl uppercase text-xs hover:bg-gray-300 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  type="submit"
+                  disabled={guardandoNueva}
+                  className="w-2/3 font-black p-3 rounded-xl uppercase text-xs transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                  style={{ backgroundColor: '#00529b', color: '#ffffff' }}
+                >
+                  {guardandoNueva ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                  Registrar
+                </button>
+              </div>
+
+            </form>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
