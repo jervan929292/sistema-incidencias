@@ -176,27 +176,26 @@ export default function SalaSituacionalConcejoPage() {
     });
   }, [centros, mapaJefes, mapaReportesExactos, reportesHuerfanosPorSitur, filtroMunicipio, organismoSeguro, filtroAptitud, filtroEstatus]);
 
+  // =========================================================================
+  // ESTADÍSTICAS CORREGIDAS: Ahora dependen EXCLUSIVAMENTE de centrosProcesados
+  // =========================================================================
   const stats = useMemo(() => {
     const total = centrosProcesados.length;
     
-    const reportesRealesFiltrados = reportes.filter(r => {
-      const jefe = mapaJefes.get(r.codigo_situr?.toString().trim());
-      const matchMuni = !filtroMunicipio || jefe?.municipio === filtroMunicipio;
-      const matchOrg = !organismoSeguro || jefe?.organismo_responsable === organismoSeguro;
-      const matchAptitud = !filtroAptitud || r.escuela_apta === filtroAptitud;
-      const matchEstatus = !filtroEstatus || r.cierre_mesas === filtroEstatus;
-      
-      return matchMuni && matchOrg && matchAptitud && matchEstatus;
-    });
-
-    const inspeccionadasReal = reportesRealesFiltrados.filter(r => r.cierre_mesas === 'CERRADO').length;
-    const aptasReal = reportesRealesFiltrados.filter(r => r.cierre_mesas === 'CERRADO' && r.escuela_apta === 'APTA').length;
-    const noAptasReal = reportesRealesFiltrados.filter(r => r.cierre_mesas === 'CERRADO' && r.escuela_apta === 'NO APTA').length;
+    const inspeccionadasReal = centrosProcesados.filter(c => c.cierre_mesas === 'CERRADO').length;
+    const aptasReal = centrosProcesados.filter(c => c.cierre_mesas === 'CERRADO' && c.escuela_apta === 'APTA').length;
+    const noAptasReal = centrosProcesados.filter(c => c.cierre_mesas === 'CERRADO' && c.escuela_apta === 'NO APTA').length;
     
     const pendientesCalculados = Math.max(0, total - inspeccionadasReal);
 
-    return { total, inspeccionadas: inspeccionadasReal, pendientes: pendientesCalculados, aptas: aptasReal, noAptas: noAptasReal };
-  }, [centrosProcesados, reportes, mapaJefes, filtroMunicipio, organismoSeguro, filtroAptitud, filtroEstatus]);
+    return { 
+      total, 
+      inspeccionadas: inspeccionadasReal, 
+      pendientes: pendientesCalculados, 
+      aptas: aptasReal, 
+      noAptas: noAptasReal 
+    };
+  }, [centrosProcesados]);
 
   // =========================================================================
   // EXPORTADORES PDF Y EXCEL (TOTALMENTE REDISEÑADOS CON SOLO LAS 6 COLUMNAS)
@@ -221,7 +220,6 @@ export default function SalaSituacionalConcejoPage() {
       return;
     }
 
-    // AQUI ESTÁN LAS 6 COLUMNAS EXACTAS QUE PEDISTE, NADA MÁS.
     const tableColumn = [
       "Municipio", 
       "Nombre de la Escuela", 
@@ -232,7 +230,6 @@ export default function SalaSituacionalConcejoPage() {
     ];
     
     const tableRows = escuelasInspeccionadas.map(c => {
-      // Limpiamos la reseña por si está vacía
       let textoResena = c.resena ? c.resena.trim() : '';
       if (textoResena === 'Sin novedades registradas.' || textoResena === 'null' || textoResena === 'undefined') {
         textoResena = ''; 
@@ -255,7 +252,7 @@ export default function SalaSituacionalConcejoPage() {
       styles: { 
         fontSize: 8, 
         cellPadding: 4,
-        overflow: 'linebreak' // GARANTIZA QUE LA RESEÑA SE LEA HASTA ABAJO SIN CORTARSE
+        overflow: 'linebreak' 
       },
       headStyles: { fillColor: [0, 82, 155], textColor: [255, 255, 255] },
       columnStyles: {
@@ -264,7 +261,7 @@ export default function SalaSituacionalConcejoPage() {
         2: { cellWidth: 35 }, // Comuna
         3: { cellWidth: 30 }, // Organismo
         4: { cellWidth: 20 }, // Apta / No Apta
-        5: { cellWidth: 'auto' } // Reseña Escrita por el Funcionario (Se lleva todo el espacio sobrante de la hoja)
+        5: { cellWidth: 'auto' } // Reseña Escrita
       }
     });
 
@@ -272,7 +269,6 @@ export default function SalaSituacionalConcejoPage() {
   };
 
   const generarExcel = () => {
-    // FILTRO ESTRICTO: Solo descargamos las que ya fueron inspeccionadas (CERRADO)
     const escuelasInspeccionadas = centrosProcesados.filter(c => c.cierre_mesas === 'CERRADO');
 
     if (escuelasInspeccionadas.length === 0) {
@@ -287,7 +283,6 @@ export default function SalaSituacionalConcejoPage() {
       [`Organismo: ${organismoSeguro || 'TODOS'}`, `Municipio: ${filtroMunicipio || 'TODOS'}`],
       [`Total Inspeccionadas: ${stats.inspeccionadas}`, `Aptas: ${stats.aptas}`, `No Aptas: ${stats.noAptas}`],
       [],
-      // AQUI ESTÁN LAS 6 COLUMNAS EXACTAS QUE PEDISTE, NADA MÁS.
       [
         "Municipio", 
         "Nombre de la Escuela", 
@@ -330,8 +325,6 @@ export default function SalaSituacionalConcejoPage() {
     XLSX.utils.book_append_sheet(wb, ws, 'Expedientes');
     XLSX.writeFile(wb, 'Expedientes_Completos_Escuelas.xlsx');
   };
-
-  const handleUploadFile = () => {};
 
   if (loading) return <div className="p-8 text-center font-bold animate-pulse text-[#00529b]">Cargando Sala Analítica Regional...</div>;
 
