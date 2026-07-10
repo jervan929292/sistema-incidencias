@@ -570,9 +570,81 @@ export default function ConcejoTerritorialPage() {
         </div>
       </div>
 
+      {/* ==========================================
+          MODAL PARA AÑADIR NUEVA ESCUELA MANUALMENTE
+          ========================================== */}
       {mostrarModalNueva && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
-          {/* Aquí va el contenido del modal que ya tenías, no lo toqué para ahorrar espacio */}
+          <div className="bg-white rounded-[2rem] p-8 max-w-md w-full shadow-2xl border">
+            
+            <div className="flex justify-between items-start border-b pb-3 mb-6">
+              <h3 className="text-xl font-black text-[#00529b] flex items-center gap-2 uppercase">
+                <School size={24} /> Añadir Escuela
+              </h3>
+              <button onClick={() => setMostrarModalNueva(false)} className="text-gray-400 hover:text-red-500"><X size={20}/></button>
+            </div>
+
+            <form onSubmit={procesarNuevaEscuela} className="space-y-4">
+              
+              {/* CAMPOS PRE-LLENADOS Y BLOQUEADOS */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-gray-100 p-3 rounded-xl border border-gray-200">
+                  <label className="block text-[9px] font-bold text-gray-500 uppercase">CÓDIGO SITUR</label>
+                  <p className="font-mono text-sm font-black text-gray-800">{jefe?.codigo_situr}</p>
+                </div>
+                <div className="bg-gray-100 p-3 rounded-xl border border-gray-200">
+                  <label className="block text-[9px] font-bold text-gray-500 uppercase">CNE VIRTUAL</label>
+                  <p className="font-mono text-xs font-black text-gray-800 flex items-center gap-1">
+                    <Clock size={12}/> AUTOMÁTICO
+                  </p>
+                </div>
+              </div>
+
+              {/* CAMPOS A LLENAR A MANO */}
+              <div>
+                <label className="block text-xs font-bold text-gray-600 mb-1 uppercase">NOMBRE CENTRO (ESCUELA)</label>
+                <input 
+                  type="text" 
+                  required
+                  placeholder="Escriba el nombre exacto del plantel..."
+                  className="w-full p-3 border rounded-xl text-sm font-black uppercase text-gray-800 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
+                  value={nuevaEscuela.nombreCentro}
+                  onChange={e => setNuevaEscuela({...nuevaEscuela, nombreCentro: e.target.value.toUpperCase()})}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-600 mb-1 uppercase">DIRECCIÓN (Opcional)</label>
+                <textarea 
+                  rows={2}
+                  placeholder="Ej: Sector Centro, Calle Principal..."
+                  className="w-full p-3 border rounded-xl text-xs font-bold uppercase text-gray-800 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 resize-none"
+                  value={nuevaEscuela.direccion}
+                  onChange={e => setNuevaEscuela({...nuevaEscuela, direccion: e.target.value.toUpperCase()})}
+                />
+              </div>
+
+              <div className="pt-4 flex gap-3">
+                <button 
+                  type="button"
+                  onClick={() => setMostrarModalNueva(false)}
+                  className="w-1/3 bg-gray-200 text-gray-700 font-bold p-3 rounded-xl uppercase text-xs hover:bg-gray-300 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  type="submit"
+                  disabled={guardandoNueva}
+                  className="w-2/3 font-black p-3 rounded-xl uppercase text-xs transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                  style={{ backgroundColor: '#00529b', color: '#ffffff' }}
+                >
+                  {guardandoNueva ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                  Registrar
+                </button>
+              </div>
+
+            </form>
+          </div>
         </div>
       )}
     </div>
