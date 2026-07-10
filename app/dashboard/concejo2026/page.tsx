@@ -13,7 +13,6 @@ export default function ConcejoTerritorialPage() {
   const [editandoId, setEditandoId] = useState<string | number | null>(null);
   const [entradasResena, setEntradasResena] = useState<{[key: string]: string}>({});
   
-  // NUEVO ESTADO: Rastrea qué líneas de la bitácora se han seleccionado para eliminar
   const [entradasSeleccionadas, setEntradasSeleccionadas] = useState<{[key: string]: number[]}>({});
 
   const [mostrarModalNueva, setMostrarModalNueva] = useState(false);
@@ -74,13 +73,16 @@ export default function ConcejoTerritorialPage() {
               return nombre ? nombre.toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w\s]/gi, '').replace(/\s+/g, ' ').trim() : '';
             };
 
+            // LÓGICA CORREGIDA: Asignación Estricta sin "clonación" ni huérfanos
             const mapaReportesExactos = new Map();
-            const bolsaHuerfanos: any[] = [];
 
             if (reportesExistentes) {
-              [...reportesExistentes].reverse().forEach(r => {
-                if (r.cod_centro) mapaReportesExactos.set(r.cod_centro.toString().trim(), r);
-                if (r.cierre_mesas === 'CERRADO') bolsaHuerfanos.push(r);
+              // Como vienen ordenados de más nuevo a más viejo, nos quedamos con el primero que coincida
+              reportesExistentes.forEach(r => {
+                const key = r.cod_centro?.toString().trim();
+                if (key && !mapaReportesExactos.has(key)) {
+                  mapaReportesExactos.set(key, r);
+                }
               });
             }
 
@@ -93,18 +95,9 @@ export default function ConcejoTerritorialPage() {
             });
             const centrosUnicos = Array.from(centrosUnicosMap.values());
 
-            const huerfanosDisponibles = [...bolsaHuerfanos];
-
             const centrosConReportes = centrosUnicos.map((c: any, index: number) => {
-              let rep = mapaReportesExactos.get(c.COD_CENTRO?.toString().trim());
-
-              if (!rep || rep.cierre_mesas !== 'CERRADO') {
-                if (huerfanosDisponibles.length > 0) {
-                  rep = huerfanosDisponibles.shift(); 
-                } else {
-                  rep = {}; 
-                }
-              }
+              // Buscamos SOLO el reporte que le pertenece exactamente a esta escuela
+              let rep = mapaReportesExactos.get(c.COD_CENTRO?.toString().trim()) || {};
 
               const uniqueIdentifier = c.id || `temp-${c.COD_CENTRO}-${index}`;
 
@@ -141,8 +134,8 @@ export default function ConcejoTerritorialPage() {
   };
 
   const agregarEntradaBitacora = async (escuela: any) => {
-    const llave = escuela.cod_centro_real || '';
-    const textoNota = entradasResena[llave]?.trim();
+    const uid = escuela.uid_estricto; // Uso estricto del UID para la caja de texto
+    const textoNota = entradasResena[uid]?.trim();
     if (!textoNota) return;
 
     const ahora = new Date();
@@ -159,10 +152,9 @@ export default function ConcejoTerritorialPage() {
       ? `${resenaBase}\n${nuevaLinea}`
       : nuevaLinea;
 
-    setEscuelas(prev => prev.map(esc => esc.uid_estricto === escuela.uid_estricto ? { ...esc, resena: bitacoraActualizada } : esc));
-    setEntradasResena(prev => ({ ...prev, [llave]: '' }));
+    setEscuelas(prev => prev.map(esc => esc.uid_estricto === uid ? { ...esc, resena: bitacoraActualizada } : esc));
+    setEntradasResena(prev => ({ ...prev, [uid]: '' }));
 
-    // Si ya estaba sincronizado, guardamos la bitácora de una vez
     if (escuela.id_reporte_viejo && escuela.cierre_mesas === 'CERRADO') {
       try {
         await supabase
@@ -181,7 +173,6 @@ export default function ConcejoTerritorialPage() {
     }
   };
 
-  // NUEVA FUNCIÓN: Seleccionar / Deseleccionar una línea para eliminar
   const toggleSeleccionEntrada = (uidEstricto: string, indexLinea: number) => {
     setEntradasSeleccionadas(prev => {
       const seleccionadas = prev[uidEstricto] || [];
@@ -193,7 +184,6 @@ export default function ConcejoTerritorialPage() {
     });
   };
 
-  // NUEVA FUNCIÓN: Eliminar las líneas seleccionadas
   const eliminarEntradasSeleccionadas = (escuela: any) => {
     const uid = escuela.uid_estricto;
     const seleccionadas = entradasSeleccionadas[uid] || [];
@@ -203,17 +193,15 @@ export default function ConcejoTerritorialPage() {
     const nuevasLineas = lineas.filter((_: any, idx: number) => !seleccionadas.includes(idx));
     
     handleInputChange(uid, 'resena', nuevasLineas.join('\n'));
-    setEntradasSeleccionadas(prev => ({ ...prev, [uid]: [] })); // Limpiar la selección tras borrar
+    setEntradasSeleccionadas(prev => ({ ...prev, [uid]: [] })); 
   };
 
   const guardarCambiosCentro = async (escuela: any) => {
-    // VALIDACIÓN 1: Estatus Apto/No Apto
     if (escuela.escuela_apta !== 'APTA' && escuela.escuela_apta !== 'NO APTA') {
       alert("⚠️ ALTO: Debe seleccionar obligatoriamente si la infraestructura está 'APTA' o 'NO APTA' antes de guardar.");
       return;
     }
 
-    // VALIDACIÓN 2: Bitácora Vacía (LA REGLA QUE PEDISTE)
     if (!escuela.resena || escuela.resena.trim() === '' || escuela.resena === 'Sin novedades registradas.') {
       alert("⚠️ ALTO: No puede guardar la inspección sin añadir reportes a la bitácora. Por favor, añada al menos una novedad a la caja.");
       return;
@@ -431,7 +419,6 @@ export default function ConcejoTerritorialPage() {
                       </div>
                     </div>
 
-                    {/* SECCIÓN BITÁCORA REMODELADA */}
                     <div className="space-y-3 bg-amber-50/10 p-4 rounded-xl border border-amber-200 flex flex-col">
                       <div className="flex justify-between items-center shrink-0">
                         <h4 className="text-[11px] font-black text-amber-800 uppercase flex items-center gap-1.5">
@@ -442,13 +429,12 @@ export default function ConcejoTerritorialPage() {
                         </div>
                       </div>
                       
-                      {/* CAJA PARA AÑADIR NUEVOS REPORTES */}
                       <div className="flex gap-2 shrink-0">
                         <textarea 
                           disabled={isLocked}
                           placeholder="Añada un nuevo reporte aquí (Obligatorio)..." 
-                          value={entradasResena[esc.cod_centro_real || ''] || ''} 
-                          onChange={e => setEntradasResena(prev => ({ ...prev, [esc.cod_centro_real || '']: e.target.value }))}
+                          value={entradasResena[esc.uid_estricto] || ''} 
+                          onChange={e => setEntradasResena(prev => ({ ...prev, [esc.uid_estricto]: e.target.value }))}
                           rows={2}
                           className="flex-grow p-2.5 border rounded-xl text-xs bg-white outline-none focus:border-amber-500 font-medium resize-none min-h-[44px] disabled:bg-gray-100"
                         />
@@ -462,13 +448,11 @@ export default function ConcejoTerritorialPage() {
                         </button>
                       </div>
 
-                      {/* LISTA DE REPORTES (Vista de solo lectura o con selectores si está editando) */}
                       <div className="bg-white rounded-xl border p-3 min-h-[90px] max-h-48 overflow-y-auto space-y-3 grow">
                         {esc.resena && esc.resena !== 'Sin novedades registradas.' && esc.resena.trim() !== '' ? (
                           esc.resena.split('\n').filter((l:string) => l.trim() !== '').map((linea: string, lIdx: number) => (
                             <div key={lIdx} className="flex items-start gap-2 border-b border-gray-50 pb-2 last:border-0 last:pb-0">
                               
-                              {/* SELECTOR PARA ELIMINAR (Solo visible en modo edición) */}
                               {!isLocked && (
                                 <input 
                                   type="checkbox"
@@ -495,7 +479,6 @@ export default function ConcejoTerritorialPage() {
                         )}
                       </div>
 
-                      {/* BOTÓN PARA BORRAR REPORTES SELECCIONADOS */}
                       {!isLocked && tieneSeleccion && (
                         <button 
                           type="button"
@@ -570,9 +553,6 @@ export default function ConcejoTerritorialPage() {
         </div>
       </div>
 
-      {/* ==========================================
-          MODAL PARA AÑADIR NUEVA ESCUELA MANUALMENTE
-          ========================================== */}
       {mostrarModalNueva && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
           <div className="bg-white rounded-[2rem] p-8 max-w-md w-full shadow-2xl border">
@@ -586,7 +566,6 @@ export default function ConcejoTerritorialPage() {
 
             <form onSubmit={procesarNuevaEscuela} className="space-y-4">
               
-              {/* CAMPOS PRE-LLENADOS Y BLOQUEADOS */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="bg-gray-100 p-3 rounded-xl border border-gray-200">
                   <label className="block text-[9px] font-bold text-gray-500 uppercase">CÓDIGO SITUR</label>
@@ -600,7 +579,6 @@ export default function ConcejoTerritorialPage() {
                 </div>
               </div>
 
-              {/* CAMPOS A LLENAR A MANO */}
               <div>
                 <label className="block text-xs font-bold text-gray-600 mb-1 uppercase">NOMBRE CENTRO (ESCUELA)</label>
                 <input 
