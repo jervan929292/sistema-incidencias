@@ -1,11 +1,11 @@
 'use client';
-import { useEffect, useState, useMemo, useRef } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
-import { BarChart3, Shield, MapPin, CheckCircle2, AlertTriangle, Eye, X, UserCheck, Clock, School, ArrowLeft, FileText, Download, Upload, Loader2, FileSpreadsheet, SearchCheck, Building } from 'lucide-react';
+import { BarChart3, Shield, MapPin, CheckCircle2, AlertTriangle, Eye, X, Clock, ArrowLeft, FileText, Download, FileSpreadsheet, SearchCheck, Building } from 'lucide-react';
 import Link from 'next/link';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import * as XLSX from 'xlsx'; 
+import * as XLSX from 'xlsx';
 
 export default function SalaSituacionalConcejoPage() {
   const [adminProfile, setAdminProfile] = useState<any>(null);
@@ -18,7 +18,7 @@ export default function SalaSituacionalConcejoPage() {
   const [filtroOrganismo, setFiltroOrganismo] = useState('');
   const [filtroAptitud, setFiltroAptitud] = useState('');
   const [filtroEstatus, setFiltroEstatus] = useState('');
-  
+
   const [centroSeleccionado, setCentroSeleccionado] = useState<any | null>(null);
 
   useEffect(() => {
@@ -40,9 +40,9 @@ export default function SalaSituacionalConcejoPage() {
             if (batch && batch.length > 0) {
               todosLosCentros = [...todosLosCentros, ...batch];
               inicio += limite;
-              if (batch.length < limite) hayMas = false; 
-            } else { 
-              hayMas = false; 
+              if (batch.length < limite) hayMas = false;
+            } else {
+              hayMas = false;
             }
           }
           return todosLosCentros;
@@ -58,9 +58,9 @@ export default function SalaSituacionalConcejoPage() {
             if (batch && batch.length > 0) {
               todosLosReportes = [...todosLosReportes, ...batch];
               inicio += limite;
-              if (batch.length < limite) hayMas = false; 
-            } else { 
-              hayMas = false; 
+              if (batch.length < limite) hayMas = false;
+            } else {
+              hayMas = false;
             }
           }
           return todosLosReportes;
@@ -90,7 +90,7 @@ export default function SalaSituacionalConcejoPage() {
 
   const mapaJefes = useMemo(() => {
     const mapa = new Map();
-    usuarios.forEach(u => {
+    usuarios.forEach((u: any) => {
       if (u.codigo_situr) mapa.set(u.codigo_situr.toString().trim(), u);
     });
     return mapa;
@@ -100,9 +100,9 @@ export default function SalaSituacionalConcejoPage() {
     const mapaExacto = new Map();
     const huerfanos: Record<string, any[]> = {};
 
-    [...reportes].reverse().forEach(r => {
+    [...reportes].reverse().forEach((r: any) => {
       if (r.cod_centro) mapaExacto.set(r.cod_centro.toString().trim(), r);
-      
+
       if (r.cierre_mesas === 'CERRADO' && r.codigo_situr) {
         const siturLimpio = r.codigo_situr.toString().trim();
         if (!huerfanos[siturLimpio]) {
@@ -111,44 +111,44 @@ export default function SalaSituacionalConcejoPage() {
         huerfanos[siturLimpio].push(r);
       }
     });
-    
+
     return { mapaReportesExactos: mapaExacto, reportesHuerfanosPorSitur: huerfanos };
   }, [reportes]);
 
-  const isSuperAdmin = adminProfile?.rol === 'superusuario' || 
-                       adminProfile?.organismo_responsable?.toUpperCase() === 'VEN 911' || 
-                       adminProfile?.organismo_responsable?.toUpperCase() === 'GUARDIA NACIONAL BOLIVARIANA';
-                       
+  const isSuperAdmin = adminProfile?.rol === 'superusuario' ||
+    adminProfile?.organismo_responsable?.toUpperCase() === 'VEN 911' ||
+    adminProfile?.organismo_responsable?.toUpperCase() === 'GUARDIA NACIONAL BOLIVARIANA';
+
   const organismoSeguro = isSuperAdmin ? filtroOrganismo : adminProfile?.organismo_responsable;
 
-  const municipiosUnicos = useMemo(() => Array.from(new Set(usuarios.map(u => u.municipio))).filter(Boolean).sort(), [usuarios]);
-  const organismosUnicos = useMemo(() => Array.from(new Set(usuarios.map(u => u.organismo_responsable))).filter(Boolean).sort(), [usuarios]);
+  const municipiosUnicos = useMemo(() => Array.from(new Set(usuarios.map((u: any) => u.municipio))).filter(Boolean).sort(), [usuarios]);
+  const organismosUnicos = useMemo(() => Array.from(new Set(usuarios.map((u: any) => u.organismo_responsable))).filter(Boolean).sort(), [usuarios]);
 
   const centrosProcesados = useMemo(() => {
     const centrosUnicosMap = new Map();
     const huerfanosDisponibles = JSON.parse(JSON.stringify(reportesHuerfanosPorSitur));
 
-    centros.forEach(c => {
+    centros.forEach((c: any) => {
       const nombreLimpio = normalizarNombre(c['NOMBRE CENTRO']);
       if (nombreLimpio && !centrosUnicosMap.has(nombreLimpio)) {
         centrosUnicosMap.set(nombreLimpio, c);
       }
     });
-    
+
     const centrosUnicos = Array.from(centrosUnicosMap.values());
 
-    return centrosUnicos.map(c => {
+    return centrosUnicos.map((c: any) => {
       const codigoSiturLimpio = c.CODIGO_CIRCUITO_COMUNAL?.toString().trim();
       const jefe = mapaJefes.get(codigoSiturLimpio);
-      
+
       let reporte = mapaReportesExactos.get(c.COD_CENTRO?.toString().trim());
 
       if ((!reporte || reporte.cierre_mesas !== 'CERRADO') && codigoSiturLimpio) {
         if (huerfanosDisponibles[codigoSiturLimpio] && huerfanosDisponibles[codigoSiturLimpio].length > 0) {
-            reporte = huerfanosDisponibles[codigoSiturLimpio].shift();
+          reporte = huerfanosDisponibles[codigoSiturLimpio].shift();
         }
       }
-      
+
       return {
         ...c,
         municipio: jefe?.municipio || 'SIN ENLAZAR',
@@ -158,81 +158,74 @@ export default function SalaSituacionalConcejoPage() {
         jefe_telefono: jefe?.telefono_cuadrante || 'S/N',
         jefe_jerarquia: jefe?.grado_jerarquia || 'Funcionario',
         comuna: jefe?.comuna_o_circuito_comunal || 'N/A',
-        
+
         escuela_apta: reporte?.escuela_apta || 'PENDIENTE',
         responsable_inspeccion: reporte?.responsable_inspeccion || 'NO REGISTRADO',
         organismos_presentes: reporte?.organismos_presentes || 'NO REGISTRADOS',
-        cierre_mesas: reporte?.cierre_mesas || 'PENDIENTE', 
+        cierre_mesas: reporte?.cierre_mesas || 'PENDIENTE',
         resena: reporte?.resena || '',
         fecha_reporte: reporte?.fecha_reporte ? new Date(reporte.fecha_reporte).toLocaleString('es-VE') : 'Sin reporte'
       };
-    }).filter(c => {
+    }).filter((c: any) => {
       const matchMuni = !filtroMunicipio || c.municipio === filtroMunicipio;
       const matchOrganismo = !organismoSeguro || c.organismo === organismoSeguro;
       const matchAptitud = !filtroAptitud || c.escuela_apta === filtroAptitud;
       const matchEstatus = !filtroEstatus || c.cierre_mesas === filtroEstatus;
-      
+
       return matchMuni && matchOrganismo && matchAptitud && matchEstatus;
     });
   }, [centros, mapaJefes, mapaReportesExactos, reportesHuerfanosPorSitur, filtroMunicipio, organismoSeguro, filtroAptitud, filtroEstatus]);
 
-  // =========================================================================
-  // ESTADÍSTICAS CORREGIDAS: Ahora dependen EXCLUSIVAMENTE de centrosProcesados
-  // =========================================================================
   const stats = useMemo(() => {
     const total = centrosProcesados.length;
-    
-    const inspeccionadasReal = centrosProcesados.filter(c => c.cierre_mesas === 'CERRADO').length;
-    const aptasReal = centrosProcesados.filter(c => c.cierre_mesas === 'CERRADO' && c.escuela_apta === 'APTA').length;
-    const noAptasReal = centrosProcesados.filter(c => c.cierre_mesas === 'CERRADO' && c.escuela_apta === 'NO APTA').length;
-    
+
+    const aptasReal = centrosProcesados.filter((c: any) => c.cierre_mesas === 'CERRADO' && c.escuela_apta === 'APTA').length;
+    const noAptasReal = centrosProcesados.filter((c: any) => c.cierre_mesas === 'CERRADO' && c.escuela_apta === 'NO APTA').length;
+
+    const inspeccionadasReal = aptasReal + noAptasReal;
     const pendientesCalculados = Math.max(0, total - inspeccionadasReal);
 
-    return { 
-      total, 
-      inspeccionadas: inspeccionadasReal, 
-      pendientes: pendientesCalculados, 
-      aptas: aptasReal, 
-      noAptas: noAptasReal 
+    return {
+      total,
+      inspeccionadas: inspeccionadasReal,
+      pendientes: pendientesCalculados,
+      aptas: aptasReal,
+      noAptas: noAptasReal
     };
   }, [centrosProcesados]);
 
-  // =========================================================================
-  // EXPORTADORES PDF Y EXCEL (TOTALMENTE REDISEÑADOS CON SOLO LAS 6 COLUMNAS)
-  // =========================================================================
   const generarPDF = () => {
-    const doc = new jsPDF('landscape'); 
-    
+    const doc = new jsPDF('landscape');
+
     doc.setFontSize(16);
     doc.text('Expedientes de Infraestructura Escolar (Inspecciones Realizadas)', 14, 20);
-    
+
     doc.setFontSize(10);
     doc.setTextColor(100);
     let subtitulo = `Organismo: ${organismoSeguro || 'TODOS'} | Municipio: ${filtroMunicipio || 'TODOS'}`;
     doc.text(subtitulo, 14, 28);
     doc.text(`Total Inspeccionadas en este reporte: ${stats.inspeccionadas} | Aptas: ${stats.aptas} | No Aptas: ${stats.noAptas}`, 14, 34);
 
-    // FILTRO ESTRICTO: Solo descargamos las que ya fueron inspeccionadas (CERRADO)
-    const escuelasInspeccionadas = centrosProcesados.filter(c => c.cierre_mesas === 'CERRADO');
+    const escuelasInspeccionadas = centrosProcesados.filter((c: any) => c.cierre_mesas === 'CERRADO');
 
-    if(escuelasInspeccionadas.length === 0) {
+    if (escuelasInspeccionadas.length === 0) {
       alert("No hay escuelas inspeccionadas con este filtro para generar el PDF.");
       return;
     }
 
     const tableColumn = [
-      "Municipio", 
-      "Nombre de la Escuela", 
-      "Comuna", 
-      "Organismo", 
-      "Apta/No Apta", 
+      "Municipio",
+      "Nombre de la Escuela",
+      "Comuna",
+      "Organismo",
+      "Apta/No Apta",
       "Reseña Escrita por el Funcionario"
     ];
-    
-    const tableRows = escuelasInspeccionadas.map(c => {
+
+    const tableRows = escuelasInspeccionadas.map((c: any) => {
       let textoResena = c.resena ? c.resena.trim() : '';
       if (textoResena === 'Sin novedades registradas.' || textoResena === 'null' || textoResena === 'undefined') {
-        textoResena = ''; 
+        textoResena = '';
       }
 
       return [
@@ -241,7 +234,7 @@ export default function SalaSituacionalConcejoPage() {
         c.comuna,
         c.organismo,
         c.escuela_apta,
-        textoResena // Reseña completa
+        textoResena
       ];
     });
 
@@ -249,19 +242,19 @@ export default function SalaSituacionalConcejoPage() {
       head: [tableColumn],
       body: tableRows,
       startY: 40,
-      styles: { 
-        fontSize: 8, 
+      styles: {
+        fontSize: 8,
         cellPadding: 4,
-        overflow: 'linebreak' 
+        overflow: 'linebreak'
       },
       headStyles: { fillColor: [0, 82, 155], textColor: [255, 255, 255] },
       columnStyles: {
-        0: { cellWidth: 25 }, // Municipio
-        1: { cellWidth: 45 }, // Nombre Escuela
-        2: { cellWidth: 35 }, // Comuna
-        3: { cellWidth: 30 }, // Organismo
-        4: { cellWidth: 20 }, // Apta / No Apta
-        5: { cellWidth: 'auto' } // Reseña Escrita
+        0: { cellWidth: 25 },
+        1: { cellWidth: 45 },
+        2: { cellWidth: 35 },
+        3: { cellWidth: 30 },
+        4: { cellWidth: 20 },
+        5: { cellWidth: 'auto' }
       }
     });
 
@@ -269,7 +262,7 @@ export default function SalaSituacionalConcejoPage() {
   };
 
   const generarExcel = () => {
-    const escuelasInspeccionadas = centrosProcesados.filter(c => c.cierre_mesas === 'CERRADO');
+    const escuelasInspeccionadas = centrosProcesados.filter((c: any) => c.cierre_mesas === 'CERRADO');
 
     if (escuelasInspeccionadas.length === 0) {
       alert("No hay escuelas inspeccionadas con este filtro para generar el Excel.");
@@ -284,19 +277,19 @@ export default function SalaSituacionalConcejoPage() {
       [`Total Inspeccionadas: ${stats.inspeccionadas}`, `Aptas: ${stats.aptas}`, `No Aptas: ${stats.noAptas}`],
       [],
       [
-        "Municipio", 
-        "Nombre de la Escuela", 
-        "Comuna", 
-        "Organismo", 
-        "Apta/No Apta", 
+        "Municipio",
+        "Nombre de la Escuela",
+        "Comuna",
+        "Organismo",
+        "Apta/No Apta",
         "Reseña Escrita por el Funcionario"
       ]
     ];
 
-    escuelasInspeccionadas.forEach(c => {
+    escuelasInspeccionadas.forEach((c: any) => {
       let textoResena = c.resena ? c.resena.trim() : '';
       if (textoResena === 'Sin novedades registradas.' || textoResena === 'null' || textoResena === 'undefined') {
-        textoResena = ''; 
+        textoResena = '';
       }
 
       wsData.push([
@@ -305,7 +298,7 @@ export default function SalaSituacionalConcejoPage() {
         c.comuna,
         c.organismo,
         c.escuela_apta,
-        textoResena // Reseña completa
+        textoResena
       ]);
     });
 
@@ -313,12 +306,12 @@ export default function SalaSituacionalConcejoPage() {
 
     ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 5 } }];
     ws['!cols'] = [
-      { wch: 15 }, // Municipio
-      { wch: 50 }, // Escuela
-      { wch: 35 }, // Comuna
-      { wch: 25 }, // Organismo
-      { wch: 15 }, // Apta / No Apta
-      { wch: 100 } // Reseña (Ancha para Excel)
+      { wch: 15 },
+      { wch: 50 },
+      { wch: 35 },
+      { wch: 25 },
+      { wch: 15 },
+      { wch: 100 }
     ];
 
     const wb = XLSX.utils.book_new();
@@ -330,12 +323,12 @@ export default function SalaSituacionalConcejoPage() {
 
   return (
     <div className="min-h-screen bg-gray-100 p-6 space-y-4">
-      
+
       <div className="flex justify-between items-center flex-wrap gap-4">
         <Link href="/admin" className="inline-flex items-center gap-1.5 text-gray-500 hover:text-[#00529b] font-bold text-xs uppercase bg-white px-4 py-2 rounded-xl shadow-sm border border-gray-200 transition-colors w-fit">
           <ArrowLeft size={16} /> Volver a Inicio Admin
         </Link>
-        
+
         <div className="flex gap-2 flex-wrap">
           <button onClick={generarExcel} className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-2 rounded-xl flex items-center gap-2 shadow-sm transition-colors uppercase">
             <FileSpreadsheet size={16} /> Descargar Excel
@@ -357,31 +350,31 @@ export default function SalaSituacionalConcejoPage() {
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 pt-2">
         <div className="bg-white border rounded-2xl p-4 flex items-center justify-between shadow-sm">
           <div><p className="text-[10px] font-bold text-gray-400 uppercase">Planteles Filtrados</p><p className="text-2xl font-black text-gray-800 mt-1">{stats.total}</p></div>
-          <div className="bg-blue-50 text-[#00529b] p-3 rounded-full"><MapPin size={24}/></div>
+          <div className="bg-blue-50 text-[#00529b] p-3 rounded-full"><MapPin size={24} /></div>
         </div>
         <div className="bg-white border rounded-2xl p-4 flex items-center justify-between shadow-sm">
           <div><p className="text-[10px] font-bold text-gray-400 uppercase">Inspeccionadas</p><p className="text-2xl font-black text-indigo-600 mt-1">{stats.inspeccionadas}</p></div>
-          <div className="bg-indigo-50 text-indigo-600 p-3 rounded-full"><SearchCheck size={24}/></div>
+          <div className="bg-indigo-50 text-indigo-600 p-3 rounded-full"><SearchCheck size={24} /></div>
         </div>
         <div className="bg-white border rounded-2xl p-4 flex items-center justify-between shadow-sm">
           <div><p className="text-[10px] font-bold text-gray-400 uppercase">Escuelas Aptas</p><p className="text-2xl font-black text-emerald-600 mt-1">{stats.aptas}</p></div>
-          <div className="bg-emerald-50 text-emerald-600 p-3 rounded-full"><CheckCircle2 size={24}/></div>
+          <div className="bg-emerald-50 text-emerald-600 p-3 rounded-full"><CheckCircle2 size={24} /></div>
         </div>
         <div className="bg-white border rounded-2xl p-4 flex items-center justify-between shadow-sm">
           <div><p className="text-[10px] font-bold text-gray-400 uppercase">No Aptas</p><p className="text-2xl font-black text-red-600 mt-1">{stats.noAptas}</p></div>
-          <div className="bg-red-50 text-red-600 p-3 rounded-full"><AlertTriangle size={24}/></div>
+          <div className="bg-red-50 text-red-600 p-3 rounded-full"><AlertTriangle size={24} /></div>
         </div>
       </div>
 
       <div className="bg-white p-4 rounded-2xl border shadow-sm flex flex-wrap gap-4 items-end">
-        <div className="flex flex-col"><label className="text-[10px] font-bold text-gray-400 mb-1 uppercase">Municipio</label><select value={filtroMunicipio} onChange={e => setFiltroMunicipio(e.target.value)} className="p-2 border rounded-lg bg-white text-xs outline-none font-bold text-gray-700"><option value="">Todos los Municipios</option>{municipiosUnicos.map((m, i) => <option key={i} value={m}>{m}</option>)}</select></div>
-        
+        <div className="flex flex-col"><label className="text-[10px] font-bold text-gray-400 mb-1 uppercase">Municipio</label><select value={filtroMunicipio} onChange={e => setFiltroMunicipio(e.target.value)} className="p-2 border rounded-lg bg-white text-xs outline-none font-bold text-gray-700"><option value="">Todos los Municipios</option>{municipiosUnicos.map((m: any, i: number) => <option key={i} value={m}>{m}</option>)}</select></div>
+
         {isSuperAdmin && (
-          <div className="flex flex-col"><label className="text-[10px] font-bold text-gray-400 mb-1 uppercase">Organismo</label><select value={filtroOrganismo} onChange={e => setFiltroOrganismo(e.target.value)} className="p-2 border rounded-lg bg-white text-xs outline-none font-bold text-gray-700"><option value="">Todos los Organismos</option>{organismosUnicos.map((o, i) => <option key={i} value={o}>{o}</option>)}</select></div>
+          <div className="flex flex-col"><label className="text-[10px] font-bold text-gray-400 mb-1 uppercase">Organismo</label><select value={filtroOrganismo} onChange={e => setFiltroOrganismo(e.target.value)} className="p-2 border rounded-lg bg-white text-xs outline-none font-bold text-gray-700"><option value="">Todos los Organismos</option>{organismosUnicos.map((o: any, i: number) => <option key={i} value={o}>{o}</option>)}</select></div>
         )}
 
         <div className="flex flex-col"><label className="text-[10px] font-bold text-gray-400 mb-1 uppercase">Estado Infraestructura</label><select value={filtroAptitud} onChange={e => setFiltroAptitud(e.target.value)} className="p-2 border rounded-lg bg-white text-xs outline-none font-bold text-gray-700"><option value="">Todas</option><option value="APTA">APTA</option><option value="NO APTA">NO APTA</option><option value="PENDIENTE">PENDIENTE</option></select></div>
-        
+
         <div className="flex flex-col"><label className="text-[10px] font-bold text-gray-400 mb-1 uppercase">Estatus de Inspección</label><select value={filtroEstatus} onChange={e => setFiltroEstatus(e.target.value)} className="p-2 border rounded-lg bg-white text-xs outline-none font-bold text-gray-700"><option value="">Todas</option><option value="CERRADO">COMPLETADA</option><option value="PENDIENTE">PENDIENTE</option></select></div>
       </div>
 
@@ -400,29 +393,28 @@ export default function SalaSituacionalConcejoPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {centrosProcesados.map((c, i) => (
+              {centrosProcesados.map((c: any, i: number) => (
                 <tr key={i} className="hover:bg-gray-50 transition-colors">
-                  <td className="p-3 font-mono font-bold text-gray-500">CNE: {c.COD_CENTRO}<br/>STR: {c.CODIGO_CIRCUITO_COMUNAL}</td>
-                  <td className="p-3 font-black text-gray-800 uppercase max-w-[200px] truncate" title={c['NOMBRE CENTRO']}>{c['NOMBRE CENTRO']}<br/><span className="text-[10px] text-gray-400 font-medium">{c.municipio} ({c.parroquia})</span></td>
+                  <td className="p-3 font-mono font-bold text-gray-500">CNE: {c.COD_CENTRO}<br />STR: {c.CODIGO_CIRCUITO_COMUNAL}</td>
+                  <td className="p-3 font-black text-gray-800 uppercase max-w-[200px] truncate" title={c['NOMBRE CENTRO']}>{c['NOMBRE CENTRO']}<br /><span className="text-[10px] text-gray-400 font-medium">{c.municipio} ({c.parroquia})</span></td>
                   <td className="p-3"><span className="font-bold text-[#00529b] block">{c.organismo}</span><span className="text-[10px] text-gray-500">{c.jefe_jerarquia} {c.jefe_nombre}</span></td>
-                  
+
                   <td className="p-3 text-gray-700 font-bold uppercase truncate max-w-[150px]">{c.responsable_inspeccion}</td>
-                  
+
                   <td className="p-3 text-center">
-                    <span className={`px-3 py-1 rounded-full text-[10px] font-black ${
-                      c.escuela_apta === 'APTA' ? 'text-emerald-700 bg-emerald-100 border border-emerald-200' : 
+                    <span className={`px-3 py-1 rounded-full text-[10px] font-black ${c.escuela_apta === 'APTA' ? 'text-emerald-700 bg-emerald-100 border border-emerald-200' :
                       c.escuela_apta === 'NO APTA' ? 'text-red-700 bg-red-100 border border-red-200' : 'text-gray-500 bg-gray-100'
-                    }`}>
+                      }`}>
                       {c.escuela_apta}
                     </span>
                   </td>
-                  
+
                   <td className="p-3 text-center">
                     <span className={`px-2 py-0.5 rounded text-[10px] font-black ${c.cierre_mesas === 'CERRADO' ? 'text-indigo-600 bg-indigo-50' : 'text-amber-600 bg-amber-50'}`}>
                       {c.cierre_mesas === 'CERRADO' ? 'COMPLETADA' : 'PENDIENTE'}
                     </span>
                   </td>
-                  
+
                   <td className="p-3 text-center">
                     <button onClick={() => setCentroSeleccionado(c)} className="bg-gray-100 hover:bg-blue-50 text-gray-700 hover:text-[#00529b] p-2 rounded-xl transition-all border border-gray-200 hover:border-blue-200 shadow-sm inline-flex items-center gap-1 font-bold text-[10px] uppercase">
                       <Eye size={14} /> Ficha
@@ -438,7 +430,7 @@ export default function SalaSituacionalConcejoPage() {
       {centroSeleccionado && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 backdrop-blur-sm animate-fadeIn">
           <div className="bg-white rounded-3xl p-6 max-w-3xl w-full max-h-[90vh] overflow-y-auto space-y-5 shadow-2xl relative border">
-            
+
             <div className="flex justify-between items-start border-b pb-3">
               <div className="flex items-center gap-2 text-[#00529b]">
                 <Building size={22} />
@@ -460,7 +452,7 @@ export default function SalaSituacionalConcejoPage() {
                 </div>
 
                 <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100">
-                  <h3 className="text-[10px] font-black text-[#00529b] uppercase tracking-wider mb-2 flex items-center gap-1"><Shield size={12}/> Responsable de Cuadrante ({centroSeleccionado.organismo})</h3>
+                  <h3 className="text-[10px] font-black text-[#00529b] uppercase tracking-wider mb-2 flex items-center gap-1"><Shield size={12} /> Responsable de Cuadrante ({centroSeleccionado.organismo})</h3>
                   <div className="text-xs font-medium text-gray-700 space-y-1">
                     <p><strong>Circuito:</strong> {centroSeleccionado.comuna}</p>
                     <p><strong>Funcionario:</strong> {centroSeleccionado.jefe_jerarquia} {centroSeleccionado.jefe_nombre}</p>
@@ -471,7 +463,7 @@ export default function SalaSituacionalConcejoPage() {
 
               <div className="space-y-4">
                 <div className="bg-emerald-50/30 p-4 rounded-xl border border-emerald-100">
-                  <h3 className="text-[10px] font-black text-emerald-700 uppercase tracking-wider mb-2 flex items-center gap-1"><SearchCheck size={12}/> Resumen de la Inspección</h3>
+                  <h3 className="text-[10px] font-black text-emerald-700 uppercase tracking-wider mb-2 flex items-center gap-1"><SearchCheck size={12} /> Resumen de la Inspección</h3>
                   <div className="space-y-2 text-xs">
                     <div className="flex justify-between items-center border-b pb-1">
                       <span className="font-bold text-gray-500 uppercase">Estatus Físico:</span>
@@ -489,13 +481,13 @@ export default function SalaSituacionalConcejoPage() {
                 </div>
 
                 <div className="bg-amber-50/30 p-4 rounded-xl border border-amber-100">
-                  <h3 className="text-[10px] font-black text-amber-700 uppercase tracking-wider mb-2 flex items-center gap-1"><FileText size={12}/> Bitácora de Novedades y Necesidades</h3>
+                  <h3 className="text-[10px] font-black text-amber-700 uppercase tracking-wider mb-2 flex items-center gap-1"><FileText size={12} /> Bitácora de Novedades y Necesidades</h3>
                   <div className="bg-white rounded-xl border p-3 min-h-[90px] max-h-40 overflow-y-auto space-y-2 divide-y divide-gray-50">
                     {centroSeleccionado.resena && centroSeleccionado.resena !== 'Sin novedades registradas.' ? (
                       centroSeleccionado.resena.split('\n').map((linea: string, lIdx: number) => (
                         <p key={lIdx} className="text-[11px] text-gray-700 font-medium pt-1.5 first:pt-0 leading-relaxed">
                           <span className="text-[#00529b] font-mono font-bold mr-1.5 inline-flex items-center gap-0.5">
-                            <Clock size={10}/> {linea.match(/\[.*?\]/)?.[0] || ''}
+                            <Clock size={10} /> {linea.match(/\[.*?\]/)?.[0] || ''}
                           </span>
                           {linea.replace(/\[.*?\]/, '').trim()}
                         </p>
