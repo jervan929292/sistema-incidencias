@@ -130,8 +130,13 @@ export default function SalaSituacionalConcejoPage() {
 
     centros.forEach((c: any) => {
       const nombreLimpio = normalizarNombre(c['NOMBRE CENTRO']);
-      if (nombreLimpio && !centrosUnicosMap.has(nombreLimpio)) {
-        centrosUnicosMap.set(nombreLimpio, c);
+      
+      // LA CORRECCIÓN ESTÁ AQUÍ: Unimos el circuito + el nombre
+      // Así evitamos borrar escuelas con el mismo nombre pero de diferentes municipios
+      const claveUnica = `${c.CODIGO_CIRCUITO_COMUNAL}-${nombreLimpio}`;
+      
+      if (nombreLimpio && !centrosUnicosMap.has(claveUnica)) {
+        centrosUnicosMap.set(claveUnica, c);
       }
     });
 
@@ -234,7 +239,7 @@ export default function SalaSituacionalConcejoPage() {
         c.comuna,
         c.organismo,
         c.escuela_apta,
-        textoResena
+        textoResena 
       ];
     });
 
@@ -249,12 +254,12 @@ export default function SalaSituacionalConcejoPage() {
       },
       headStyles: { fillColor: [0, 82, 155], textColor: [255, 255, 255] },
       columnStyles: {
-        0: { cellWidth: 25 },
-        1: { cellWidth: 45 },
-        2: { cellWidth: 35 },
-        3: { cellWidth: 30 },
-        4: { cellWidth: 20 },
-        5: { cellWidth: 'auto' }
+        0: { cellWidth: 25 }, 
+        1: { cellWidth: 45 }, 
+        2: { cellWidth: 35 }, 
+        3: { cellWidth: 30 }, 
+        4: { cellWidth: 20 }, 
+        5: { cellWidth: 'auto' } 
       }
     });
 
@@ -306,12 +311,12 @@ export default function SalaSituacionalConcejoPage() {
 
     ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 5 } }];
     ws['!cols'] = [
-      { wch: 15 },
-      { wch: 50 },
-      { wch: 35 },
-      { wch: 25 },
-      { wch: 15 },
-      { wch: 100 }
+      { wch: 15 }, 
+      { wch: 50 }, 
+      { wch: 35 }, 
+      { wch: 25 }, 
+      { wch: 15 }, 
+      { wch: 100 } 
     ];
 
     const wb = XLSX.utils.book_new();
