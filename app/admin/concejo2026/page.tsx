@@ -84,6 +84,10 @@ export default function SalaSituacionalConcejoPage() {
     descargarTodo();
   }, []);
 
+  const normalizarNombre = (nombre: string) => {
+    return nombre ? nombre.toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w\s]/gi, '').replace(/\s+/g, ' ').trim() : '';
+  };
+
   const mapaJefes = useMemo(() => {
     const mapa = new Map();
     usuarios.forEach((u: any) => {
@@ -121,10 +125,22 @@ export default function SalaSituacionalConcejoPage() {
   const organismosUnicos = useMemo(() => Array.from(new Set(usuarios.map((u: any) => u.organismo_responsable))).filter(Boolean).sort(), [usuarios]);
 
   const centrosProcesados = useMemo(() => {
+    const centrosUnicosMap = new Map();
     const huerfanosDisponibles = JSON.parse(JSON.stringify(reportesHuerfanosPorSitur));
 
-    // Mapeamos directamente TODOS los centros de la base de datos sin agrupar ni borrar repetidos
-    return centros.map((c: any) => {
+    centros.forEach((c: any) => {
+      // CORRECCIÓN CLAVE: Agrupamos por COD_CENTRO (CNE) en lugar de por Nombre.
+      // Así se conservan tanto los originales como los -EXT- aunque se llamen igual.
+      const codigoCNE = c.COD_CENTRO?.toString().trim();
+      
+      if (codigoCNE && !centrosUnicosMap.has(codigoCNE)) {
+        centrosUnicosMap.set(codigoCNE, c);
+      }
+    });
+
+    const centrosUnicos = Array.from(centrosUnicosMap.values());
+
+    return centrosUnicos.map((c: any) => {
       const codigoSiturLimpio = c.CODIGO_CIRCUITO_COMUNAL?.toString().trim();
       const jefe = mapaJefes.get(codigoSiturLimpio);
 
