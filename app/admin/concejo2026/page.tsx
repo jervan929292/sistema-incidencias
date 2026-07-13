@@ -84,6 +84,10 @@ export default function SalaSituacionalConcejoPage() {
     descargarTodo();
   }, []);
 
+  const normalizarNombre = (nombre: string) => {
+    return nombre ? nombre.toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w\s]/gi, '').replace(/\s+/g, ' ').trim() : '';
+  };
+
   const mapaJefes = useMemo(() => {
     const mapa = new Map();
     usuarios.forEach((u: any) => {
@@ -120,40 +124,18 @@ export default function SalaSituacionalConcejoPage() {
   const municipiosUnicos = useMemo(() => Array.from(new Set(usuarios.map((u: any) => u.municipio))).filter(Boolean).sort(), [usuarios]);
   const organismosUnicos = useMemo(() => Array.from(new Set(usuarios.map((u: any) => u.organismo_responsable))).filter(Boolean).sort(), [usuarios]);
 
-  // =========================================================================
-  // INTEGRACIÓN AUTOMÁTICA DE LAS 22 ESCUELAS SOBRANTES (EXT) EN LAS OFICIALES
-  // =========================================================================
   const centrosProcesados = useMemo(() => {
     const huerfanosDisponibles = JSON.parse(JSON.stringify(reportesHuerfanosPorSitur));
 
-    // 1. Separar escuelas base (las 1257 oficiales) y las escuelas manuales (las 22 creadas con -EXT-)
-    const oficiales = centros.filter((c: any) => !c.COD_CENTRO?.toString().includes('-EXT-'));
-    const extras = centros.filter((c: any) => c.COD_CENTRO?.toString().includes('-EXT-'));
-
-    // 2. Extraer los reportes de las escuelas manuales para no perderlos al ocultar las filas
-    const reportesExtras = extras.map((ext: any) => {
-      return mapaReportesExactos.get(ext.COD_CENTRO?.toString().trim());
-    }).filter((rep: any) => rep && rep.cierre_mesas === 'CERRADO');
-
-    // 3. Mapear SOLO las escuelas oficiales (garantizando que el total sea estrictamente 1257)
-    return oficiales.map((c: any) => {
+    // Mapeamos directamente TODOS los centros de la base de datos sin agrupar ni borrar nada
+    return centros.map((c: any) => {
       const codigoSiturLimpio = c.CODIGO_CIRCUITO_COMUNAL?.toString().trim();
       const jefe = mapaJefes.get(codigoSiturLimpio);
 
-      // Buscar si la escuela oficial tiene su propio reporte normal
       let reporte = mapaReportesExactos.get(c.COD_CENTRO?.toString().trim());
 
-      // Si la escuela oficial está vacía, le "integramos" el reporte de la extra sobrante
       if ((!reporte || reporte.cierre_mesas !== 'CERRADO') && codigoSiturLimpio) {
-        // Buscamos si hay un reporte sobrante (-EXT-) en este mismo circuito
-        const indexReporteExt = reportesExtras.findIndex((rep: any) => rep.codigo_situr === codigoSiturLimpio);
-        
-        if (indexReporteExt !== -1) {
-          reporte = reportesExtras[indexReporteExt];
-          reportesExtras.splice(indexReporteExt, 1); // Lo usamos y lo quitamos
-        } 
-        // Si no hay reporte EXT, buscamos en los huérfanos normales
-        else if (huerfanosDisponibles[codigoSiturLimpio] && huerfanosDisponibles[codigoSiturLimpio].length > 0) {
+        if (huerfanosDisponibles[codigoSiturLimpio] && huerfanosDisponibles[codigoSiturLimpio].length > 0) {
           reporte = huerfanosDisponibles[codigoSiturLimpio].shift();
         }
       }
@@ -243,7 +225,7 @@ export default function SalaSituacionalConcejoPage() {
         c.comuna,
         c.organismo,
         c.escuela_apta,
-        textoResena 
+        textoResena
       ];
     });
 
