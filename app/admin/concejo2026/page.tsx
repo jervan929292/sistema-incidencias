@@ -1,519 +1,622 @@
 'use client';
-import { useEffect, useState, useMemo, useRef } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
-import { BarChart3, Shield, MapPin, CheckCircle2, AlertTriangle, Eye, X, UserCheck, Clock, School, ArrowLeft, FileText, Download, Upload, Loader2, FileSpreadsheet, SearchCheck, Building } from 'lucide-react';
+import { School, UserCheck, Save, Shield, MapPin, MessageSquare, ArrowLeft, CheckCircle2, Plus, Clock, SearchCheck, Edit, Trash2, X, Loader2, Info } from 'lucide-react';
 import Link from 'next/link';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
-import * as XLSX from 'xlsx'; 
 
-export default function SalaSituacionalConcejoPage() {
-  const [adminProfile, setAdminProfile] = useState<any>(null);
-  const [centros, setCentros] = useState<any[]>([]);
-  const [usuarios, setUsuarios] = useState<any[]>([]);
-  const [reportes, setReportes] = useState<any[]>([]);
+export default function ConcejoTerritorialPage() {
+  const [jefe, setJefe] = useState<any>(null);
+  const [escuelas, setEscuelas] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-
-  const [filtroMunicipio, setFiltroMunicipio] = useState('');
-  const [filtroOrganismo, setFiltroOrganismo] = useState('');
-  const [filtroAptitud, setFiltroAptitud] = useState('');
-  const [filtroEstatus, setFiltroEstatus] = useState('');
+  const [guardandoId, setGuardandoId] = useState<string | number | null>(null);
   
-  const [centroSeleccionado, setCentroSeleccionado] = useState<any | null>(null);
+  const [editandoId, setEditandoId] = useState<string | number | null>(null);
+  const [entradasResena, setEntradasResena] = useState<{[key: string]: string}>({});
+  
+  const [entradasSeleccionadas, setEntradasSeleccionadas] = useState<{[key: string]: number[]}>({});
+
+  const [mostrarModalNueva, setMostrarModalNueva] = useState(false);
+  const [nuevaEscuela, setNuevaEscuela] = useState({
+    nombreCentro: '',
+    direccion: 'DIRECCIÓN EN EVALUACIÓN'
+  });
+  const [guardandoNueva, setGuardandoNueva] = useState(false);
 
   useEffect(() => {
-    const descargarTodo = async () => {
+    const cargarDatos = async () => {
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
 
-        const { data: adminData } = await supabase.from('directorio_operativo').select('*').eq('id', user.id).single();
-        setAdminProfile(adminData);
+        const { data: userData } = await supabase
+          .from('directorio_operativo')
+          .select('*')
+          .eq('id', user.id)
+          .single();
 
-        const fetchTodosLosCentros = async () => {
-          let todosLosCentros: any[] = [];
-          let limite = 1000;
-          let inicio = 0;
-          let hayMas = true;
-          while (hayMas) {
-            const { data: batch } = await supabase.from('centros_votacion_2026').select('*').range(inicio, inicio + limite - 1);
-            if (batch && batch.length > 0) {
-              todosLosCentros = [...todosLosCentros, ...batch];
-              inicio += limite;
-              if (batch.length < limite) hayMas = false; 
-            } else { 
-              hayMas = false; 
+        if (userData) {
+          setJefe(userData);
+          
+          const fetchCentrosAsignados = async () => {
+            let todosLosCentros: any[] = [];
+            let limite = 1000;
+            let inicio = 0;
+            let hayMas = true;
+            while (hayMas) {
+              const { data: batch } = await supabase.from('centros_votacion_2026')
+                .select('*')
+                .eq('CODIGO_CIRCUITO_COMUNAL', userData.codigo_situr)
+                .range(inicio, inicio + limite - 1);
+                
+              if (batch && batch.length > 0) {
+                todosLosCentros = [...todosLosCentros, ...batch];
+                inicio += limite;
+                if (batch.length < limite) hayMas = false; 
+              } else { 
+                hayMas = false; 
+              }
             }
-          }
-          return todosLosCentros;
-        };
+            return todosLosCentros;
+          };
 
-        const fetchTodosLosReportes = async () => {
-          let todosLosReportes: any[] = [];
-          let limite = 1000;
-          let inicio = 0;
-          let hayMas = true;
-          while (hayMas) {
-            const { data: batch } = await supabase.from('reportes_concejo_2026').select('*').order('fecha_reporte', { ascending: false }).range(inicio, inicio + limite - 1);
-            if (batch && batch.length > 0) {
-              todosLosReportes = [...todosLosReportes, ...batch];
-              inicio += limite;
-              if (batch.length < limite) hayMas = false; 
-            } else { 
-              hayMas = false; 
+          const centros = await fetchCentrosAsignados();
+
+          const { data: reportesExistentes } = await supabase
+            .from('reportes_concejo_2026')
+            .select('*')
+            .eq('codigo_situr', userData.codigo_situr)
+            .order('fecha_reporte', { ascending: false })
+            .limit(5000);
+
+          if (centros) {
+            // LÓGICA CORREGIDA: Asignación Estricta sin "clonación" ni huérfanos
+            const mapaReportesExactos = new Map();
+
+            if (reportesExistentes) {
+              // Como vienen ordenados de más nuevo a más viejo, nos quedamos con el primero que coincida
+              reportesExistentes.forEach(r => {
+                const key = r.cod_centro?.toString().trim();
+                if (key && !mapaReportesExactos.has(key)) {
+                  mapaReportesExactos.set(key, r);
+                }
+              });
             }
+
+            // SE ELIMINÓ EL FILTRO DE NOMBRES REPETIDOS
+            // Ahora procesamos todas las escuelas devueltas directamente por la base de datos
+            const centrosConReportes = centros.map((c: any, index: number) => {
+              // Buscamos SOLO el reporte que le pertenece exactamente a esta escuela por su COD_CENTRO
+              let rep = mapaReportesExactos.get(c.COD_CENTRO?.toString().trim()) || {};
+
+              const uniqueIdentifier = c.id || `temp-${c.COD_CENTRO}-${index}`;
+
+              return { 
+                ...c, 
+                ...rep,
+                uid_estricto: uniqueIdentifier, 
+                id_centro: c.id, 
+                cod_centro_real: c.COD_CENTRO, 
+                id_reporte_viejo: rep?.id || null, 
+                
+                escuela_apta: rep?.escuela_apta || 'PENDIENTE',
+                responsable_inspeccion: rep?.responsable_inspeccion || '',
+                organismos_presentes: rep?.organismos_presentes || '',
+                cierre_mesas: rep?.cierre_mesas || 'PENDIENTE',
+                resena: rep?.resena || ''
+              };
+            });
+            
+            setEscuelas(centrosConReportes);
           }
-          return todosLosReportes;
-        };
-
-        const [resCentros, resUsuarios, resReportes] = await Promise.all([
-          fetchTodosLosCentros(),
-          supabase.from('directorio_operativo').select('*').neq('rol', 'admin').neq('rol', 'superusuario').limit(5000),
-          fetchTodosLosReportes()
-        ]);
-
-        if (resCentros) setCentros(resCentros);
-        if (resUsuarios.data) setUsuarios(resUsuarios.data);
-        if (resReportes) setReportes(resReportes);
+        }
       } catch (err) {
         console.error(err);
       } finally {
         setLoading(false);
       }
     };
-    descargarTodo();
+    cargarDatos();
   }, []);
 
-  const normalizarNombre = (nombre: string) => {
-    return nombre ? nombre.toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w\s]/gi, '').replace(/\s+/g, ' ').trim() : '';
+  const handleInputChange = (uidEstricto: string | number, campo: string, valor: string) => {
+    setEscuelas(prev => prev.map(esc => esc.uid_estricto === uidEstricto ? { ...esc, [campo]: valor } : esc));
   };
 
-  const mapaJefes = useMemo(() => {
-    const mapa = new Map();
-    usuarios.forEach(u => {
-      if (u.codigo_situr) mapa.set(u.codigo_situr.toString().trim(), u);
-    });
-    return mapa;
-  }, [usuarios]);
+  const agregarEntradaBitacora = async (escuela: any) => {
+    const uid = escuela.uid_estricto; 
+    const textoNota = entradasResena[uid]?.trim();
+    if (!textoNota) return;
 
-  const { mapaReportesExactos, reportesHuerfanosPorSitur } = useMemo(() => {
-    const mapaExacto = new Map();
-    const huerfanos: Record<string, any[]> = {};
+    const ahora = new Date();
+    const horaFormateada = ahora.toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit', hour12: true });
+    const fechaFormateada = ahora.toLocaleDateString('es-VE', { day: '2-digit', month: '2-digit' });
+    const estampa = `[${fechaFormateada} - ${horaFormateada}]`;
 
-    [...reportes].reverse().forEach(r => {
-      if (r.cod_centro) mapaExacto.set(r.cod_centro.toString().trim(), r);
-      
-      if (r.cierre_mesas === 'CERRADO' && r.codigo_situr) {
-        const siturLimpio = r.codigo_situr.toString().trim();
-        if (!huerfanos[siturLimpio]) {
-          huerfanos[siturLimpio] = [];
-        }
-        huerfanos[siturLimpio].push(r);
-      }
-    });
+    const nuevaLinea = `${estampa} ${textoNota}`;
     
-    return { mapaReportesExactos: mapaExacto, reportesHuerfanosPorSitur: huerfanos };
-  }, [reportes]);
+    let resenaBase = escuela.resena || '';
+    if (resenaBase === 'Sin novedades registradas.') resenaBase = '';
 
-  const isSuperAdmin = adminProfile?.rol === 'superusuario' || 
-                       adminProfile?.organismo_responsable?.toUpperCase() === 'VEN 911' || 
-                       adminProfile?.organismo_responsable?.toUpperCase() === 'GUARDIA NACIONAL BOLIVARIANA';
-                       
-  const organismoSeguro = isSuperAdmin ? filtroOrganismo : adminProfile?.organismo_responsable;
+    const bitacoraActualizada = resenaBase 
+      ? `${resenaBase}\n${nuevaLinea}`
+      : nuevaLinea;
 
-  const municipiosUnicos = useMemo(() => Array.from(new Set(usuarios.map(u => u.municipio))).filter(Boolean).sort(), [usuarios]);
-  const organismosUnicos = useMemo(() => Array.from(new Set(usuarios.map(u => u.organismo_responsable))).filter(Boolean).sort(), [usuarios]);
+    setEscuelas(prev => prev.map(esc => esc.uid_estricto === uid ? { ...esc, resena: bitacoraActualizada } : esc));
+    setEntradasResena(prev => ({ ...prev, [uid]: '' }));
 
-  const centrosProcesados = useMemo(() => {
-    const centrosUnicosMap = new Map();
-    const huerfanosDisponibles = JSON.parse(JSON.stringify(reportesHuerfanosPorSitur));
+    if (escuela.id_reporte_viejo && escuela.cierre_mesas === 'CERRADO') {
+      try {
+        await supabase
+          .from('reportes_concejo_2026')
+          .upsert({
+            id: escuela.id_reporte_viejo, 
+            cod_centro: escuela.cod_centro_real,
+            codigo_situr: jefe?.codigo_situr,
+            resena: bitacoraActualizada,
+            cierre_mesas: 'CERRADO',
+            fecha_reporte: ahora.toISOString()
+          }, { onConflict: 'id' }); 
+      } catch (err) {
+        console.error("Error en auto-guardado de bitácora:", err);
+      }
+    }
+  };
 
-    centros.forEach(c => {
-      const nombreLimpio = normalizarNombre(c['NOMBRE CENTRO']);
-      if (nombreLimpio && !centrosUnicosMap.has(nombreLimpio)) {
-        centrosUnicosMap.set(nombreLimpio, c);
+  const toggleSeleccionEntrada = (uidEstricto: string, indexLinea: number) => {
+    setEntradasSeleccionadas(prev => {
+      const seleccionadas = prev[uidEstricto] || [];
+      if (seleccionadas.includes(indexLinea)) {
+        return { ...prev, [uidEstricto]: seleccionadas.filter(i => i !== indexLinea) };
+      } else {
+        return { ...prev, [uidEstricto]: [...seleccionadas, indexLinea] };
       }
     });
+  };
+
+  const eliminarEntradasSeleccionadas = (escuela: any) => {
+    const uid = escuela.uid_estricto;
+    const seleccionadas = entradasSeleccionadas[uid] || [];
+    if (seleccionadas.length === 0) return;
+
+    const lineas = escuela.resena ? escuela.resena.split('\n') : [];
+    const nuevasLineas = lineas.filter((_: any, idx: number) => !seleccionadas.includes(idx));
     
-    const centrosUnicos = Array.from(centrosUnicosMap.values());
+    handleInputChange(uid, 'resena', nuevasLineas.join('\n'));
+    setEntradasSeleccionadas(prev => ({ ...prev, [uid]: [] })); 
+  };
 
-    return centrosUnicos.map(c => {
-      const codigoSiturLimpio = c.CODIGO_CIRCUITO_COMUNAL?.toString().trim();
-      const jefe = mapaJefes.get(codigoSiturLimpio);
-      
-      let reporte = mapaReportesExactos.get(c.COD_CENTRO?.toString().trim());
+  const guardarCambiosCentro = async (escuela: any) => {
+    if (escuela.escuela_apta !== 'APTA' && escuela.escuela_apta !== 'NO APTA') {
+      alert("⚠️ ALTO: Debe seleccionar obligatoriamente si la infraestructura está 'APTA' o 'NO APTA' antes de guardar.");
+      return;
+    }
 
-      if ((!reporte || reporte.cierre_mesas !== 'CERRADO') && codigoSiturLimpio) {
-        if (huerfanosDisponibles[codigoSiturLimpio] && huerfanosDisponibles[codigoSiturLimpio].length > 0) {
-            reporte = huerfanosDisponibles[codigoSiturLimpio].shift();
-        }
-      }
-      
-      return {
-        ...c,
-        municipio: jefe?.municipio || 'SIN ENLAZAR',
-        parroquia: jefe?.parroquia || 'SIN ENLAZAR',
-        organismo: jefe?.organismo_responsable || 'SIN ORGANISMO',
-        jefe_nombre: jefe?.nombre_apellido_jefe || 'POR ASIGNAR',
-        jefe_telefono: jefe?.telefono_cuadrante || 'S/N',
-        jefe_jerarquia: jefe?.grado_jerarquia || 'Funcionario',
-        comuna: jefe?.comuna_o_circuito_comunal || 'N/A',
-        
-        escuela_apta: reporte?.escuela_apta || 'PENDIENTE',
-        responsable_inspeccion: reporte?.responsable_inspeccion || 'NO REGISTRADO',
-        organismos_presentes: reporte?.organismos_presentes || 'NO REGISTRADOS',
-        cierre_mesas: reporte?.cierre_mesas || 'PENDIENTE', 
-        resena: reporte?.resena || '',
-        fecha_reporte: reporte?.fecha_reporte ? new Date(reporte.fecha_reporte).toLocaleString('es-VE') : 'Sin reporte'
+    if (!escuela.resena || escuela.resena.trim() === '' || escuela.resena === 'Sin novedades registradas.') {
+      alert("⚠️ ALTO: No puede guardar la inspección sin añadir reportes a la bitácora. Por favor, añada al menos una novedad a la caja.");
+      return;
+    }
+
+    setGuardandoId(escuela.uid_estricto);
+    try {
+      const payload: any = {
+        cod_centro: escuela.cod_centro_real, 
+        codigo_situr: jefe?.codigo_situr,
+        escuela_apta: escuela.escuela_apta,
+        responsable_inspeccion: escuela.responsable_inspeccion || '',
+        organismos_presentes: escuela.organismos_presentes || '',
+        resena: escuela.resena.trim(),
+        cierre_mesas: 'CERRADO', 
+        fecha_reporte: new Date().toISOString()
       };
-    }).filter(c => {
-      const matchMuni = !filtroMunicipio || c.municipio === filtroMunicipio;
-      const matchOrganismo = !organismoSeguro || c.organismo === organismoSeguro;
-      const matchAptitud = !filtroAptitud || c.escuela_apta === filtroAptitud;
-      const matchEstatus = !filtroEstatus || c.cierre_mesas === filtroEstatus;
+
+      if (escuela.id_reporte_viejo) {
+        payload.id = escuela.id_reporte_viejo;
+      }
+
+      const { error } = await supabase
+        .from('reportes_concejo_2026')
+        .upsert(payload, { onConflict: escuela.id_reporte_viejo ? 'id' : 'cod_centro' });
+
+      if (error) throw error;
       
-      return matchMuni && matchOrganismo && matchAptitud && matchEstatus;
-    });
-  }, [centros, mapaJefes, mapaReportesExactos, reportesHuerfanosPorSitur, filtroMunicipio, organismoSeguro, filtroAptitud, filtroEstatus]);
-
-  // =========================================================================
-  // ESTADÍSTICAS CORREGIDAS: Ahora dependen EXCLUSIVAMENTE de centrosProcesados
-  // =========================================================================
-  const stats = useMemo(() => {
-    const total = centrosProcesados.length;
-    
-    const inspeccionadasReal = centrosProcesados.filter(c => c.cierre_mesas === 'CERRADO').length;
-    const aptasReal = centrosProcesados.filter(c => c.cierre_mesas === 'CERRADO' && c.escuela_apta === 'APTA').length;
-    const noAptasReal = centrosProcesados.filter(c => c.cierre_mesas === 'CERRADO' && c.escuela_apta === 'NO APTA').length;
-    
-    const pendientesCalculados = Math.max(0, total - inspeccionadasReal);
-
-    return { 
-      total, 
-      inspeccionadas: inspeccionadasReal, 
-      pendientes: pendientesCalculados, 
-      aptas: aptasReal, 
-      noAptas: noAptasReal 
-    };
-  }, [centrosProcesados]);
-
-  // =========================================================================
-  // EXPORTADORES PDF Y EXCEL (TOTALMENTE REDISEÑADOS CON SOLO LAS 6 COLUMNAS)
-  // =========================================================================
-  const generarPDF = () => {
-    const doc = new jsPDF('landscape'); 
-    
-    doc.setFontSize(16);
-    doc.text('Expedientes de Infraestructura Escolar (Inspecciones Realizadas)', 14, 20);
-    
-    doc.setFontSize(10);
-    doc.setTextColor(100);
-    let subtitulo = `Organismo: ${organismoSeguro || 'TODOS'} | Municipio: ${filtroMunicipio || 'TODOS'}`;
-    doc.text(subtitulo, 14, 28);
-    doc.text(`Total Inspeccionadas en este reporte: ${stats.inspeccionadas} | Aptas: ${stats.aptas} | No Aptas: ${stats.noAptas}`, 14, 34);
-
-    // FILTRO ESTRICTO: Solo descargamos las que ya fueron inspeccionadas (CERRADO)
-    const escuelasInspeccionadas = centrosProcesados.filter(c => c.cierre_mesas === 'CERRADO');
-
-    if(escuelasInspeccionadas.length === 0) {
-      alert("No hay escuelas inspeccionadas con este filtro para generar el PDF.");
-      return;
+      alert(`✅ ÉXITO: Reporte de la escuela "${escuela['NOMBRE CENTRO']}" guardado.`);
+      window.location.reload(); 
+    } catch (err: any) {
+      alert("Error al guardar: " + err.message);
+      setGuardandoId(null);
     }
-
-    const tableColumn = [
-      "Municipio", 
-      "Nombre de la Escuela", 
-      "Comuna", 
-      "Organismo", 
-      "Apta/No Apta", 
-      "Reseña Escrita por el Funcionario"
-    ];
-    
-    const tableRows = escuelasInspeccionadas.map(c => {
-      let textoResena = c.resena ? c.resena.trim() : '';
-      if (textoResena === 'Sin novedades registradas.' || textoResena === 'null' || textoResena === 'undefined') {
-        textoResena = ''; 
-      }
-
-      return [
-        c.municipio,
-        c['NOMBRE CENTRO'],
-        c.comuna,
-        c.organismo,
-        c.escuela_apta,
-        textoResena // Reseña completa
-      ];
-    });
-
-    autoTable(doc, {
-      head: [tableColumn],
-      body: tableRows,
-      startY: 40,
-      styles: { 
-        fontSize: 8, 
-        cellPadding: 4,
-        overflow: 'linebreak' 
-      },
-      headStyles: { fillColor: [0, 82, 155], textColor: [255, 255, 255] },
-      columnStyles: {
-        0: { cellWidth: 25 }, // Municipio
-        1: { cellWidth: 45 }, // Nombre Escuela
-        2: { cellWidth: 35 }, // Comuna
-        3: { cellWidth: 30 }, // Organismo
-        4: { cellWidth: 20 }, // Apta / No Apta
-        5: { cellWidth: 'auto' } // Reseña Escrita
-      }
-    });
-
-    doc.save('Expedientes_Completos_Escuelas.pdf');
   };
 
-  const generarExcel = () => {
-    const escuelasInspeccionadas = centrosProcesados.filter(c => c.cierre_mesas === 'CERRADO');
-
-    if (escuelasInspeccionadas.length === 0) {
-      alert("No hay escuelas inspeccionadas con este filtro para generar el Excel.");
-      return;
-    }
-
-    const wsData: any[][] = [
-      ["EXPEDIENTES DE INFRAESTRUCTURA ESCOLAR - INSPECCIONES REALIZADAS"],
-      [],
-      ["ESTADÍSTICAS DEL REPORTE"],
-      [`Organismo: ${organismoSeguro || 'TODOS'}`, `Municipio: ${filtroMunicipio || 'TODOS'}`],
-      [`Total Inspeccionadas: ${stats.inspeccionadas}`, `Aptas: ${stats.aptas}`, `No Aptas: ${stats.noAptas}`],
-      [],
-      [
-        "Municipio", 
-        "Nombre de la Escuela", 
-        "Comuna", 
-        "Organismo", 
-        "Apta/No Apta", 
-        "Reseña Escrita por el Funcionario"
-      ]
-    ];
-
-    escuelasInspeccionadas.forEach(c => {
-      let textoResena = c.resena ? c.resena.trim() : '';
-      if (textoResena === 'Sin novedades registradas.' || textoResena === 'null' || textoResena === 'undefined') {
-        textoResena = ''; 
+  const eliminarEscuela = async (idTablaEscuela: string | number, nombreEscuela: string, uidEstricto: string | number) => {
+    if (confirm(`⚠️ ALERTA: ¿Está seguro que desea ELIMINAR la escuela "${nombreEscuela}"? \n\nEsta acción borrará el plantel permanentemente.`)) {
+      try {
+        const { error } = await supabase.from('centros_votacion_2026').delete().eq('id', idTablaEscuela);
+        if (error) throw error;
+        alert(`La escuela ha sido eliminada con éxito.`);
+        setEscuelas(prev => prev.filter(e => e.uid_estricto !== uidEstricto));
+      } catch (err: any) {
+        alert("Error al eliminar la escuela: " + err.message);
       }
-
-      wsData.push([
-        c.municipio,
-        c['NOMBRE CENTRO'],
-        c.comuna,
-        c.organismo,
-        c.escuela_apta,
-        textoResena // Reseña completa
-      ]);
-    });
-
-    const ws = XLSX.utils.aoa_to_sheet(wsData);
-
-    ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 5 } }];
-    ws['!cols'] = [
-      { wch: 15 }, // Municipio
-      { wch: 50 }, // Escuela
-      { wch: 35 }, // Comuna
-      { wch: 25 }, // Organismo
-      { wch: 15 }, // Apta / No Apta
-      { wch: 100 } // Reseña (Ancha para Excel)
-    ];
-
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Expedientes');
-    XLSX.writeFile(wb, 'Expedientes_Completos_Escuelas.xlsx');
+    }
   };
 
-  if (loading) return <div className="p-8 text-center font-bold animate-pulse text-[#00529b]">Cargando Sala Analítica Regional...</div>;
+  const procesarNuevaEscuela = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!nuevaEscuela.nombreCentro.trim()) return;
+    
+    setGuardandoNueva(true);
+    try {
+      // Calculamos el número consecutivo según las escuelas que ya existen en este circuito
+      const escuelasDelSitur = escuelas.filter(esc => esc.CODIGO_CIRCUITO_COMUNAL === jefe?.codigo_situr);
+      const siguienteNumero = escuelasDelSitur.length + 1;
+      
+      // Creamos el nuevo formato CNE: SITUR-1, SITUR-2, etc.
+      const cneGenerado = `${jefe?.codigo_situr || 'N/A'}-${siguienteNumero}`;
+      
+      const payload = {
+        "COD_CENTRO": cneGenerado,
+        "NOMBRE CENTRO": nuevaEscuela.nombreCentro.trim().toUpperCase(),
+        "DIRECCION": nuevaEscuela.direccion.trim().toUpperCase(),
+        "CODIGO_COMUNA_CNE": jefe?.comuna_o_circuito_comunal || '',
+        "CODIGO_CIRCUITO_COMUNAL": jefe?.codigo_situr || ''
+      };
+
+      const { error } = await supabase.from('centros_votacion_2026').insert([payload]);
+      if (error) throw error;
+
+      alert(`✅ Escuela "${payload['NOMBRE CENTRO']}" añadida con éxito. Se le asignó el código CNE: ${cneGenerado}`);
+      setMostrarModalNueva(false);
+      window.location.reload(); 
+      
+    } catch (err: any) {
+      alert("Error al añadir la escuela: " + err.message);
+    } finally {
+      setGuardandoNueva(false);
+    }
+  };
+
+  if (loading) return <div className="p-8 text-center font-bold animate-pulse text-[#00529b]">Sincronizando escuelas asignadas...</div>;
 
   return (
-    <div className="min-h-screen bg-gray-100 p-6 space-y-4">
-      
-      <div className="flex justify-between items-center flex-wrap gap-4">
-        <Link href="/admin" className="inline-flex items-center gap-1.5 text-gray-500 hover:text-[#00529b] font-bold text-xs uppercase bg-white px-4 py-2 rounded-xl shadow-sm border border-gray-200 transition-colors w-fit">
-          <ArrowLeft size={16} /> Volver a Inicio Admin
+    <div className="min-h-screen bg-gray-50 p-6">
+      <div className="max-w-6xl mx-auto space-y-4">
+        
+        <Link href="/dashboard" className="inline-flex items-center gap-1.5 text-gray-500 hover:text-[#00529b] font-bold text-xs uppercase bg-white px-4 py-2 rounded-xl shadow-sm border border-gray-200 transition-colors w-fit">
+          <ArrowLeft size={16} /> Volver al Menú Principal
         </Link>
-        
-        <div className="flex gap-2 flex-wrap">
-          <button onClick={generarExcel} className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-2 rounded-xl flex items-center gap-2 shadow-sm transition-colors uppercase">
-            <FileSpreadsheet size={16} /> Descargar Excel
-          </button>
 
-          <button onClick={generarPDF} className="bg-red-600 hover:bg-red-700 text-white font-bold text-xs px-4 py-2 rounded-xl flex items-center gap-2 shadow-sm transition-colors uppercase">
-            <Download size={16} /> Descargar PDF
-          </button>
-        </div>
-      </div>
-
-      <div className="bg-gradient-to-r from-[#00529b] to-blue-900 p-6 rounded-3xl text-white flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shadow-md">
-        <div>
-          <h1 className="text-2xl font-black uppercase tracking-wide flex items-center gap-2"><BarChart3 /> Monitor de Inspecciones Escolares</h1>
-          <p className="text-xs text-blue-100 font-medium mt-1">Sala situacional para el diagnóstico y auditoría de la infraestructura de planteles en Falcón</p>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 pt-2">
-        <div className="bg-white border rounded-2xl p-4 flex items-center justify-between shadow-sm">
-          <div><p className="text-[10px] font-bold text-gray-400 uppercase">Planteles Filtrados</p><p className="text-2xl font-black text-gray-800 mt-1">{stats.total}</p></div>
-          <div className="bg-blue-50 text-[#00529b] p-3 rounded-full"><MapPin size={24}/></div>
-        </div>
-        <div className="bg-white border rounded-2xl p-4 flex items-center justify-between shadow-sm">
-          <div><p className="text-[10px] font-bold text-gray-400 uppercase">Inspeccionadas</p><p className="text-2xl font-black text-indigo-600 mt-1">{stats.inspeccionadas}</p></div>
-          <div className="bg-indigo-50 text-indigo-600 p-3 rounded-full"><SearchCheck size={24}/></div>
-        </div>
-        <div className="bg-white border rounded-2xl p-4 flex items-center justify-between shadow-sm">
-          <div><p className="text-[10px] font-bold text-gray-400 uppercase">Escuelas Aptas</p><p className="text-2xl font-black text-emerald-600 mt-1">{stats.aptas}</p></div>
-          <div className="bg-emerald-50 text-emerald-600 p-3 rounded-full"><CheckCircle2 size={24}/></div>
-        </div>
-        <div className="bg-white border rounded-2xl p-4 flex items-center justify-between shadow-sm">
-          <div><p className="text-[10px] font-bold text-gray-400 uppercase">No Aptas</p><p className="text-2xl font-black text-red-600 mt-1">{stats.noAptas}</p></div>
-          <div className="bg-red-50 text-red-600 p-3 rounded-full"><AlertTriangle size={24}/></div>
-        </div>
-      </div>
-
-      <div className="bg-white p-4 rounded-2xl border shadow-sm flex flex-wrap gap-4 items-end">
-        <div className="flex flex-col"><label className="text-[10px] font-bold text-gray-400 mb-1 uppercase">Municipio</label><select value={filtroMunicipio} onChange={e => setFiltroMunicipio(e.target.value)} className="p-2 border rounded-lg bg-white text-xs outline-none font-bold text-gray-700"><option value="">Todos los Municipios</option>{municipiosUnicos.map((m, i) => <option key={i} value={m}>{m}</option>)}</select></div>
-        
-        {isSuperAdmin && (
-          <div className="flex flex-col"><label className="text-[10px] font-bold text-gray-400 mb-1 uppercase">Organismo</label><select value={filtroOrganismo} onChange={e => setFiltroOrganismo(e.target.value)} className="p-2 border rounded-lg bg-white text-xs outline-none font-bold text-gray-700"><option value="">Todos los Organismos</option>{organismosUnicos.map((o, i) => <option key={i} value={o}>{o}</option>)}</select></div>
-        )}
-
-        <div className="flex flex-col"><label className="text-[10px] font-bold text-gray-400 mb-1 uppercase">Estado Infraestructura</label><select value={filtroAptitud} onChange={e => setFiltroAptitud(e.target.value)} className="p-2 border rounded-lg bg-white text-xs outline-none font-bold text-gray-700"><option value="">Todas</option><option value="APTA">APTA</option><option value="NO APTA">NO APTA</option><option value="PENDIENTE">PENDIENTE</option></select></div>
-        
-        <div className="flex flex-col"><label className="text-[10px] font-bold text-gray-400 mb-1 uppercase">Estatus de Inspección</label><select value={filtroEstatus} onChange={e => setFiltroEstatus(e.target.value)} className="p-2 border rounded-lg bg-white text-xs outline-none font-bold text-gray-700"><option value="">Todas</option><option value="CERRADO">COMPLETADA</option><option value="PENDIENTE">PENDIENTE</option></select></div>
-      </div>
-
-      <div className="bg-white rounded-2xl border shadow-inner overflow-hidden">
-        <div className="overflow-x-auto max-h-[55vh]">
-          <table className="w-full text-left bg-white text-xs">
-            <thead className="bg-gray-50 text-gray-500 uppercase tracking-wider text-[10px] border-b sticky top-0 z-10">
-              <tr>
-                <th className="p-3">CNE / SITUR</th>
-                <th className="p-3">Plantel Educativo</th>
-                <th className="p-3">Asignación</th>
-                <th className="p-3">Resp. Inspección</th>
-                <th className="p-3 text-center">Estatus Físico</th>
-                <th className="p-3 text-center">Progreso</th>
-                <th className="p-3 text-center">Auditoría</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {centrosProcesados.map((c, i) => (
-                <tr key={i} className="hover:bg-gray-50 transition-colors">
-                  <td className="p-3 font-mono font-bold text-gray-500">CNE: {c.COD_CENTRO}<br/>STR: {c.CODIGO_CIRCUITO_COMUNAL}</td>
-                  <td className="p-3 font-black text-gray-800 uppercase max-w-[200px] truncate" title={c['NOMBRE CENTRO']}>{c['NOMBRE CENTRO']}<br/><span className="text-[10px] text-gray-400 font-medium">{c.municipio} ({c.parroquia})</span></td>
-                  <td className="p-3"><span className="font-bold text-[#00529b] block">{c.organismo}</span><span className="text-[10px] text-gray-500">{c.jefe_jerarquia} {c.jefe_nombre}</span></td>
-                  
-                  <td className="p-3 text-gray-700 font-bold uppercase truncate max-w-[150px]">{c.responsable_inspeccion}</td>
-                  
-                  <td className="p-3 text-center">
-                    <span className={`px-3 py-1 rounded-full text-[10px] font-black ${
-                      c.escuela_apta === 'APTA' ? 'text-emerald-700 bg-emerald-100 border border-emerald-200' : 
-                      c.escuela_apta === 'NO APTA' ? 'text-red-700 bg-red-100 border border-red-200' : 'text-gray-500 bg-gray-100'
-                    }`}>
-                      {c.escuela_apta}
-                    </span>
-                  </td>
-                  
-                  <td className="p-3 text-center">
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-black ${c.cierre_mesas === 'CERRADO' ? 'text-indigo-600 bg-indigo-50' : 'text-amber-600 bg-amber-50'}`}>
-                      {c.cierre_mesas === 'CERRADO' ? 'COMPLETADA' : 'PENDIENTE'}
-                    </span>
-                  </td>
-                  
-                  <td className="p-3 text-center">
-                    <button onClick={() => setCentroSeleccionado(c)} className="bg-gray-100 hover:bg-blue-50 text-gray-700 hover:text-[#00529b] p-2 rounded-xl transition-all border border-gray-200 hover:border-blue-200 shadow-sm inline-flex items-center gap-1 font-bold text-[10px] uppercase">
-                      <Eye size={14} /> Ficha
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {centroSeleccionado && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 backdrop-blur-sm animate-fadeIn">
-          <div className="bg-white rounded-3xl p-6 max-w-3xl w-full max-h-[90vh] overflow-y-auto space-y-5 shadow-2xl relative border">
-            
-            <div className="flex justify-between items-start border-b pb-3">
-              <div className="flex items-center gap-2 text-[#00529b]">
-                <Building size={22} />
-                <div>
-                  <h2 className="text-base font-black uppercase text-gray-900">Expediente de Infraestructura</h2>
-                  <p className="text-[11px] font-mono text-gray-500 font-bold">CNE: {centroSeleccionado.COD_CENTRO} | Última Actualización: {centroSeleccionado.fecha_reporte}</p>
-                </div>
-              </div>
-              <button onClick={() => setCentroSeleccionado(null)} className="text-gray-400 hover:text-red-600 bg-gray-100 p-1.5 rounded-full"><X size={18} /></button>
+        {/* Ficha del Funcionario */}
+        <div className="bg-white p-6 rounded-2xl border shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-l-4 border-l-[#00529b]">
+          <div className="space-y-3">
+            <h1 className="text-xl font-black text-[#00529b] uppercase">Inspección de Infraestructura Escolar</h1>
+            <div className="flex flex-col gap-1.5 text-xs text-gray-700 font-bold uppercase">
+              <p className="flex items-center gap-2"><Shield size={16} className="text-amber-500" /> Organismo Evaluador: <span className="text-gray-900">{jefe?.organismo_responsable || 'NO REGISTRADO'}</span></p>
+              <p className="flex items-center gap-2"><UserCheck size={16} className="text-blue-500" /> Funcionario: <span className="text-gray-900">{jefe?.grado_jerarquia} {jefe?.nombre_apellido_jefe}</span></p>
+              <p className="flex items-center gap-2"><MapPin size={16} className="text-emerald-500" /> Jurisdicción: <span className="text-gray-900">{jefe?.municipio} - {jefe?.parroquia}</span></p>
             </div>
+            <div className="inline-block bg-gray-100 text-gray-800 text-xs px-3 py-1 rounded-md font-black border uppercase mt-1">
+              Circuito Comunal: {jefe?.comuna_o_circuito_comunal || 'N/A'}
+            </div>
+          </div>
+          <div className="bg-blue-50 border border-blue-200 px-6 py-4 rounded-xl flex flex-col items-center shadow-inner">
+            <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Llave SITUR</span>
+            <span className="text-2xl font-mono font-black text-[#00529b]">{jefe?.codigo_situr}</span>
+          </div>
+        </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-4">
-                <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
-                  <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-wider mb-2">Datos del Plantel</h3>
-                  <p className="text-sm font-black text-gray-800 uppercase leading-snug">{centroSeleccionado['NOMBRE CENTRO']}</p>
-                  <p className="text-xs text-gray-500 mt-1">{centroSeleccionado.DIRECCION}</p>
-                  <p className="text-[11px] font-bold text-gray-700 mt-2">{centroSeleccionado.municipio} - {centroSeleccionado.parroquia}</p>
-                </div>
+        <div className="flex flex-col items-end gap-1">
+          <button 
+            onClick={() => setMostrarModalNueva(true)}
+            className="px-6 py-3 rounded-xl flex items-center gap-2 text-xs uppercase shadow-md transition-all font-black hover:opacity-90"
+            style={{ backgroundColor: '#00529b', color: '#ffffff' }}
+            title="Instrucción: Utilice este botón SOLO si una escuela que usted inspeccionó NO APARECE en la lista de abajo."
+          >
+            <Plus size={18} color="#ffffff" /> Añadir Escuela que no está registrada
+          </button>
+          <span className="text-[10px] font-medium text-gray-500 italic">
+            * Presione aquí si falta un plantel en su circuito.
+          </span>
+        </div>
 
-                <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100">
-                  <h3 className="text-[10px] font-black text-[#00529b] uppercase tracking-wider mb-2 flex items-center gap-1"><Shield size={12}/> Responsable de Cuadrante ({centroSeleccionado.organismo})</h3>
-                  <div className="text-xs font-medium text-gray-700 space-y-1">
-                    <p><strong>Circuito:</strong> {centroSeleccionado.comuna}</p>
-                    <p><strong>Funcionario:</strong> {centroSeleccionado.jefe_jerarquia} {centroSeleccionado.jefe_nombre}</p>
-                    <p><strong>Teléfono:</strong> {centroSeleccionado.jefe_telefono}</p>
+        {/* Lista de Escuelas */}
+        <div className="space-y-4">
+          {escuelas.length === 0 ? (
+            <div className="bg-white p-12 rounded-2xl border text-center flex flex-col items-center justify-center text-gray-400">
+              <School size={48} className="mb-4 opacity-20" />
+              <p className="font-bold text-lg">Sin Escuelas Asignadas para Inspección</p>
+            </div>
+          ) : (
+            escuelas.map((esc, index) => {
+              const estaSincronizado = esc.cierre_mesas === 'CERRADO';
+              const estaEditando = editandoId === esc.uid_estricto;
+              const isLocked = estaSincronizado && !estaEditando;
+              const tieneSeleccion = (entradasSeleccionadas[esc.uid_estricto] || []).length > 0;
+              
+              return (
+                <div key={esc.uid_estricto} className={`bg-white rounded-2xl border p-6 shadow-sm flex flex-col gap-6 relative overflow-hidden transition-all ${estaSincronizado ? 'border-emerald-200 bg-emerald-50/5' : 'border-gray-200'} ${estaEditando ? 'ring-2 ring-amber-300' : ''}`}>
+                  
+                  <div className={`absolute top-0 right-0 text-white text-[10px] font-black px-3 py-1 rounded-bl-xl flex items-center gap-2 ${estaSincronizado ? (estaEditando ? 'bg-amber-500' : 'bg-emerald-600') : 'bg-amber-500'}`}>
+                    {estaSincronizado ? (estaEditando ? 'MODO EDICIÓN ACTIVADO' : 'DIAGNÓSTICO SINCRONIZADO') : `PLANTEL ${index + 1} DE ${escuelas.length}`}
                   </div>
-                </div>
-              </div>
 
-              <div className="space-y-4">
-                <div className="bg-emerald-50/30 p-4 rounded-xl border border-emerald-100">
-                  <h3 className="text-[10px] font-black text-emerald-700 uppercase tracking-wider mb-2 flex items-center gap-1"><SearchCheck size={12}/> Resumen de la Inspección</h3>
-                  <div className="space-y-2 text-xs">
-                    <div className="flex justify-between items-center border-b pb-1">
-                      <span className="font-bold text-gray-500 uppercase">Estatus Físico:</span>
-                      <span className={`font-black uppercase px-2 py-0.5 rounded ${centroSeleccionado.escuela_apta === 'APTA' ? 'bg-emerald-100 text-emerald-700' : centroSeleccionado.escuela_apta === 'NO APTA' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-500'}`}>{centroSeleccionado.escuela_apta}</span>
-                    </div>
-                    <div className="flex justify-between items-center border-b pb-1">
-                      <span className="font-bold text-gray-500 uppercase">Responsable:</span>
-                      <span className="font-bold text-gray-800 uppercase">{centroSeleccionado.responsable_inspeccion}</span>
-                    </div>
+                  <div className="border-b pb-4 flex justify-between items-start mt-2">
                     <div>
-                      <span className="font-bold text-gray-500 uppercase block mb-1">Organismos Presentes:</span>
-                      <p className="bg-white p-2 rounded border text-gray-800 uppercase">{centroSeleccionado.organismos_presentes}</p>
+                      <div className="flex items-center gap-2 text-[#00529b] mb-1">
+                        <School size={20} />
+                        <span className="text-xs font-black">CNE: {esc.cod_centro_real}</span>
+                      </div>
+                      <h3 className="text-base font-black text-gray-800 uppercase">{esc['NOMBRE CENTRO']}</h3>
+                      <p className="text-xs text-gray-500 font-medium">{esc.DIRECCION}</p>
+                    </div>
+                    
+                    <button 
+                      onClick={() => eliminarEscuela(esc.id_centro, esc['NOMBRE CENTRO'], esc.uid_estricto)}
+                      className="bg-red-50 text-red-600 hover:bg-red-600 hover:text-white border border-red-200 p-2 rounded-lg transition-colors flex items-center justify-center"
+                      title="Instrucción: Elimina el plantel de la base de datos si fue cargado por error."
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div className="space-y-4 bg-gray-50 p-4 rounded-xl border border-gray-100">
+                      <h4 className="text-[11px] font-black text-[#00529b] uppercase flex items-center gap-1.5">
+                        <SearchCheck size={14}/> Formulario de Diagnóstico
+                      </h4>
+                      
+                      <div className="space-y-3">
+                        <div>
+                          <label className="block text-[10px] font-black text-gray-500 uppercase mb-2">
+                            Estatus de la Infraestructura <span className="text-red-500">*</span>
+                          </label>
+                          <div className="flex gap-2">
+                            <button 
+                              type="button"
+                              disabled={isLocked}
+                              onClick={() => handleInputChange(esc.uid_estricto, 'escuela_apta', 'APTA')}
+                              className={`flex-1 p-2.5 rounded-xl text-xs font-black transition-all border ${esc.escuela_apta === 'APTA' ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm' : 'bg-white text-gray-400 border-gray-200 hover:bg-gray-50'} ${isLocked ? 'opacity-60 cursor-not-allowed' : ''}`}
+                            >
+                              ESCUELA APTA
+                            </button>
+                            <button 
+                              type="button"
+                              disabled={isLocked}
+                              onClick={() => handleInputChange(esc.uid_estricto, 'escuela_apta', 'NO APTA')}
+                              className={`flex-1 p-2.5 rounded-xl text-xs font-black transition-all border ${esc.escuela_apta === 'NO APTA' ? 'bg-red-600 text-white border-red-600 shadow-sm' : 'bg-white text-gray-400 border-gray-200 hover:bg-gray-50'} ${isLocked ? 'opacity-60 cursor-not-allowed' : ''}`}
+                            >
+                              NO APTA
+                            </button>
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Responsable de la Evaluación</label>
+                          <input 
+                            type="text" 
+                            disabled={isLocked} 
+                            placeholder="Nombre completo y rango del evaluador..."
+                            className="w-full p-2.5 border rounded-xl text-xs bg-white outline-none focus:border-blue-500 font-bold uppercase disabled:bg-gray-100 disabled:text-gray-500" 
+                            value={esc.responsable_inspeccion || ''} 
+                            onChange={e => handleInputChange(esc.uid_estricto, 'responsable_inspeccion', e.target.value)} 
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Organismos Presentes en la Inspección</label>
+                          <textarea 
+                            disabled={isLocked} 
+                            placeholder="Ej: VEN 911, POLIFALCON, BRICOMILES..."
+                            className="w-full p-2.5 border rounded-xl text-xs bg-white outline-none focus:border-blue-500 font-bold uppercase h-16 resize-none disabled:bg-gray-100 disabled:text-gray-500" 
+                            value={esc.organismos_presentes || ''} 
+                            onChange={e => handleInputChange(esc.uid_estricto, 'organismos_presentes', e.target.value)} 
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3 bg-amber-50/10 p-4 rounded-xl border border-amber-200 flex flex-col">
+                      <div className="flex justify-between items-center shrink-0">
+                        <h4 className="text-[11px] font-black text-amber-800 uppercase flex items-center gap-1.5">
+                          <MessageSquare size={14}/> Bitácora de Novedades <span className="text-red-500">*</span>
+                        </h4>
+                        <div title="Instrucción: Describa detalladamente los daños. Si desea modificar, elimine el reporte seleccionándolo y añada uno nuevo.">
+                          <Info size={14} className="text-amber-500 cursor-help" />
+                        </div>
+                      </div>
+                      
+                      <div className="flex gap-2 shrink-0">
+                        <textarea 
+                          disabled={isLocked}
+                          placeholder="Añada un nuevo reporte aquí (Obligatorio)..." 
+                          value={entradasResena[esc.uid_estricto] || ''} 
+                          onChange={e => setEntradasResena(prev => ({ ...prev, [esc.uid_estricto]: e.target.value }))}
+                          rows={2}
+                          className="flex-grow p-2.5 border rounded-xl text-xs bg-white outline-none focus:border-amber-500 font-medium resize-none min-h-[44px] disabled:bg-gray-100"
+                        />
+                        <button 
+                          type="button" 
+                          disabled={isLocked}
+                          onClick={() => agregarEntradaBitacora(esc)}
+                          className="bg-amber-500 hover:bg-amber-600 text-white font-bold px-4 py-2 rounded-xl flex items-center gap-1 text-xs uppercase shadow-sm shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <Plus size={16}/> Añadir
+                        </button>
+                      </div>
+
+                      <div className="bg-white rounded-xl border p-3 min-h-[90px] max-h-48 overflow-y-auto space-y-3 grow">
+                        {esc.resena && esc.resena !== 'Sin novedades registradas.' && esc.resena.trim() !== '' ? (
+                          esc.resena.split('\n').filter((l:string) => l.trim() !== '').map((linea: string, lIdx: number) => (
+                            <div key={lIdx} className="flex items-start gap-2 border-b border-gray-50 pb-2 last:border-0 last:pb-0">
+                              
+                              {!isLocked && (
+                                <input 
+                                  type="checkbox"
+                                  className="mt-0.5 shrink-0 w-3.5 h-3.5 text-amber-600 rounded border-gray-300 focus:ring-amber-500 cursor-pointer"
+                                  checked={(entradasSeleccionadas[esc.uid_estricto] || []).includes(lIdx)}
+                                  onChange={() => toggleSeleccionEntrada(esc.uid_estricto, lIdx)}
+                                  title="Seleccionar para eliminar este reporte"
+                                />
+                              )}
+
+                              <p className="text-[11px] text-gray-700 font-medium leading-relaxed">
+                                <span className="text-[#00529b] font-mono font-bold mr-1.5 inline-flex items-center gap-0.5">
+                                  <Clock size={10}/> {linea.match(/\[.*?\]/)?.[0] || ''}
+                                </span>
+                                {linea.replace(/\[.*?\]/, '').trim()}
+                              </p>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-[11px] text-red-400 font-bold italic text-center py-4 flex flex-col items-center gap-1">
+                            ¡La caja de reportes está vacía! 
+                            <span className="text-[9px] text-gray-400">Debe añadir al menos una novedad antes de guardar.</span>
+                          </p>
+                        )}
+                      </div>
+
+                      {!isLocked && tieneSeleccion && (
+                        <button 
+                          type="button"
+                          onClick={() => eliminarEntradasSeleccionadas(esc)}
+                          className="w-full bg-red-50 text-red-600 hover:bg-red-100 border border-red-200 font-bold p-2.5 rounded-xl text-[10px] uppercase flex items-center justify-center gap-1.5 transition-colors shadow-sm"
+                        >
+                          <Trash2 size={14} /> Eliminar {entradasSeleccionadas[esc.uid_estricto].length} reporte(s) seleccionado(s)
+                        </button>
+                      )}
+
                     </div>
                   </div>
-                </div>
 
-                <div className="bg-amber-50/30 p-4 rounded-xl border border-amber-100">
-                  <h3 className="text-[10px] font-black text-amber-700 uppercase tracking-wider mb-2 flex items-center gap-1"><FileText size={12}/> Bitácora de Novedades y Necesidades</h3>
-                  <div className="bg-white rounded-xl border p-3 min-h-[90px] max-h-40 overflow-y-auto space-y-2 divide-y divide-gray-50">
-                    {centroSeleccionado.resena && centroSeleccionado.resena !== 'Sin novedades registradas.' ? (
-                      centroSeleccionado.resena.split('\n').map((linea: string, lIdx: number) => (
-                        <p key={lIdx} className="text-[11px] text-gray-700 font-medium pt-1.5 first:pt-0 leading-relaxed">
-                          <span className="text-[#00529b] font-mono font-bold mr-1.5 inline-flex items-center gap-0.5">
-                            <Clock size={10}/> {linea.match(/\[.*?\]/)?.[0] || ''}
-                          </span>
-                          {linea.replace(/\[.*?\]/, '').trim()}
-                        </p>
-                      ))
+                  {/* CONTROLES DE GUARDADO */}
+                  <div className="flex flex-col sm:flex-row justify-between items-center border-t border-gray-200 pt-4 gap-3">
+                    <div className="w-full sm:w-auto">
+                      {estaSincronizado && !estaEditando && (
+                        <span className="text-xs font-black text-emerald-600 bg-emerald-50 border border-emerald-200 px-4 py-2.5 rounded-xl uppercase flex items-center gap-1.5 justify-center">
+                          <CheckCircle2 size={16}/> Sincronizado en Sala Central
+                        </span>
+                      )}
+                    </div>
+
+                    {estaSincronizado ? (
+                      isLocked ? (
+                        <button 
+                          type="button"
+                          onClick={() => setEditandoId(esc.uid_estricto)}
+                          className="w-full sm:w-auto px-8 py-3.5 font-black rounded-xl text-xs uppercase transition-all shadow-md flex items-center justify-center gap-2 bg-amber-100 text-amber-800 hover:bg-amber-200"
+                        >
+                          <Edit size={16} /> Editar Reporte
+                        </button>
+                      ) : (
+                        <div className="flex gap-2 w-full sm:w-auto">
+                          <button 
+                            type="button"
+                            onClick={() => {
+                              if (confirm("¿Descartar cambios no guardados?")) {
+                                window.location.reload();
+                              }
+                            }}
+                            className="flex-1 sm:flex-none px-6 py-3.5 font-black rounded-xl text-xs uppercase transition-all shadow-md bg-gray-200 text-gray-700 hover:bg-gray-300"
+                          >
+                            Cancelar
+                          </button>
+                          <button 
+                            type="button"
+                            disabled={guardandoId === esc.uid_estricto}
+                            onClick={() => guardarCambiosCentro(esc)}
+                            className="flex-1 sm:flex-none px-8 py-3.5 font-black rounded-xl text-xs uppercase transition-all shadow-md flex items-center justify-center gap-2 bg-emerald-600 text-white hover:bg-emerald-700"
+                          >
+                            {guardandoId === esc.uid_estricto ? 'Guardando...' : <><Save size={16}/> Guardar Cambios</>}
+                          </button>
+                        </div>
+                      )
                     ) : (
-                      <p className="text-[11px] text-gray-400 italic text-center py-4">No hay novedades registradas.</p>
+                      <button 
+                        type="button"
+                        disabled={guardandoId === esc.uid_estricto}
+                        onClick={() => guardarCambiosCentro(esc)}
+                        className="w-full sm:w-auto px-8 py-3.5 font-black rounded-xl text-xs uppercase transition-all shadow-md flex items-center justify-center gap-2"
+                        style={{ backgroundColor: '#00529b', color: '#ffffff' }}
+                      >
+                        <Save size={16} /> {guardandoId === esc.uid_estricto ? 'Sincronizando...' : 'Guardar Inspección'}
+                      </button>
                     )}
                   </div>
                 </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+
+      {mostrarModalNueva && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
+          <div className="bg-white rounded-[2rem] p-8 max-w-md w-full shadow-2xl border">
+            
+            <div className="flex justify-between items-start border-b pb-3 mb-6">
+              <h3 className="text-xl font-black text-[#00529b] flex items-center gap-2 uppercase">
+                <School size={24} /> Añadir Escuela
+              </h3>
+              <button onClick={() => setMostrarModalNueva(false)} className="text-gray-400 hover:text-red-500"><X size={20}/></button>
+            </div>
+
+            <form onSubmit={procesarNuevaEscuela} className="space-y-4">
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-gray-100 p-3 rounded-xl border border-gray-200">
+                  <label className="block text-[9px] font-bold text-gray-500 uppercase">CÓDIGO SITUR</label>
+                  <p className="font-mono text-sm font-black text-gray-800">{jefe?.codigo_situr}</p>
+                </div>
+                <div className="bg-gray-100 p-3 rounded-xl border border-gray-200">
+                  <label className="block text-[9px] font-bold text-gray-500 uppercase">CNE VIRTUAL</label>
+                  <p className="font-mono text-xs font-black text-gray-800 flex items-center gap-1">
+                    <Clock size={12}/> AUTOMÁTICO
+                  </p>
+                </div>
               </div>
-            </div>
 
-            <div className="pt-2 flex justify-end">
-              <button onClick={() => setCentroSeleccionado(null)} className="bg-gray-800 hover:bg-gray-900 text-white font-bold text-xs px-6 py-2.5 rounded-xl uppercase transition-colors shadow-sm">
-                Cerrar Ficha
-              </button>
-            </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-600 mb-1 uppercase">NOMBRE CENTRO (ESCUELA)</label>
+                <input 
+                  type="text" 
+                  required
+                  placeholder="Escriba el nombre exacto del plantel..."
+                  className="w-full p-3 border rounded-xl text-sm font-black uppercase text-gray-800 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
+                  value={nuevaEscuela.nombreCentro}
+                  onChange={e => setNuevaEscuela({...nuevaEscuela, nombreCentro: e.target.value.toUpperCase()})}
+                />
+              </div>
 
+              <div>
+                <label className="block text-xs font-bold text-gray-600 mb-1 uppercase">DIRECCIÓN (Opcional)</label>
+                <textarea 
+                  rows={2}
+                  placeholder="Ej: Sector Centro, Calle Principal..."
+                  className="w-full p-3 border rounded-xl text-xs font-bold uppercase text-gray-800 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 resize-none"
+                  value={nuevaEscuela.direccion}
+                  onChange={e => setNuevaEscuela({...nuevaEscuela, direccion: e.target.value.toUpperCase()})}
+                />
+              </div>
+
+              <div className="pt-4 flex gap-3">
+                <button 
+                  type="button"
+                  onClick={() => setMostrarModalNueva(false)}
+                  className="w-1/3 bg-gray-200 text-gray-700 font-bold p-3 rounded-xl uppercase text-xs hover:bg-gray-300 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  type="submit"
+                  disabled={guardandoNueva}
+                  className="w-2/3 font-black p-3 rounded-xl uppercase text-xs transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                  style={{ backgroundColor: '#00529b', color: '#ffffff' }}
+                >
+                  {guardandoNueva ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                  Registrar
+                </button>
+              </div>
+
+            </form>
           </div>
         </div>
       )}
