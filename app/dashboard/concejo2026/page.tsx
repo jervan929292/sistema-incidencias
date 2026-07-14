@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
 import { School, UserCheck, Save, Shield, MapPin, MessageSquare, ArrowLeft, CheckCircle2, Plus, Clock, SearchCheck, Edit, Trash2, X, Loader2, Info } from 'lucide-react';
 import Link from 'next/link';
@@ -69,10 +69,6 @@ export default function ConcejoTerritorialPage() {
             .limit(5000);
 
           if (centros) {
-            const normalizarNombre = (nombre: string) => {
-              return nombre ? nombre.toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w\s]/gi, '').replace(/\s+/g, ' ').trim() : '';
-            };
-
             // LÓGICA CORREGIDA: Asignación Estricta sin "clonación" ni huérfanos
             const mapaReportesExactos = new Map();
 
@@ -86,17 +82,10 @@ export default function ConcejoTerritorialPage() {
               });
             }
 
-            const centrosUnicosMap = new Map();
-            centros.forEach((c: any) => {
-              const nombreLimpio = normalizarNombre(c['NOMBRE CENTRO']);
-              if (nombreLimpio && !centrosUnicosMap.has(nombreLimpio)) {
-                centrosUnicosMap.set(nombreLimpio, c);
-              }
-            });
-            const centrosUnicos = Array.from(centrosUnicosMap.values());
-
-            const centrosConReportes = centrosUnicos.map((c: any, index: number) => {
-              // Buscamos SOLO el reporte que le pertenece exactamente a esta escuela
+            // SE ELIMINÓ EL FILTRO DE NOMBRES REPETIDOS
+            // Ahora procesamos todas las escuelas devueltas directamente por la base de datos
+            const centrosConReportes = centros.map((c: any, index: number) => {
+              // Buscamos SOLO el reporte que le pertenece exactamente a esta escuela por su COD_CENTRO
               let rep = mapaReportesExactos.get(c.COD_CENTRO?.toString().trim()) || {};
 
               const uniqueIdentifier = c.id || `temp-${c.COD_CENTRO}-${index}`;
@@ -134,7 +123,7 @@ export default function ConcejoTerritorialPage() {
   };
 
   const agregarEntradaBitacora = async (escuela: any) => {
-    const uid = escuela.uid_estricto; // Uso estricto del UID para la caja de texto
+    const uid = escuela.uid_estricto; 
     const textoNota = entradasResena[uid]?.trim();
     if (!textoNota) return;
 
@@ -257,7 +246,13 @@ export default function ConcejoTerritorialPage() {
     
     setGuardandoNueva(true);
     try {
-      const cneGenerado = `${jefe?.codigo_situr || 'N/A'}-EXT-${Date.now().toString().slice(-6)}`;
+      // Calculamos el número consecutivo según las escuelas que ya existen en este circuito
+      const escuelasDelSitur = escuelas.filter(esc => esc.CODIGO_CIRCUITO_COMUNAL === jefe?.codigo_situr);
+      const siguienteNumero = escuelasDelSitur.length + 1;
+      
+      // Creamos el nuevo formato CNE: SITUR-1, SITUR-2, etc.
+      const cneGenerado = `${jefe?.codigo_situr || 'N/A'}-${siguienteNumero}`;
+      
       const payload = {
         "COD_CENTRO": cneGenerado,
         "NOMBRE CENTRO": nuevaEscuela.nombreCentro.trim().toUpperCase(),
@@ -269,7 +264,7 @@ export default function ConcejoTerritorialPage() {
       const { error } = await supabase.from('centros_votacion_2026').insert([payload]);
       if (error) throw error;
 
-      alert(`✅ Escuela "${payload['NOMBRE CENTRO']}" añadida con éxito.`);
+      alert(`✅ Escuela "${payload['NOMBRE CENTRO']}" añadida con éxito. Se le asignó el código CNE: ${cneGenerado}`);
       setMostrarModalNueva(false);
       window.location.reload(); 
       
