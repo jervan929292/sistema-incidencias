@@ -85,20 +85,13 @@ export default function SalaSituacionalConcejoPage() {
     return mapa;
   }, [usuarios]);
 
-  const { mapaReportesExactos, reportesHuerfanosPorSitur } = useMemo(() => {
+  // Lógica purgada: Solo acepta enlaces directos y exactos. Adiós a los "huérfanos".
+  const mapaReportesExactos = useMemo(() => {
     const mapaExacto = new Map();
-    const huerfanos: Record<string, any[]> = {};
     [...reportes].reverse().forEach(r => {
       if (r.cod_centro) mapaExacto.set(r.cod_centro.toString().trim(), r);
-      if (r.cierre_mesas === 'CERRADO' && r.codigo_situr) {
-        const siturLimpio = r.codigo_situr.toString().trim();
-        if (!huerfanos[siturLimpio]) {
-          huerfanos[siturLimpio] = [];
-        }
-        huerfanos[siturLimpio].push(r);
-      }
     });
-    return { mapaReportesExactos: mapaExacto, reportesHuerfanosPorSitur: huerfanos };
+    return mapaExacto;
   }, [reportes]);
 
   const isSuperAdmin = adminProfile?.rol === 'superusuario' || 
@@ -110,18 +103,12 @@ export default function SalaSituacionalConcejoPage() {
   const organismosUnicos = useMemo(() => Array.from(new Set(usuarios.map(u => u.organismo_responsable))).filter(Boolean).sort(), [usuarios]);
 
   const centrosProcesados = useMemo(() => {
-    const huerfanosDisponibles = JSON.parse(JSON.stringify(reportesHuerfanosPorSitur));
-    
     return centros.map(c => {
       const codigoSiturLimpio = c.CODIGO_CIRCUITO_COMUNAL?.toString().trim();
       const jefe = mapaJefes.get(codigoSiturLimpio);
+      
+      // SOLO SE ACEPTA EL REPORTE SI SU CNE ES IDÉNTICO EN AMBAS TABLAS
       let reporte = mapaReportesExactos.get(c.COD_CENTRO?.toString().trim());
-
-      if ((!reporte || reporte.cierre_mesas !== 'CERRADO') && codigoSiturLimpio) {
-        if (huerfanosDisponibles[codigoSiturLimpio] && huerfanosDisponibles[codigoSiturLimpio].length > 0) {
-            reporte = huerfanosDisponibles[codigoSiturLimpio].shift();
-        }
-      }
       
       return {
         ...c,
@@ -146,7 +133,7 @@ export default function SalaSituacionalConcejoPage() {
       const matchEstatus = !filtroEstatus || c.cierre_mesas === filtroEstatus;
       return matchMuni && matchOrganismo && matchAptitud && matchEstatus;
     });
-  }, [centros, mapaJefes, mapaReportesExactos, reportesHuerfanosPorSitur, filtroMunicipio, organismoSeguro, filtroAptitud, filtroEstatus]);
+  }, [centros, mapaJefes, mapaReportesExactos, filtroMunicipio, organismoSeguro, filtroAptitud, filtroEstatus]);
 
   const stats = useMemo(() => {
     const total = centrosProcesados.length;
