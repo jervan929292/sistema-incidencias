@@ -85,12 +85,20 @@ export default function SalaSituacionalConcejoPage() {
     return mapa;
   }, [usuarios]);
 
-  const mapaReportesExactos = useMemo(() => {
+  const { mapaReportesExactos, reportesHuerfanosPorSitur } = useMemo(() => {
     const mapaExacto = new Map();
+    const huerfanos: Record<string, any[]> = {};
     [...reportes].reverse().forEach(r => {
       if (r.cod_centro) mapaExacto.set(r.cod_centro.toString().trim(), r);
+      if (r.cierre_mesas === 'CERRADO' && r.codigo_situr) {
+        const siturLimpio = r.codigo_situr.toString().trim();
+        if (!huerfanos[siturLimpio]) {
+          huerfanos[siturLimpio] = [];
+        }
+        huerfanos[siturLimpio].push(r);
+      }
     });
-    return mapaExacto;
+    return { mapaReportesExactos: mapaExacto, reportesHuerfanosPorSitur: huerfanos };
   }, [reportes]);
 
   const isSuperAdmin = adminProfile?.rol === 'superusuario' || 
@@ -102,10 +110,18 @@ export default function SalaSituacionalConcejoPage() {
   const organismosUnicos = useMemo(() => Array.from(new Set(usuarios.map(u => u.organismo_responsable))).filter(Boolean).sort(), [usuarios]);
 
   const centrosProcesados = useMemo(() => {
+    const huerfanosDisponibles = JSON.parse(JSON.stringify(reportesHuerfanosPorSitur));
+    
     return centros.map(c => {
       const codigoSiturLimpio = c.CODIGO_CIRCUITO_COMUNAL?.toString().trim();
       const jefe = mapaJefes.get(codigoSiturLimpio);
       let reporte = mapaReportesExactos.get(c.COD_CENTRO?.toString().trim());
+
+      if ((!reporte || reporte.cierre_mesas !== 'CERRADO') && codigoSiturLimpio) {
+        if (huerfanosDisponibles[codigoSiturLimpio] && huerfanosDisponibles[codigoSiturLimpio].length > 0) {
+            reporte = huerfanosDisponibles[codigoSiturLimpio].shift();
+        }
+      }
       
       return {
         ...c,
@@ -130,7 +146,7 @@ export default function SalaSituacionalConcejoPage() {
       const matchEstatus = !filtroEstatus || c.cierre_mesas === filtroEstatus;
       return matchMuni && matchOrganismo && matchAptitud && matchEstatus;
     });
-  }, [centros, mapaJefes, mapaReportesExactos, filtroMunicipio, organismoSeguro, filtroAptitud, filtroEstatus]);
+  }, [centros, mapaJefes, mapaReportesExactos, reportesHuerfanosPorSitur, filtroMunicipio, organismoSeguro, filtroAptitud, filtroEstatus]);
 
   const stats = useMemo(() => {
     const total = centrosProcesados.length;
@@ -144,136 +160,70 @@ export default function SalaSituacionalConcejoPage() {
   const generarPDF = () => {
     const doc = new jsPDF('landscape'); 
     doc.setFontSize(16);
-    
-    // LOGICA INTELIGENTE: Dependiendo del filtro, cambiamos el formato
-    if (filtroEstatus === 'PENDIENTE') {
-      // FORMATO PENDIENTES
-      doc.text('Auditoría de Escuelas Pendientes por Inspeccionar', 14, 20);
-      doc.setFontSize(10);
-      doc.setTextColor(100);
-      doc.text(`Organismo: ${organismoSeguro || 'TODOS'} | Municipio: ${filtroMunicipio || 'TODOS'}`, 14, 28);
-      doc.text(`Total Pendientes: ${stats.pendientes}`, 14, 34);
+    doc.text('Expedientes de Infraestructura Escolar (Inspecciones Realizadas)', 14, 20);
+    doc.setFontSize(10);
+    doc.setTextColor(100);
+    let subtitulo = `Organismo: ${organismoSeguro || 'TODOS'} | Municipio: ${filtroMunicipio || 'TODOS'}`;
+    doc.text(subtitulo, 14, 28);
+    doc.text(`Total Inspeccionadas en este reporte: ${stats.inspeccionadas} | Aptas: ${stats.aptas} | No Aptas: ${stats.noAptas} | Pendientes: ${stats.pendientes}`, 14, 34);
 
-      const escuelasPendientes = centrosProcesados.filter(c => c.cierre_mesas !== 'CERRADO');
-      if(escuelasPendientes.length === 0) {
-        alert("No hay escuelas pendientes con este filtro para generar el PDF.");
-        return;
-      }
-
-      const tableColumn = ["Municipio", "Escuela", "Comuna", "Jefe de Cuadrante", "Teléfono"];
-      const tableRows = escuelasPendientes.map(c => [
-        c.municipio, 
-        c['NOMBRE CENTRO'], 
-        c.comuna, 
-        `${c.jefe_jerarquia} ${c.jefe_nombre}`, 
-        c.jefe_telefono
-      ]);
-
-      autoTable(doc, {
-        head: [tableColumn],
-        body: tableRows,
-        startY: 40,
-        styles: { fontSize: 8, cellPadding: 4, overflow: 'linebreak' },
-        headStyles: { fillColor: [217, 119, 6], textColor: [255, 255, 255] }, // Naranja para pendientes
-        columnStyles: { 0: { cellWidth: 30 }, 1: { cellWidth: 60 }, 2: { cellWidth: 50 }, 3: { cellWidth: 60 }, 4: { cellWidth: 'auto' } }
-      });
-      doc.save('Escuelas_Pendientes_Inspeccion.pdf');
-
-    } else {
-      // FORMATO INSPECCIONADAS (NORMAL)
-      doc.text('Expedientes de Infraestructura Escolar (Inspecciones Realizadas)', 14, 20);
-      doc.setFontSize(10);
-      doc.setTextColor(100);
-      doc.text(`Organismo: ${organismoSeguro || 'TODOS'} | Municipio: ${filtroMunicipio || 'TODOS'}`, 14, 28);
-      doc.text(`Inspeccionadas: ${stats.inspeccionadas} | Aptas: ${stats.aptas} | No Aptas: ${stats.noAptas}`, 14, 34);
-
-      const escuelasInspeccionadas = centrosProcesados.filter(c => c.cierre_mesas === 'CERRADO');
-      if(escuelasInspeccionadas.length === 0) {
-        alert("No hay escuelas inspeccionadas con este filtro para generar el PDF.");
-        return;
-      }
-
-      const tableColumn = ["Municipio", "Nombre de la Escuela", "Comuna", "Organismo", "Apta/No Apta", "Reseña Escrita por el Funcionario"];
-      const tableRows = escuelasInspeccionadas.map(c => {
-        let textoResena = c.resena ? c.resena.trim() : '';
-        if (textoResena === 'Sin novedades registradas.' || textoResena === 'null' || textoResena === 'undefined') textoResena = ''; 
-        return [c.municipio, c['NOMBRE CENTRO'], c.comuna, c.organismo, c.escuela_apta, textoResena];
-      });
-
-      autoTable(doc, {
-        head: [tableColumn],
-        body: tableRows,
-        startY: 40,
-        styles: { fontSize: 8, cellPadding: 4, overflow: 'linebreak' },
-        headStyles: { fillColor: [0, 82, 155], textColor: [255, 255, 255] },
-        columnStyles: { 0: { cellWidth: 25 }, 1: { cellWidth: 45 }, 2: { cellWidth: 35 }, 3: { cellWidth: 30 }, 4: { cellWidth: 20 }, 5: { cellWidth: 'auto' } }
-      });
-      doc.save('Expedientes_Completos_Escuelas.pdf');
+    const escuelasInspeccionadas = centrosProcesados.filter(c => c.cierre_mesas === 'CERRADO');
+    if(escuelasInspeccionadas.length === 0) {
+      alert("No hay escuelas inspeccionadas con este filtro para generar el PDF.");
+      return;
     }
+
+    const tableColumn = ["Municipio", "Nombre de la Escuela", "Comuna", "Organismo", "Apta/No Apta", "Reseña Escrita por el Funcionario"];
+    const tableRows = escuelasInspeccionadas.map(c => {
+      let textoResena = c.resena ? c.resena.trim() : '';
+      if (textoResena === 'Sin novedades registradas.' || textoResena === 'null' || textoResena === 'undefined') {
+        textoResena = ''; 
+      }
+      return [c.municipio, c['NOMBRE CENTRO'], c.comuna, c.organismo, c.escuela_apta, textoResena];
+    });
+
+    autoTable(doc, {
+      head: [tableColumn],
+      body: tableRows,
+      startY: 40,
+      styles: { fontSize: 8, cellPadding: 4, overflow: 'linebreak' },
+      headStyles: { fillColor: [0, 82, 155], textColor: [255, 255, 255] },
+      columnStyles: { 0: { cellWidth: 25 }, 1: { cellWidth: 45 }, 2: { cellWidth: 35 }, 3: { cellWidth: 30 }, 4: { cellWidth: 20 }, 5: { cellWidth: 'auto' } }
+    });
+    doc.save('Expedientes_Completos_Escuelas.pdf');
   };
 
   const generarExcel = () => {
-    if (filtroEstatus === 'PENDIENTE') {
-      // FORMATO PENDIENTES
-      const escuelasPendientes = centrosProcesados.filter(c => c.cierre_mesas !== 'CERRADO');
-      if (escuelasPendientes.length === 0) {
-        alert("No hay escuelas pendientes con este filtro para generar el Excel.");
-        return;
-      }
-
-      const wsData: any[][] = [
-        ["AUDITORÍA DE ESCUELAS PENDIENTES POR INSPECCIONAR"],
-        [],
-        ["ESTADÍSTICAS DEL REPORTE"],
-        [`Organismo: ${organismoSeguro || 'TODOS'}`, `Municipio: ${filtroMunicipio || 'TODOS'}`, `Total Pendientes: ${stats.pendientes}`],
-        [],
-        ["Municipio", "Escuela", "Comuna", "Jefe de Cuadrante", "Teléfono"]
-      ];
-
-      escuelasPendientes.forEach(c => {
-        wsData.push([c.municipio, c['NOMBRE CENTRO'], c.comuna, `${c.jefe_jerarquia} ${c.jefe_nombre}`, c.jefe_telefono]);
-      });
-
-      const ws = XLSX.utils.aoa_to_sheet(wsData);
-      ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 4 } }];
-      ws['!cols'] = [{ wch: 20 }, { wch: 60 }, { wch: 45 }, { wch: 45 }, { wch: 20 }];
-
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, 'Pendientes');
-      XLSX.writeFile(wb, 'Escuelas_Pendientes_Inspeccion.xlsx');
-
-    } else {
-      // FORMATO INSPECCIONADAS (NORMAL)
-      const escuelasInspeccionadas = centrosProcesados.filter(c => c.cierre_mesas === 'CERRADO');
-      if (escuelasInspeccionadas.length === 0) {
-        alert("No hay escuelas inspeccionadas con este filtro para generar el Excel.");
-        return;
-      }
-
-      const wsData: any[][] = [
-        ["EXPEDIENTES DE INFRAESTRUCTURA ESCOLAR - INSPECCIONES REALIZADAS"],
-        [],
-        ["ESTADÍSTICAS DEL REPORTE"],
-        [`Organismo: ${organismoSeguro || 'TODOS'}`, `Municipio: ${filtroMunicipio || 'TODOS'}`],
-        [`Total Inspeccionadas: ${stats.inspeccionadas}`, `Aptas: ${stats.aptas}`, `No Aptas: ${stats.noAptas}`],
-        [],
-        ["Municipio", "Nombre de la Escuela", "Comuna", "Organismo", "Apta/No Apta", "Reseña Escrita por el Funcionario"]
-      ];
-
-      escuelasInspeccionadas.forEach(c => {
-        let textoResena = c.resena ? c.resena.trim() : '';
-        if (textoResena === 'Sin novedades registradas.' || textoResena === 'null' || textoResena === 'undefined') textoResena = ''; 
-        wsData.push([c.municipio, c['NOMBRE CENTRO'], c.comuna, c.organismo, c.escuela_apta, textoResena]);
-      });
-
-      const ws = XLSX.utils.aoa_to_sheet(wsData);
-      ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 5 } }];
-      ws['!cols'] = [{ wch: 15 }, { wch: 50 }, { wch: 35 }, { wch: 25 }, { wch: 15 }, { wch: 100 }];
-
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, 'Expedientes');
-      XLSX.writeFile(wb, 'Expedientes_Completos_Escuelas.xlsx');
+    const escuelasInspeccionadas = centrosProcesados.filter(c => c.cierre_mesas === 'CERRADO');
+    if (escuelasInspeccionadas.length === 0) {
+      alert("No hay escuelas inspeccionadas con este filtro para generar el Excel.");
+      return;
     }
+    const wsData: any[][] = [
+      ["EXPEDIENTES DE INFRAESTRUCTURA ESCOLAR - INSPECCIONES REALIZADAS"],
+      [],
+      ["ESTADÍSTICAS DEL REPORTE"],
+      [`Organismo: ${organismoSeguro || 'TODOS'}`, `Municipio: ${filtroMunicipio || 'TODOS'}`],
+      [`Total Inspeccionadas: ${stats.inspeccionadas}`, `Aptas: ${stats.aptas}`, `No Aptas: ${stats.noAptas}`, `Pendientes: ${stats.pendientes}`],
+      [],
+      ["Municipio", "Nombre de la Escuela", "Comuna", "Organismo", "Apta/No Apta", "Reseña Escrita por el Funcionario"]
+    ];
+
+    escuelasInspeccionadas.forEach(c => {
+      let textoResena = c.resena ? c.resena.trim() : '';
+      if (textoResena === 'Sin novedades registradas.' || textoResena === 'null' || textoResena === 'undefined') {
+        textoResena = ''; 
+      }
+      wsData.push([c.municipio, c['NOMBRE CENTRO'], c.comuna, c.organismo, c.escuela_apta, textoResena]);
+    });
+
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 5 } }];
+    ws['!cols'] = [{ wch: 15 }, { wch: 50 }, { wch: 35 }, { wch: 25 }, { wch: 15 }, { wch: 100 }];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Expedientes');
+    XLSX.writeFile(wb, 'Expedientes_Completos_Escuelas.xlsx');
   };
 
   if (loading) return <div className="p-8 text-center font-bold animate-pulse text-[#00529b]">Cargando Sala Analítica Regional...</div>;
