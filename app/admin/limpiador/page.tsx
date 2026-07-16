@@ -65,18 +65,16 @@ export default function LimpiadorEscuelasPage() {
   const cargarDatos = async () => {
     setLoading(true);
     
-    // Consulta cuádruple: Traemos Escuelas, Reportes, Directorio y el Nombre del Circuito (Sectores)
-    const [resCentros, resReportes, resDirectorio, resSectores] = await Promise.all([
+    // Consulta triple: Escuelas, Reportes y Directorio (donde está el nombre de la comuna)
+    const [resCentros, resReportes, resDirectorio] = await Promise.all([
       supabase.from('centros_votacion_2026').select('*'),
       supabase.from('reportes_concejo_2026').select('*'),
-      supabase.from('directorio_operativo').select('*'),
-      supabase.from('sectores').select('*') // Trae los nombres de los circuitos
+      supabase.from('directorio_operativo').select('*')
     ]);
     
     const escuelas = resCentros.data || [];
     const reportes = resReportes.data || [];
     const directorio = resDirectorio.data || [];
-    const sectores = resSectores.data || [];
 
     // Mapas para busqueda rápida
     const reportesMap = new Map();
@@ -89,12 +87,6 @@ export default function LimpiadorEscuelasPage() {
       directorioMap.set(d.codigo_situr?.trim(), d);
     });
 
-    const sectoresMap = new Map();
-    sectores.forEach((s: any) => {
-      // Usa codigo_situr para enlazar con el nombre_circuito
-      sectoresMap.set(s.codigo_situr?.trim(), s.nombre_circuito || s.nombre); 
-    });
-
     if (escuelas) {
       const gruposPorSitur: Record<string, any[]> = {};
       
@@ -102,10 +94,13 @@ export default function LimpiadorEscuelasPage() {
         const situr = c.CODIGO_CIRCUITO_COMUNAL?.trim() || 'SIN_SITUR';
         const nombreLimpio = limpiarNombre(c['NOMBRE CENTRO']);
         
-        // Agregar datos cruzados a la escuela
+        // Agregar datos cruzados a la escuela desde el DIRECTORIO
         const dirInfo = directorioMap.get(situr) || {};
         const grado = dirInfo.grado_jerarquia || dirInfo.grado_jerarquia_jefe || '';
         const nombreJefe = dirInfo.nombre_apellido_jefe || 'FUNCIONARIO ASIGNADO';
+        
+        // AQUÍ EXTRAEMOS EL NOMBRE DE LA COMUNA DESDE EL DIRECTORIO
+        const nombreComuna = dirInfo.comuna || dirInfo.nombre_comuna || dirInfo.circuito || dirInfo.nombre_circuito || 'COMUNA NO REGISTRADA';
         
         const reporteInfo = reportesMap.get(c.COD_CENTRO?.trim());
         
@@ -118,7 +113,7 @@ export default function LimpiadorEscuelasPage() {
         if (nombreLimpio === '' || nombreLimpio.includes('NO POSEE CENTROS EDUCATIVOS')) {
           if (!gruposPorSitur['FANTASMAS']) gruposPorSitur['FANTASMAS'] = [{ 
             nombreRepresentativo: '⚠️ PLANTEL SIN NOMBRE O NO POSEE CENTROS', 
-            nombreCircuito: 'MÚLTIPLES SECTORES',
+            nombreCircuito: 'MÚLTIPLES COMUNAS',
             escuelas: [] 
           }];
           gruposPorSitur['FANTASMAS'][0].escuelas.push(c);
@@ -140,7 +135,7 @@ export default function LimpiadorEscuelasPage() {
         if (!encontrado) {
           gruposPorSitur[situr].push({ 
             nombreRepresentativo: nombreLimpio, 
-            nombreCircuito: sectoresMap.get(situr) || 'CIRCUITO NO REGISTRADO',
+            nombreCircuito: nombreComuna, // GUARDAMOS LA COMUNA AQUÍ
             escuelas: [c] 
           });
         }
@@ -182,7 +177,7 @@ export default function LimpiadorEscuelasPage() {
           'COD_CENTRO': esc.COD_CENTRO,
           'NOMBRE CENTRO': esc['NOMBRE CENTRO'],
           'CODIGO_CIRCUITO_COMUNAL': esc.CODIGO_CIRCUITO_COMUNAL,
-          'NOMBRE_CIRCUITO': grupo.nombreCircuito,
+          'NOMBRE_COMUNA': grupo.nombreCircuito,
           'DIRECCION': esc.DIRECCION,
           'ESTADO_INSPECCION': esc.tieneReporte ? 'LLENADO EN SISTEMA' : 'SIN REPORTE',
           'ORGANISMO_ASIGNADO': esc.organismo,
@@ -373,7 +368,7 @@ export default function LimpiadorEscuelasPage() {
             <div key={index} className={`bg-white rounded-3xl border overflow-hidden shadow-md ${grupo.esFantasma ? 'border-amber-400' : 'border-gray-200'}`}>
               <div className={`px-6 py-4 border-b flex flex-col md:flex-row md:items-center justify-between gap-3 ${grupo.esFantasma ? 'bg-amber-100 border-amber-200' : 'bg-gray-800 border-gray-700'}`}>
                 
-                {/* AQUI ESTA EL NOMBRE DEL CIRCUITO COMUNAL */}
+                {/* AQUÍ SE MUESTRA EL NOMBRE DE LA COMUNA DESDE EL DIRECTORIO */}
                 <div className="flex flex-col sm:flex-row sm:items-center gap-3">
                   <span className={`${grupo.esFantasma ? 'bg-amber-500' : 'bg-red-600'} text-white text-[10px] font-black px-3 py-1.5 rounded shadow-sm uppercase tracking-wider w-max`}>
                     SITUR: {grupo.situr}
