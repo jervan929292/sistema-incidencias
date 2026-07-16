@@ -1,19 +1,15 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Trash2, AlertTriangle, Search, ArrowLeft, Building2, ShieldAlert, Crosshair } from 'lucide-react';
+import { Trash2, Edit2, Search, ArrowLeft, Building2, ShieldAlert, Crosshair, Lock, Unlock, X, Save } from 'lucide-react';
 import Link from 'next/link';
 
-// 1. Algoritmo de limpieza ULTRA agresiva
-function limpiarNombre(text: string) {
+// Algoritmo de limpieza ULTRA agresiva
+function limpiarNombre(text: string | null | undefined) {
   if (!text) return "";
-  let t = text.toUpperCase();
-  // Quitar acentos
+  let t = String(text).toUpperCase();
   t = t.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-  // Quitar todos los signos de puntuación (puntos, comas, guiones, etc)
   t = t.replace(/[^\w\s]/g, ' ');
-  
-  // Normalizar prefijos (E.B, U.E, C.E.I)
   t = t.replace(/\b(ESCUELA BASICA|E B |EB)\b/g, 'EB ');
   t = t.replace(/\b(UNIDAD EDUCATIVA|U E |UE)\b/g, 'UE ');
   t = t.replace(/\b(CENTRO DE EDUCACION INICIAL|C E I |CEI)\b/g, 'CEI ');
@@ -22,37 +18,29 @@ function limpiarNombre(text: string) {
   t = t.replace(/\b(ESCUELA PRIMARIA|E P |EP)\b/g, 'EP ');
   t = t.replace(/\b(LICEO NACIONAL|L N |LN)\b/g, 'LN ');
   t = t.replace(/\b(CENTRO DE EDUCACION INICIAL SIMONCITO|C E I S |CEIS)\b/g, 'CEIS ');
-  
-  // OMITIR conectores y palabras basura para ir directo al grano
   t = t.replace(/\b(DE|LA|LAS|EL|LOS|Y|EN|DEL)\b/g, ' ');
-
-  // Quitar espacios extra
   return t.replace(/\s+/g, ' ').trim();
 }
 
-// 2. Algoritmo Matemático de Similitud (Distancia de Levenshtein)
+// Algoritmo Matemático de Similitud
 function calcularSimilitud(a: string, b: string) {
   if (a.length === 0) return b.length === 0 ? 100 : 0;
   if (b.length === 0) return 0;
-  
   const matrix = [];
   for (let i = 0; i <= b.length; i++) { matrix[i] = [i]; }
   for (let j = 0; j <= a.length; j++) { matrix[0][j] = j; }
-  
   for (let i = 1; i <= b.length; i++) {
     for (let j = 1; j <= a.length; j++) {
       if (b.charAt(i - 1) === a.charAt(j - 1)) {
         matrix[i][j] = matrix[i - 1][j - 1];
       } else {
         matrix[i][j] = Math.min(
-          matrix[i - 1][j - 1] + 1, // Sustitución
-          Math.min(matrix[i][j - 1] + 1, // Inserción
-                   matrix[i - 1][j] + 1) // Eliminación
+          matrix[i - 1][j - 1] + 1, 
+          Math.min(matrix[i][j - 1] + 1, matrix[i - 1][j] + 1) 
         );
       }
     }
   }
-  
   const distancia = matrix[b.length][a.length];
   const longitudMax = Math.max(a.length, b.length);
   return ((longitudMax - distancia) / longitudMax) * 100;
@@ -61,7 +49,12 @@ function calcularSimilitud(a: string, b: string) {
 export default function LimpiadorEscuelasPage() {
   const [duplicados, setDuplicados] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [borrando, setBorrrando] = useState<string | null>(null);
+  const [procesando, setProcesando] = useState<string | null>(null);
+  
+  // Estados para el Modal de Edición
+  const [escuelaEdit, setEscuelaEdit] = useState<any | null>(null);
+  const [formEdit, setFormEdit] = useState({ nombre: '', cod_centro: '', situr: '', direccion: '' });
+  const [desbloquearSitur, setDesbloquearSitur] = useState(false);
 
   const cargarDatos = async () => {
     setLoading(true);
@@ -70,47 +63,48 @@ export default function LimpiadorEscuelasPage() {
     if (escuelas && !error) {
       const gruposPorSitur: Record<string, any[]> = {};
       
-      // Agrupar agresivamente
       escuelas.forEach(c => {
         const situr = c.CODIGO_CIRCUITO_COMUNAL?.trim() || 'SIN_SITUR';
         const nombreLimpio = limpiarNombre(c['NOMBRE CENTRO']);
         
+        // 1. Atrapa escuelas en blanco (Fantasmas)
+        if (nombreLimpio === '') {
+          if (!gruposPorSitur['SIN_NOMBRE_O_VACIAS']) gruposPorSitur['SIN_NOMBRE_O_VACIAS'] = [{ nombreRepresentativo: '⚠️ PLANTEL SIN NOMBRE', escuelas: [] }];
+          gruposPorSitur['SIN_NOMBRE_O_VACIAS'][0].escuelas.push(c);
+          return; // Saltamos la validación de similitud
+        }
+
+        // 2. Validación normal de similitud
         if (!gruposPorSitur[situr]) gruposPorSitur[situr] = [];
-        
         let encontrado = false;
+        
         for (let grupo of gruposPorSitur[situr]) {
-          // AQUI ESTA LA MAGIA: Si se parece en un 80% o más, lo atrapa como duplicado
           const similitud = calcularSimilitud(grupo.nombreRepresentativo, nombreLimpio);
-          
           if (similitud >= 80) { 
             grupo.escuelas.push(c);
             encontrado = true;
             break;
           }
         }
-        
         if (!encontrado) {
-          gruposPorSitur[situr].push({
-            nombreRepresentativo: nombreLimpio,
-            escuelas: [c]
-          });
+          gruposPorSitur[situr].push({ nombreRepresentativo: nombreLimpio, escuelas: [c] });
         }
       });
 
-      // Extraer solo los grupos que atraparon 2 o más escuelas
       const repetidos: any[] = [];
       for (const situr in gruposPorSitur) {
         for (const grupo of gruposPorSitur[situr]) {
-          if (grupo.escuelas.length > 1) {
+          // Mostrar si hay duplicados OR si es el grupo de escuelas sin nombre
+          if (grupo.escuelas.length > 1 || situr === 'SIN_NOMBRE_O_VACIAS') {
             repetidos.push({
-              situr: situr,
+              situr: situr === 'SIN_NOMBRE_O_VACIAS' ? 'MÚLTIPLES' : situr,
               nombreDetectado: grupo.nombreRepresentativo,
-              escuelas: grupo.escuelas
+              escuelas: grupo.escuelas,
+              esFantasma: situr === 'SIN_NOMBRE_O_VACIAS'
             });
           }
         }
       }
-
       setDuplicados(repetidos);
     }
     setLoading(false);
@@ -121,22 +115,55 @@ export default function LimpiadorEscuelasPage() {
   }, []);
 
   const eliminarEscuela = async (codCentro: string) => {
-    const confirmar = window.confirm(`ATENCIÓN: ¿Estás seguro de eliminar la escuela CÓDIGO ${codCentro}?\n\nRecuerda revisar que no estés borrando la escuela que ya tiene el reporte del funcionario.`);
+    const confirmar = window.confirm(`ATENCIÓN: ¿Estás seguro de eliminar la escuela CÓDIGO ${codCentro}?`);
     if (!confirmar) return;
 
-    setBorrrando(codCentro);
-    const { error } = await supabase
-      .from('centros_votacion_2026')
-      .delete()
-      .eq('COD_CENTRO', codCentro);
-
+    setProcesando(codCentro);
+    const { error } = await supabase.from('centros_votacion_2026').delete().eq('COD_CENTRO', codCentro);
     if (!error) {
-      alert(`✅ Escuela ${codCentro} eliminada con éxito del sistema.`);
+      alert(`✅ Escuela eliminada con éxito.`);
       cargarDatos();
     } else {
       alert(`Error al eliminar: ${error.message}`);
     }
-    setBorrrando(null);
+    setProcesando(null);
+  };
+
+  const abrirModalEdicion = (escuela: any) => {
+    setEscuelaEdit(escuela);
+    setFormEdit({
+      nombre: escuela['NOMBRE CENTRO'] || '',
+      cod_centro: escuela.COD_CENTRO || '',
+      situr: escuela.CODIGO_CIRCUITO_COMUNAL || '',
+      direccion: escuela.DIRECCION || ''
+    });
+    setDesbloquearSitur(false); // Siempre arranca bloqueado por seguridad
+  };
+
+  const guardarCambios = async () => {
+    if (!formEdit.nombre || !formEdit.cod_centro) {
+      alert("El nombre y el CNE son obligatorios.");
+      return;
+    }
+    
+    setProcesando('guardando');
+    const { error } = await supabase.from('centros_votacion_2026')
+      .update({
+        'NOMBRE CENTRO': formEdit.nombre.toUpperCase(),
+        'COD_CENTRO': formEdit.cod_centro,
+        'CODIGO_CIRCUITO_COMUNAL': formEdit.situr,
+        'DIRECCION': formEdit.direccion.toUpperCase()
+      })
+      .eq('COD_CENTRO', escuelaEdit.COD_CENTRO); // Busca por el código original
+
+    if (!error) {
+      alert("✅ Escuela actualizada perfectamente.");
+      setEscuelaEdit(null);
+      cargarDatos();
+    } else {
+      alert(`Error al actualizar: ${error.message}`);
+    }
+    setProcesando(null);
   };
 
   if (loading) return (
@@ -157,64 +184,135 @@ export default function LimpiadorEscuelasPage() {
         </h1>
       </div>
 
-      <div className="max-w-6xl mx-auto">
-        <div className="bg-red-50 border border-red-200 p-4 rounded-2xl flex gap-3 text-red-800 text-sm shadow-sm mb-6">
-          <ShieldAlert className="shrink-0 text-red-600" size={20} />
-          <div>
-            <p className="font-bold uppercase tracking-wide text-red-900">Modo de Alta Sensibilidad Activado</p>
-            <p className="mt-1 font-medium">El algoritmo está agrupando escuelas que tienen un 80% o más de coincidencia en sus letras, ignorando puntos, comas, acentos y conectores. Mucho cuidado al eliminar.</p>
-          </div>
-        </div>
-
+      <div className="max-w-6xl mx-auto space-y-6">
         {duplicados.length === 0 ? (
           <div className="bg-white p-12 rounded-3xl border shadow-sm text-center">
             <Building2 className="mx-auto text-emerald-500 mb-4" size={48} />
             <h2 className="text-xl font-black text-gray-800 uppercase">¡Base de Datos Impecable!</h2>
-            <p className="text-gray-500 font-medium mt-2">Ni siquiera el escaneo agresivo encontró escuelas parecidas.</p>
+            <p className="text-gray-500 font-medium mt-2">No hay escuelas repetidas ni registros en blanco.</p>
           </div>
         ) : (
-          <div className="space-y-6">
-            {duplicados.map((grupo, index) => (
-              <div key={index} className="bg-white rounded-3xl border border-gray-200 overflow-hidden shadow-md">
-                <div className="bg-gray-800 px-6 py-3 border-b border-gray-700 flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-3">
-                    <span className="bg-red-600 text-white text-[10px] font-black px-2 py-1 rounded shadow-sm uppercase tracking-wider">
-                      SITUR: {grupo.situr}
-                    </span>
-                    <span className="text-xs font-bold text-gray-300 uppercase">Patrón Detectado: <span className="text-white">{grupo.nombreDetectado}</span></span>
-                  </div>
-                  <span className="text-[10px] font-bold bg-white/20 text-white px-3 py-1 rounded-full uppercase">
-                    {grupo.escuelas.length} Coincidencias
+          duplicados.map((grupo, index) => (
+            <div key={index} className={`bg-white rounded-3xl border overflow-hidden shadow-md ${grupo.esFantasma ? 'border-amber-400' : 'border-gray-200'}`}>
+              <div className={`px-6 py-3 border-b flex flex-wrap items-center justify-between gap-2 ${grupo.esFantasma ? 'bg-amber-100 border-amber-200' : 'bg-gray-800 border-gray-700'}`}>
+                <div className="flex items-center gap-3">
+                  <span className={`${grupo.esFantasma ? 'bg-amber-500' : 'bg-red-600'} text-white text-[10px] font-black px-2 py-1 rounded shadow-sm uppercase tracking-wider`}>
+                    SITUR: {grupo.situr}
+                  </span>
+                  <span className={`text-xs font-bold uppercase ${grupo.esFantasma ? 'text-amber-900' : 'text-gray-300'}`}>
+                    {grupo.esFantasma ? 'Alerta:' : 'Patrón Detectado:'} <span className={grupo.esFantasma ? 'text-amber-900 font-black' : 'text-white'}>{grupo.nombreDetectado}</span>
                   </span>
                 </div>
-                
-                <div className="divide-y divide-gray-100">
-                  {grupo.escuelas.map((escuela: any, idx: number) => (
-                    <div key={idx} className="p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 hover:bg-red-50/50 transition-colors">
-                      <div>
-                        <p className="text-sm font-black text-gray-900 uppercase">{escuela['NOMBRE CENTRO']}</p>
-                        <p className="text-xs font-bold text-[#00529b] mt-1 font-mono">CÓDIGO: {escuela.COD_CENTRO}</p>
-                      </div>
+                <span className={`text-[10px] font-bold px-3 py-1 rounded-full uppercase ${grupo.esFantasma ? 'bg-amber-200 text-amber-800' : 'bg-white/20 text-white'}`}>
+                  {grupo.escuelas.length} Registros
+                </span>
+              </div>
+              
+              <div className="divide-y divide-gray-100">
+                {grupo.escuelas.map((escuela: any, idx: number) => (
+                  <div key={idx} className="p-6 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 hover:bg-gray-50 transition-colors">
+                    <div>
+                      <p className="text-sm font-black text-gray-900 uppercase">{escuela['NOMBRE CENTRO'] || '— EN BLANCO —'}</p>
+                      <p className="text-xs font-bold text-[#00529b] mt-1 font-mono">CNE: {escuela.COD_CENTRO} <span className="text-gray-400 mx-2">|</span> SITUR: {escuela.CODIGO_CIRCUITO_COMUNAL || 'N/A'}</p>
+                    </div>
+                    <div className="flex gap-2 w-full lg:w-auto">
+                      <button 
+                        onClick={() => abrirModalEdicion(escuela)}
+                        className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase transition-all shadow-sm bg-blue-50 text-[#00529b] hover:bg-[#00529b] hover:text-white border-2 border-blue-100 hover:border-[#00529b]"
+                      >
+                        <Edit2 size={16} /> Editar Todo
+                      </button>
                       <button 
                         onClick={() => eliminarEscuela(escuela.COD_CENTRO)}
-                        disabled={borrando === escuela.COD_CENTRO}
-                        className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-black uppercase transition-all shadow-sm shrink-0
-                          ${borrando === escuela.COD_CENTRO 
-                            ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
-                            : 'bg-white text-red-600 hover:bg-red-600 hover:text-white border-2 border-red-200 hover:border-red-600'
-                          }`}
+                        disabled={procesando === escuela.COD_CENTRO}
+                        className={`flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase transition-all shadow-sm ${procesando === escuela.COD_CENTRO ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : 'bg-white text-red-600 hover:bg-red-600 hover:text-white border-2 border-red-200 hover:border-red-600'}`}
                       >
-                        <Trash2 size={16} /> 
-                        {borrando === escuela.COD_CENTRO ? 'Destruyendo...' : 'Eliminar Registro'}
+                        <Trash2 size={16} /> {procesando === escuela.COD_CENTRO ? '...' : 'Eliminar'}
                       </button>
                     </div>
-                  ))}
-                </div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            </div>
+          ))
         )}
       </div>
+
+      {/* MODAL DE EDICIÓN TOTAL */}
+      {escuelaEdit && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fadeIn">
+          <div className="bg-white rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden">
+            <div className="bg-[#00529b] p-4 flex justify-between items-center text-white">
+              <h2 className="font-black uppercase flex items-center gap-2"><Edit2 size={18}/> Editar Plantel</h2>
+              <button onClick={() => setEscuelaEdit(null)} className="hover:bg-white/20 p-1 rounded-full transition-colors"><X size={20}/></button>
+            </div>
+            
+            <div className="p-6 space-y-4">
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase text-gray-500">Nombre del Plantel</label>
+                <input 
+                  type="text" 
+                  value={formEdit.nombre} 
+                  onChange={e => setFormEdit({...formEdit, nombre: e.target.value})}
+                  className="w-full border-2 border-gray-200 rounded-xl p-3 text-sm font-bold text-gray-800 focus:border-[#00529b] focus:ring-0 outline-none uppercase"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-gray-500">Código CNE</label>
+                  <input 
+                    type="text" 
+                    value={formEdit.cod_centro} 
+                    onChange={e => setFormEdit({...formEdit, cod_centro: e.target.value})}
+                    className="w-full border-2 border-gray-200 rounded-xl p-3 text-sm font-bold text-gray-800 focus:border-[#00529b] focus:ring-0 outline-none font-mono"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-gray-500 flex justify-between items-center">
+                    Cód. SITUR
+                    <button 
+                      onClick={() => setDesbloquearSitur(!desbloquearSitur)}
+                      className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] ${desbloquearSitur ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'}`}
+                      title="Haz clic para permitir modificar el SITUR"
+                    >
+                      {desbloquearSitur ? <Unlock size={10}/> : <Lock size={10}/>} {desbloquearSitur ? 'Modificable' : 'Bloqueado'}
+                    </button>
+                  </label>
+                  <input 
+                    type="text" 
+                    disabled={!desbloquearSitur}
+                    value={formEdit.situr} 
+                    onChange={e => setFormEdit({...formEdit, situr: e.target.value})}
+                    className={`w-full border-2 rounded-xl p-3 text-sm font-bold font-mono outline-none transition-colors
+                      ${desbloquearSitur ? 'border-amber-400 bg-white text-gray-800 focus:border-[#00529b]' : 'border-gray-200 bg-gray-100 text-gray-500 cursor-not-allowed'}
+                    `}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase text-gray-500">Dirección</label>
+                <textarea 
+                  rows={2}
+                  value={formEdit.direccion} 
+                  onChange={e => setFormEdit({...formEdit, direccion: e.target.value})}
+                  className="w-full border-2 border-gray-200 rounded-xl p-3 text-sm font-bold text-gray-800 focus:border-[#00529b] focus:ring-0 outline-none uppercase resize-none"
+                />
+              </div>
+
+              <button 
+                onClick={guardarCambios}
+                disabled={procesando === 'guardando'}
+                className="w-full bg-[#00529b] hover:bg-blue-800 text-white font-black uppercase text-sm py-3.5 rounded-xl mt-4 flex justify-center items-center gap-2 shadow-md transition-all"
+              >
+                <Save size={18}/> {procesando === 'guardando' ? 'Guardando cambios...' : 'Guardar Cambios Oficiales'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
