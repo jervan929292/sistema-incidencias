@@ -74,25 +74,29 @@ export default function LimpiadorEscuelasPage() {
     const reportes = resReportes.data || [];
     const directorio = resDirectorio.data || [];
 
-    // Mapas para busqueda rápida
+    // MAPEO DE REPORTES CORREGIDO: Normalización extrema de CNE
     const reportesMap = new Map();
     reportes.forEach((r: any) => {
-      reportesMap.set(r.cod_centro?.trim(), r); 
+      // Capturamos el código sin importar cómo se llame la columna, forzamos mayúsculas y quitamos espacios
+      const codReporte = (r.cod_centro || r.COD_CENTRO || r.cne || r.codigo_cne || r.id_centro || '').toString().toUpperCase().trim();
+      if (codReporte) {
+        reportesMap.set(codReporte, r); 
+      }
     });
     
-    // Mapa Inteligente del Directorio (acepta diferentes nombres de columna para SITUR)
+    // Mapa Inteligente del Directorio
     const directorioMap = new Map();
     directorio.forEach((d: any) => {
-      const codigoSitur = (d.codigo_situr || d.situr || d.cod_situr || d.codigo_circuito || '').trim();
+      const codigoSitur = (d.codigo_situr || d.situr || d.cod_situr || d.codigo_circuito || '').toString().toUpperCase().trim();
       if (codigoSitur) directorioMap.set(codigoSitur, d);
     });
 
     if (escuelas) {
-      // AHORA AGRUPAMOS A NIVEL GLOBAL (TODA LA BASE DE DATOS) Y NO POR SITUR
+      // AGRUPAMOS A NIVEL GLOBAL
       const gruposGlobales: { nombreRepresentativo: string, escuelas: any[] }[] = [];
       
       escuelas.forEach(c => {
-        const situr = c.CODIGO_CIRCUITO_COMUNAL?.trim() || 'SIN_SITUR';
+        const situr = (c.CODIGO_CIRCUITO_COMUNAL || '').toString().toUpperCase().trim() || 'SIN_SITUR';
         const nombreLimpio = limpiarNombre(c['NOMBRE CENTRO']);
         
         // Agregar datos cruzados
@@ -100,16 +104,21 @@ export default function LimpiadorEscuelasPage() {
         const grado = dirInfo.grado_jerarquia || dirInfo.grado_jerarquia_jefe || dirInfo.rango || '';
         const nombreJefe = dirInfo.nombre_apellido_jefe || dirInfo.responsable || dirInfo.nombre_jefe || 'FUNCIONARIO ASIGNADO';
         
-        // Buscamos inteligentemente el nombre de la Comuna/Circuito
         const nombreComuna = dirInfo.comuna || dirInfo.nombre_comuna || dirInfo.circuito || dirInfo.nombre_circuito || dirInfo.sector || 'COMUNA NO REGISTRADA';
-        
-        const reporteInfo = reportesMap.get(c.COD_CENTRO?.trim());
+        const municipio = dirInfo.municipio || dirInfo.nombre_municipio || 'SIN MUNICIPIO';
+        const parroquia = dirInfo.parroquia || dirInfo.nombre_parroquia || 'SIN PARROQUIA';
+
+        // BÚSQUEDA DE REPORTE CORREGIDA:
+        const codEscuela = (c.COD_CENTRO || '').toString().toUpperCase().trim();
+        const reporteInfo = reportesMap.get(codEscuela);
         
         c.tieneReporte = !!reporteInfo;
         c.reporteCompleto = reporteInfo || null; 
         c.organismo = dirInfo.organismo_responsable || dirInfo.organismo || 'COMISIÓN MIXTA DE SEGURIDAD';
         c.responsable = `${grado} ${nombreJefe}`.trim();
         c.nombreComuna = nombreComuna;
+        c.municipio = municipio;
+        c.parroquia = parroquia;
         
         // 1. Atrapa escuelas en blanco O que digan "NO POSEE CENTROS EDUCATIVOS"
         if (nombreLimpio === '' || nombreLimpio.includes('NO POSEE CENTROS EDUCATIVOS')) {
@@ -187,6 +196,8 @@ export default function LimpiadorEscuelasPage() {
           'COD_CENTRO': esc.COD_CENTRO,
           'NOMBRE CENTRO': esc['NOMBRE CENTRO'],
           'CODIGO_CIRCUITO_COMUNAL': esc.CODIGO_CIRCUITO_COMUNAL,
+          'MUNICIPIO': esc.municipio,
+          'PARROQUIA': esc.parroquia,
           'NOMBRE_COMUNA': esc.nombreComuna,
           'DIRECCION': esc.DIRECCION,
           'ESTADO_INSPECCION': esc.tieneReporte ? 'LLENADO EN SISTEMA' : 'SIN REPORTE',
@@ -382,7 +393,7 @@ export default function LimpiadorEscuelasPage() {
                   </span>
                   
                   {!grupo.esFantasma && (
-                    <span className={`flex items-center gap-1.5 text-xs font-black uppercase bg-gray-900 px-3 py-1 rounded-md ${grupo.nombreCircuito === 'COMUNA NO REGISTRADA' ? 'text-amber-400' : 'text-emerald-400'}`}>
+                    <span className={`flex items-center gap-1.5 text-xs font-black uppercase bg-gray-900 px-3 py-1 rounded-md ${grupo.nombreCircuito === 'COMUNA NO REGISTRADA' || grupo.nombreCircuito === 'DIVERSAS COMUNAS' ? 'text-amber-400' : 'text-emerald-400'}`}>
                       <MapPin size={14} /> {grupo.nombreCircuito}
                     </span>
                   )}
@@ -402,15 +413,26 @@ export default function LimpiadorEscuelasPage() {
                 {grupo.escuelas.map((escuela: any, idx: number) => (
                   <div key={idx} className="p-6 flex flex-col transition-colors hover:bg-gray-50">
                     <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 w-full">
-                      <div>
+                      <div className="flex flex-col gap-1">
                         <p className="text-sm font-black text-gray-900 uppercase">{escuela['NOMBRE CENTRO'] || '— EN BLANCO —'}</p>
-                        <p className="text-xs font-bold text-[#00529b] mt-1 font-mono">
+                        
+                        <p className="text-[11px] font-bold text-[#00529b] font-mono flex items-center">
                           CNE: {escuela.COD_CENTRO} 
                           <span className="text-gray-400 mx-2">|</span> 
                           <span className={grupo.situr === 'MÚLTIPLES SITUR' ? 'bg-purple-100 text-purple-800 px-2 py-0.5 rounded' : ''}>SITUR: {escuela.CODIGO_CIRCUITO_COMUNAL || 'N/A'}</span>
                         </p>
+
+                        <p className="text-[10px] font-bold text-gray-600 uppercase flex flex-wrap items-center gap-1.5 mt-1">
+                          <MapPin size={12} className="text-emerald-500" />
+                          <span>{escuela.municipio}</span>
+                          <span className="text-gray-300">&gt;</span>
+                          <span>{escuela.parroquia}</span>
+                          <span className="text-gray-300">|</span>
+                          <span className="text-emerald-700 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded">COMUNA: {escuela.nombreComuna}</span>
+                        </p>
                       </div>
-                      <div className="flex flex-wrap gap-2 w-full lg:w-auto">
+                      
+                      <div className="flex flex-wrap gap-2 w-full lg:w-auto mt-2 lg:mt-0">
                         <button 
                           onClick={() => toggleDetalles(escuela.COD_CENTRO)}
                           className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase transition-all shadow-sm bg-indigo-50 text-indigo-700 hover:bg-indigo-600 hover:text-white border-2 border-indigo-100 hover:border-indigo-600"
@@ -486,7 +508,7 @@ export default function LimpiadorEscuelasPage() {
                             
                             <div className="mt-3 text-right">
                               <span className="text-[10px] text-gray-500 font-bold uppercase bg-gray-200 px-2 py-1 rounded-lg">
-                                Registrado el: {new Date(escuela.reporteCompleto.fecha_reporte).toLocaleString('es-VE')}
+                                Registrado el: {escuela.reporteCompleto.fecha_reporte ? new Date(escuela.reporteCompleto.fecha_reporte).toLocaleString('es-VE') : 'Fecha no disponible'}
                               </span>
                             </div>
                           </div>
