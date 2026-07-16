@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Trash2, Edit2, Search, ArrowLeft, Building2, ShieldAlert, Crosshair, Lock, Unlock, X, Save, Download, Upload, Eye, CheckCircle2, XCircle, FileText } from 'lucide-react';
+import { Trash2, Edit2, Search, ArrowLeft, Building2, ShieldAlert, Crosshair, Lock, Unlock, X, Save, Download, Upload, Eye, CheckCircle2, XCircle, FileText, MapPin } from 'lucide-react';
 import Link from 'next/link';
 import * as XLSX from 'xlsx';
 
@@ -65,26 +65,33 @@ export default function LimpiadorEscuelasPage() {
   const cargarDatos = async () => {
     setLoading(true);
     
-    // Consulta triple: AHORA TRAEMOS TODO EL REPORTE (*) NO SOLO EL CÓDIGO
-    const [resCentros, resReportes, resDirectorio] = await Promise.all([
+    // Consulta cuádruple: Agregamos la tabla de sectores para obtener el nombre del circuito
+    const [resCentros, resReportes, resDirectorio, resSectores] = await Promise.all([
       supabase.from('centros_votacion_2026').select('*'),
       supabase.from('reportes_concejo_2026').select('*'),
-      supabase.from('directorio_operativo').select('*')
+      supabase.from('directorio_operativo').select('*'),
+      supabase.from('sectores').select('codigo_situr, nombre_circuito')
     ]);
     
     const escuelas = resCentros.data || [];
     const reportes = resReportes.data || [];
     const directorio = resDirectorio.data || [];
+    const sectores = resSectores.data || [];
 
     // Mapas para busqueda rápida
     const reportesMap = new Map();
     reportes.forEach((r: any) => {
-      reportesMap.set(r.cod_centro?.trim(), r); // Guardamos TODO el objeto del reporte
+      reportesMap.set(r.cod_centro?.trim(), r); 
     });
     
     const directorioMap = new Map();
     directorio.forEach((d: any) => {
       directorioMap.set(d.codigo_situr?.trim(), d);
+    });
+
+    const sectoresMap = new Map();
+    sectores.forEach((s: any) => {
+      sectoresMap.set(s.codigo_situr?.trim(), s.nombre_circuito);
     });
 
     if (escuelas) {
@@ -102,13 +109,17 @@ export default function LimpiadorEscuelasPage() {
         const reporteInfo = reportesMap.get(c.COD_CENTRO?.trim());
         
         c.tieneReporte = !!reporteInfo;
-        c.reporteCompleto = reporteInfo || null; // Adjuntamos la minuta a la escuela
+        c.reporteCompleto = reporteInfo || null; 
         c.organismo = dirInfo.organismo_responsable || 'COMISIÓN MIXTA DE SEGURIDAD (POR DEFINIR)';
         c.responsable = `${grado} ${nombreJefe}`.trim();
         
         // 1. Atrapa escuelas en blanco O que digan "NO POSEE CENTROS EDUCATIVOS"
         if (nombreLimpio === '' || nombreLimpio.includes('NO POSEE CENTROS EDUCATIVOS')) {
-          if (!gruposPorSitur['FANTASMAS']) gruposPorSitur['FANTASMAS'] = [{ nombreRepresentativo: '⚠️ PLANTEL SIN NOMBRE O NO POSEE CENTROS', escuelas: [] }];
+          if (!gruposPorSitur['FANTASMAS']) gruposPorSitur['FANTASMAS'] = [{ 
+            nombreRepresentativo: '⚠️ PLANTEL SIN NOMBRE O NO POSEE CENTROS', 
+            nombreCircuito: 'MÚLTIPLES',
+            escuelas: [] 
+          }];
           gruposPorSitur['FANTASMAS'][0].escuelas.push(c);
           return; 
         }
@@ -126,7 +137,11 @@ export default function LimpiadorEscuelasPage() {
           }
         }
         if (!encontrado) {
-          gruposPorSitur[situr].push({ nombreRepresentativo: nombreLimpio, escuelas: [c] });
+          gruposPorSitur[situr].push({ 
+            nombreRepresentativo: nombreLimpio, 
+            nombreCircuito: sectoresMap.get(situr) || 'CIRCUITO NO REGISTRADO',
+            escuelas: [c] 
+          });
         }
       });
 
@@ -136,6 +151,7 @@ export default function LimpiadorEscuelasPage() {
           if (grupo.escuelas.length > 1 || situr === 'FANTASMAS') {
             repetidos.push({
               situr: situr === 'FANTASMAS' ? 'MÚLTIPLES' : situr,
+              nombreCircuito: grupo.nombreCircuito,
               nombreDetectado: grupo.nombreRepresentativo,
               escuelas: grupo.escuelas,
               esFantasma: situr === 'FANTASMAS'
@@ -165,6 +181,7 @@ export default function LimpiadorEscuelasPage() {
           'COD_CENTRO': esc.COD_CENTRO,
           'NOMBRE CENTRO': esc['NOMBRE CENTRO'],
           'CODIGO_CIRCUITO_COMUNAL': esc.CODIGO_CIRCUITO_COMUNAL,
+          'NOMBRE_CIRCUITO': grupo.nombreCircuito,
           'DIRECCION': esc.DIRECCION,
           'ESTADO_INSPECCION': esc.tieneReporte ? 'LLENADO EN SISTEMA' : 'SIN REPORTE',
           'ORGANISMO_ASIGNADO': esc.organismo,
@@ -353,16 +370,22 @@ export default function LimpiadorEscuelasPage() {
         ) : (
           duplicados.map((grupo, index) => (
             <div key={index} className={`bg-white rounded-3xl border overflow-hidden shadow-md ${grupo.esFantasma ? 'border-amber-400' : 'border-gray-200'}`}>
-              <div className={`px-6 py-3 border-b flex flex-wrap items-center justify-between gap-2 ${grupo.esFantasma ? 'bg-amber-100 border-amber-200' : 'bg-gray-800 border-gray-700'}`}>
-                <div className="flex items-center gap-3">
-                  <span className={`${grupo.esFantasma ? 'bg-amber-500' : 'bg-red-600'} text-white text-[10px] font-black px-2 py-1 rounded shadow-sm uppercase tracking-wider`}>
+              <div className={`px-6 py-4 border-b flex flex-col md:flex-row md:items-center justify-between gap-3 ${grupo.esFantasma ? 'bg-amber-100 border-amber-200' : 'bg-gray-800 border-gray-700'}`}>
+                <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                  <span className={`${grupo.esFantasma ? 'bg-amber-500' : 'bg-red-600'} text-white text-[10px] font-black px-3 py-1.5 rounded shadow-sm uppercase tracking-wider w-max`}>
                     SITUR: {grupo.situr}
                   </span>
+                  {!grupo.esFantasma && (
+                    <span className="flex items-center gap-1.5 text-xs font-black text-emerald-400 uppercase">
+                      <MapPin size={14} /> {grupo.nombreCircuito}
+                    </span>
+                  )}
+                  <span className={`text-xs font-bold uppercase hidden sm:block ${grupo.esFantasma ? 'text-amber-900' : 'text-gray-500'}`}>|</span>
                   <span className={`text-xs font-bold uppercase ${grupo.esFantasma ? 'text-amber-900' : 'text-gray-300'}`}>
                     {grupo.esFantasma ? 'Alerta:' : 'Patrón Detectado:'} <span className={grupo.esFantasma ? 'text-amber-900 font-black' : 'text-white'}>{grupo.nombreDetectado}</span>
                   </span>
                 </div>
-                <span className={`text-[10px] font-bold px-3 py-1 rounded-full uppercase ${grupo.esFantasma ? 'bg-amber-200 text-amber-800' : 'bg-white/20 text-white'}`}>
+                <span className={`text-[10px] font-bold px-3 py-1 rounded-full uppercase w-max ${grupo.esFantasma ? 'bg-amber-200 text-amber-800' : 'bg-white/20 text-white'}`}>
                   {grupo.escuelas.length} Registros
                 </span>
               </div>
