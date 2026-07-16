@@ -47,6 +47,19 @@ function calcularSimilitud(a: string, b: string) {
   return ((longitudMax - distancia) / longitudMax) * 100;
 }
 
+// Buscador Dinámico de Columnas
+const findDynamicValue = (obj: any, keywords: string[]) => {
+  if (!obj) return null;
+  for (const kw of keywords) {
+    for (const key of Object.keys(obj)) {
+      if (key.toLowerCase().includes(kw)) {
+        return obj[key];
+      }
+    }
+  }
+  return null;
+};
+
 export default function LimpiadorEscuelasPage() {
   const [duplicados, setDuplicados] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -63,26 +76,25 @@ export default function LimpiadorEscuelasPage() {
   const cargarDatos = async () => {
     setLoading(true);
     
-    // Consulta
-    const [resCentros, resReportes, resDirectorio] = await Promise.all([
+    // Consulta "Todo Terreno": Traemos de TODAS las posibles tablas de reporte
+    const [resCentros, resReportes, resIncidencias, resDirectorio] = await Promise.all([
       supabase.from('centros_votacion_2026').select('*'),
       supabase.from('reportes_concejo_2026').select('*'),
+      supabase.from('incidencias').select('*'), // Por si se guardan aquí los diagnósticos
       supabase.from('directorio_operativo').select('*')
     ]);
     
     const escuelas = resCentros.data || [];
-    const reportes = resReportes.data || [];
     const directorio = resDirectorio.data || [];
+    
+    // Unificamos todos los reportes encontrados en el sistema
+    const todosLosReportes = [...(resReportes.data || []), ...(resIncidencias.data || [])];
 
-    // MAPEO DE REPORTES CORREGIDO: Normalización extrema de CNE
-    const reportesMap = new Map();
-    reportes.forEach((r: any) => {
-      // Capturamos el código sin importar cómo se llame la columna, forzamos mayúsculas y quitamos espacios
-      const codReporte = (r.cod_centro || r.COD_CENTRO || r.cne || r.codigo_cne || r.id_centro || '').toString().toUpperCase().trim();
-      if (codReporte) {
-        reportesMap.set(codReporte, r); 
-      }
-    });
+    // Preparamos los reportes para una búsqueda destructiva (escaneamos todos sus valores)
+    const reportesBuscables = todosLosReportes.map(r => ({
+      original: r,
+      valores: Object.values(r).map(v => String(v).toUpperCase().trim())
+    }));
     
     // Mapa Inteligente del Directorio
     const directorioMap = new Map();
@@ -96,11 +108,12 @@ export default function LimpiadorEscuelasPage() {
       const gruposGlobales: { nombreRepresentativo: string, escuelas: any[] }[] = [];
       
       escuelas.forEach(c => {
-        const situr = (c.CODIGO_CIRCUITO_COMUNAL || '').toString().toUpperCase().trim() || 'SIN_SITUR';
+        const codCNE = (c.COD_CENTRO || '').toString().toUpperCase().trim();
+        const codSITUR = (c.CODIGO_CIRCUITO_COMUNAL || '').toString().toUpperCase().trim();
         const nombreLimpio = limpiarNombre(c['NOMBRE CENTRO']);
         
-        // Agregar datos cruzados
-        const dirInfo = directorioMap.get(situr) || {};
+        // Cargar datos de ubicación desde Directorio
+        const dirInfo = directorioMap.get(codSITUR) || {};
         const grado = dirInfo.grado_jerarquia || dirInfo.grado_jerarquia_jefe || dirInfo.rango || '';
         const nombreJefe = dirInfo.nombre_apellido_jefe || dirInfo.responsable || dirInfo.nombre_jefe || 'FUNCIONARIO ASIGNADO';
         
@@ -108,19 +121,25 @@ export default function LimpiadorEscuelasPage() {
         const municipio = dirInfo.municipio || dirInfo.nombre_municipio || 'SIN MUNICIPIO';
         const parroquia = dirInfo.parroquia || dirInfo.nombre_parroquia || 'SIN PARROQUIA';
 
-        // BÚSQUEDA DE REPORTE CORREGIDA:
-        const codEscuela = (c.COD_CENTRO || '').toString().toUpperCase().trim();
-        const reporteInfo = reportesMap.get(codEscuela);
+        // BÚSQUEDA TODO TERRENO DEL REPORTE: 
+        // Revisamos si el CNE o SITUR aparece literalmente en CUALQUIER columna del reporte
+        let reporteEncontrado = null;
+        for (const rep of reportesBuscables) {
+          if (rep.valores.includes(codCNE) || (codSITUR && rep.valores.includes(codSITUR))) {
+            reporteEncontrado = rep.original;
+            break;
+          }
+        }
         
-        c.tieneReporte = !!reporteInfo;
-        c.reporteCompleto = reporteInfo || null; 
+        c.tieneReporte = !!reporteEncontrado;
+        c.reporteCompleto = reporteEncontrado; 
         c.organismo = dirInfo.organismo_responsable || dirInfo.organismo || 'COMISIÓN MIXTA DE SEGURIDAD';
         c.responsable = `${grado} ${nombreJefe}`.trim();
         c.nombreComuna = nombreComuna;
         c.municipio = municipio;
         c.parroquia = parroquia;
         
-        // 1. Atrapa escuelas en blanco O que digan "NO POSEE CENTROS EDUCATIVOS"
+        // 1. Atrapa escuelas fantasma
         if (nombreLimpio === '' || nombreLimpio.includes('NO POSEE CENTROS EDUCATIVOS')) {
           let fantasmaGroup = gruposGlobales.find(g => g.nombreRepresentativo === '⚠️ PLANTEL SIN NOMBRE O NO POSEE CENTROS');
           if (!fantasmaGroup) {
@@ -131,13 +150,11 @@ export default function LimpiadorEscuelasPage() {
           return; 
         }
 
-        // 2. Validación GLOBAL de similitud (Ignoramos de qué SITUR viene)
+        // 2. Validación GLOBAL de similitud 
         let encontrado = false;
-        
         for (let grupo of gruposGlobales) {
           if (grupo.nombreRepresentativo === '⚠️ PLANTEL SIN NOMBRE O NO POSEE CENTROS') continue;
 
-          // Exigimos 85% de similitud para agrupar globalmente
           const similitud = calcularSimilitud(grupo.nombreRepresentativo, nombreLimpio);
           if (similitud >= 85) { 
             grupo.escuelas.push(c);
@@ -154,15 +171,12 @@ export default function LimpiadorEscuelasPage() {
         }
       });
 
-      // Extraer los repetidos y procesar encabezados dinámicos
       const repetidos = gruposGlobales
         .filter(g => g.escuelas.length > 1 || g.nombreRepresentativo === '⚠️ PLANTEL SIN NOMBRE O NO POSEE CENTROS')
         .map(g => {
-          // Revisamos si las escuelas del grupo pertenecen a 1 o múltiples SITURs
           const sitursUnicos = [...new Set(g.escuelas.map(e => e.CODIGO_CIRCUITO_COMUNAL?.trim() || 'SIN_SITUR'))];
           const labelSitur = sitursUnicos.length === 1 ? sitursUnicos[0] : 'MÚLTIPLES SITUR';
 
-          // Revisamos las comunas de este grupo
           const comunasValidas = [...new Set(g.escuelas.map(e => e.nombreComuna).filter(c => c !== 'COMUNA NO REGISTRADA'))];
           const labelComuna = comunasValidas.length === 0 ? 'COMUNA NO REGISTRADA' : (comunasValidas.length === 1 ? comunasValidas[0] : 'DIVERSAS COMUNAS');
 
@@ -280,7 +294,7 @@ export default function LimpiadorEscuelasPage() {
 
   const eliminarEscuela = async (codCentro: string, tieneReporte: boolean) => {
     if (tieneReporte) {
-      const advertencia = window.confirm(`⚠️ ¡CUIDADO! Esta escuela ya tiene un reporte de inspección llenado en el sistema.\n\nSi la eliminas, ese reporte quedará huérfano en la base de datos. ¿ESTÁS COMPLETAMENTE SEGURO de querer borrarla?`);
+      const advertencia = window.confirm(`⚠️ ¡CUIDADO EXTREMO!\n\nEl Radar ha detectado que ESTA ESCUELA YA TIENE EL DIAGNÓSTICO LLENADO en el sistema.\nSi la eliminas, el reporte de la inspección quedará huerfano y se perderá.\n\n¿ESTÁS COMPLETAMENTE SEGURO de querer borrarla?`);
       if (!advertencia) return;
     } else {
       const confirmar = window.confirm(`¿Estás seguro de eliminar la escuela CÓDIGO ${codCentro}?`);
@@ -339,7 +353,7 @@ export default function LimpiadorEscuelasPage() {
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center space-y-4">
       <Globe className={`text-[#00529b] ${uploading ? 'animate-bounce' : 'animate-spin'}`} size={48} />
       <p className="font-black text-[#00529b] uppercase tracking-widest text-sm text-center px-4">
-        {uploading ? 'PROCESANDO EXCEL Y ACTUALIZANDO BASE DE DATOS...' : 'Búsqueda Global y Cruzando Directorio...'}
+        {uploading ? 'PROCESANDO EXCEL Y ACTUALIZANDO BASE DE DATOS...' : 'Búsqueda Global y Enlazando Reportes...'}
       </p>
     </div>
   );
@@ -435,7 +449,7 @@ export default function LimpiadorEscuelasPage() {
                       <div className="flex flex-wrap gap-2 w-full lg:w-auto mt-2 lg:mt-0">
                         <button 
                           onClick={() => toggleDetalles(escuela.COD_CENTRO)}
-                          className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase transition-all shadow-sm bg-indigo-50 text-indigo-700 hover:bg-indigo-600 hover:text-white border-2 border-indigo-100 hover:border-indigo-600"
+                          className={`flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase transition-all shadow-sm border-2 ${escuela.tieneReporte ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white border-emerald-100 hover:border-emerald-600' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-600 hover:text-white border-indigo-100 hover:border-indigo-600'}`}
                         >
                           <Eye size={16} /> Info
                         </button>
@@ -461,7 +475,7 @@ export default function LimpiadorEscuelasPage() {
                         <div className="flex flex-col sm:flex-row justify-between sm:items-center border-b border-gray-200 pb-3 gap-2">
                           <span className="font-bold text-gray-500 uppercase">Estado en Sistema:</span>
                           {escuela.tieneReporte ? (
-                            <span className="flex items-center gap-1.5 font-black text-emerald-600 bg-emerald-100 px-3 py-1 rounded-full"><CheckCircle2 size={16}/> ✅ INSPECCIÓN LLENADA</span>
+                            <span className="flex items-center gap-1.5 font-black text-emerald-600 bg-emerald-100 px-3 py-1 rounded-full"><CheckCircle2 size={16}/> ✅ DIAGNÓSTICO LLENADO</span>
                           ) : (
                             <span className="flex items-center gap-1.5 font-black text-red-500 bg-red-100 px-3 py-1 rounded-full"><XCircle size={16}/> ❌ SIN REPORTE</span>
                           )}
@@ -475,40 +489,44 @@ export default function LimpiadorEscuelasPage() {
                           <span className="font-black text-gray-800 uppercase sm:text-right text-[#00529b]">{escuela.responsable}</span>
                         </div>
 
-                        {/* DATOS DE LA MINUTA SI EXISTE REPORTE */}
+                        {/* DATOS DE LA MINUTA SI EXISTE REPORTE (Atrápados Dinámicamente) */}
                         {escuela.tieneReporte && escuela.reporteCompleto && (
                           <div className="mt-3 pt-4 border-t-2 border-dashed border-gray-300">
-                            <h4 className="font-black text-[#00529b] uppercase mb-3 flex items-center gap-2">
-                              <FileText size={16} /> Datos de la Inspección (Minuta Oficial)
+                            <h4 className="font-black text-emerald-700 uppercase mb-3 flex items-center gap-2">
+                              <FileText size={16} /> Resumen del Formulario Sincronizado
                             </h4>
                             
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
                               <div className="bg-white p-3 border rounded-xl shadow-sm">
-                                <span className="block text-[10px] text-gray-500 font-bold uppercase mb-1">Estado de Infraestructura</span>
-                                <span className={`font-black uppercase text-sm ${escuela.reporteCompleto.escuela_apta === 'APTA' ? 'text-emerald-600' : 'text-red-600'}`}>
-                                  {escuela.reporteCompleto.escuela_apta || 'N/A'}
+                                <span className="block text-[10px] text-gray-500 font-bold uppercase mb-1">Estatus de Infraestructura</span>
+                                <span className={`font-black uppercase text-sm ${String(findDynamicValue(escuela.reporteCompleto, ['estatus', 'apta', 'infraestructura'])).includes('NO APTA') ? 'text-red-600' : 'text-emerald-600'}`}>
+                                  {findDynamicValue(escuela.reporteCompleto, ['estatus', 'apta', 'infraestructura']) || 'N/A'}
                                 </span>
                               </div>
                               <div className="bg-white p-3 border rounded-xl shadow-sm">
-                                <span className="block text-[10px] text-gray-500 font-bold uppercase mb-1">Mesas Electorales</span>
-                                <span className="font-black text-gray-800 uppercase text-sm">{escuela.reporteCompleto.cierre_mesas || 'N/A'}</span>
+                                <span className="block text-[10px] text-gray-500 font-bold uppercase mb-1">Responsable de Evaluación</span>
+                                <span className="font-black text-gray-800 uppercase text-sm truncate block" title={findDynamicValue(escuela.reporteCompleto, ['responsable', 'evaluador', 'evaluacion'])}>
+                                  {findDynamicValue(escuela.reporteCompleto, ['responsable', 'evaluador', 'evaluacion']) || 'N/A'}
+                                </span>
                               </div>
                               <div className="bg-white p-3 border rounded-xl shadow-sm sm:col-span-2">
-                                <span className="block text-[10px] text-gray-500 font-bold uppercase mb-1">Organismos Presentes en el Sitio</span>
-                                <span className="font-black text-gray-800 uppercase text-sm">{escuela.reporteCompleto.organismos_presentes || 'N/A'}</span>
+                                <span className="block text-[10px] text-gray-500 font-bold uppercase mb-1">Organismos Presentes</span>
+                                <span className="font-black text-gray-800 uppercase text-sm">
+                                  {findDynamicValue(escuela.reporteCompleto, ['organismos', 'inspeccion']) || 'N/A'}
+                                </span>
                               </div>
                             </div>
 
-                            <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl shadow-sm">
-                              <span className="block text-[10px] text-blue-800 font-black uppercase mb-2 border-b border-blue-200 pb-1">📝 Reseña / Novedades de la Guardia:</span>
+                            <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl shadow-sm">
+                              <span className="block text-[10px] text-emerald-800 font-black uppercase mb-2 border-b border-emerald-200 pb-1">📝 Bitácora de Novedades:</span>
                               <p className="text-gray-800 font-medium whitespace-pre-wrap text-sm leading-relaxed">
-                                {escuela.reporteCompleto.resena || 'Sin reseña detallada reportada.'}
+                                {findDynamicValue(escuela.reporteCompleto, ['bitacora', 'novedad', 'resena', 'reporte']) || 'Sin reseña detallada reportada.'}
                               </p>
                             </div>
                             
                             <div className="mt-3 text-right">
                               <span className="text-[10px] text-gray-500 font-bold uppercase bg-gray-200 px-2 py-1 rounded-lg">
-                                Registrado el: {escuela.reporteCompleto.fecha_reporte ? new Date(escuela.reporteCompleto.fecha_reporte).toLocaleString('es-VE') : 'Fecha no disponible'}
+                                Registrado el: {findDynamicValue(escuela.reporteCompleto, ['fecha', 'created_at']) ? new Date(findDynamicValue(escuela.reporteCompleto, ['fecha', 'created_at'])).toLocaleString('es-VE') : 'Fecha en sistema'}
                               </span>
                             </div>
                           </div>
