@@ -65,12 +65,12 @@ export default function LimpiadorEscuelasPage() {
   const cargarDatos = async () => {
     setLoading(true);
     
-    // Consulta cuádruple: Agregamos la tabla de sectores para obtener el nombre del circuito
+    // Consulta cuádruple: Traemos Escuelas, Reportes, Directorio y el Nombre del Circuito (Sectores)
     const [resCentros, resReportes, resDirectorio, resSectores] = await Promise.all([
       supabase.from('centros_votacion_2026').select('*'),
       supabase.from('reportes_concejo_2026').select('*'),
       supabase.from('directorio_operativo').select('*'),
-      supabase.from('sectores').select('codigo_situr, nombre_circuito')
+      supabase.from('sectores').select('*') // Trae los nombres de los circuitos
     ]);
     
     const escuelas = resCentros.data || [];
@@ -91,7 +91,8 @@ export default function LimpiadorEscuelasPage() {
 
     const sectoresMap = new Map();
     sectores.forEach((s: any) => {
-      sectoresMap.set(s.codigo_situr?.trim(), s.nombre_circuito);
+      // Usa codigo_situr para enlazar con el nombre_circuito
+      sectoresMap.set(s.codigo_situr?.trim(), s.nombre_circuito || s.nombre); 
     });
 
     if (escuelas) {
@@ -110,14 +111,14 @@ export default function LimpiadorEscuelasPage() {
         
         c.tieneReporte = !!reporteInfo;
         c.reporteCompleto = reporteInfo || null; 
-        c.organismo = dirInfo.organismo_responsable || 'COMISIÓN MIXTA DE SEGURIDAD (POR DEFINIR)';
+        c.organismo = dirInfo.organismo_responsable || 'COMISIÓN MIXTA DE SEGURIDAD';
         c.responsable = `${grado} ${nombreJefe}`.trim();
         
         // 1. Atrapa escuelas en blanco O que digan "NO POSEE CENTROS EDUCATIVOS"
         if (nombreLimpio === '' || nombreLimpio.includes('NO POSEE CENTROS EDUCATIVOS')) {
           if (!gruposPorSitur['FANTASMAS']) gruposPorSitur['FANTASMAS'] = [{ 
             nombreRepresentativo: '⚠️ PLANTEL SIN NOMBRE O NO POSEE CENTROS', 
-            nombreCircuito: 'MÚLTIPLES',
+            nombreCircuito: 'MÚLTIPLES SECTORES',
             escuelas: [] 
           }];
           gruposPorSitur['FANTASMAS'][0].escuelas.push(c);
@@ -264,7 +265,7 @@ export default function LimpiadorEscuelasPage() {
 
   const eliminarEscuela = async (codCentro: string, tieneReporte: boolean) => {
     if (tieneReporte) {
-      const advertencia = window.confirm(`⚠️ ¡CUIDADO! Esta escuela ya tiene un reporte de inspección llenado en el sistema.\n\nSi la eliminas, ese reporte quedará huerfano en la base de datos. ¿ESTÁS COMPLETAMENTE SEGURO de querer borrarla?`);
+      const advertencia = window.confirm(`⚠️ ¡CUIDADO! Esta escuela ya tiene un reporte de inspección llenado en el sistema.\n\nSi la eliminas, ese reporte quedará huérfano en la base de datos. ¿ESTÁS COMPLETAMENTE SEGURO de querer borrarla?`);
       if (!advertencia) return;
     } else {
       const confirmar = window.confirm(`¿Estás seguro de eliminar la escuela CÓDIGO ${codCentro}?`);
@@ -371,20 +372,25 @@ export default function LimpiadorEscuelasPage() {
           duplicados.map((grupo, index) => (
             <div key={index} className={`bg-white rounded-3xl border overflow-hidden shadow-md ${grupo.esFantasma ? 'border-amber-400' : 'border-gray-200'}`}>
               <div className={`px-6 py-4 border-b flex flex-col md:flex-row md:items-center justify-between gap-3 ${grupo.esFantasma ? 'bg-amber-100 border-amber-200' : 'bg-gray-800 border-gray-700'}`}>
+                
+                {/* AQUI ESTA EL NOMBRE DEL CIRCUITO COMUNAL */}
                 <div className="flex flex-col sm:flex-row sm:items-center gap-3">
                   <span className={`${grupo.esFantasma ? 'bg-amber-500' : 'bg-red-600'} text-white text-[10px] font-black px-3 py-1.5 rounded shadow-sm uppercase tracking-wider w-max`}>
                     SITUR: {grupo.situr}
                   </span>
+                  
                   {!grupo.esFantasma && (
-                    <span className="flex items-center gap-1.5 text-xs font-black text-emerald-400 uppercase">
+                    <span className="flex items-center gap-1.5 text-xs font-black text-emerald-400 uppercase bg-gray-900 px-3 py-1 rounded-md">
                       <MapPin size={14} /> {grupo.nombreCircuito}
                     </span>
                   )}
+                  
                   <span className={`text-xs font-bold uppercase hidden sm:block ${grupo.esFantasma ? 'text-amber-900' : 'text-gray-500'}`}>|</span>
                   <span className={`text-xs font-bold uppercase ${grupo.esFantasma ? 'text-amber-900' : 'text-gray-300'}`}>
                     {grupo.esFantasma ? 'Alerta:' : 'Patrón Detectado:'} <span className={grupo.esFantasma ? 'text-amber-900 font-black' : 'text-white'}>{grupo.nombreDetectado}</span>
                   </span>
                 </div>
+                
                 <span className={`text-[10px] font-bold px-3 py-1 rounded-full uppercase w-max ${grupo.esFantasma ? 'bg-amber-200 text-amber-800' : 'bg-white/20 text-white'}`}>
                   {grupo.escuelas.length} Registros
                 </span>
