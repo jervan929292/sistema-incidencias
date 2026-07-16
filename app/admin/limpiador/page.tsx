@@ -67,14 +67,14 @@ export default function LimpiadorEscuelasPage() {
         const situr = c.CODIGO_CIRCUITO_COMUNAL?.trim() || 'SIN_SITUR';
         const nombreLimpio = limpiarNombre(c['NOMBRE CENTRO']);
         
-        // 1. Atrapa escuelas en blanco (Fantasmas)
-        if (nombreLimpio === '') {
-          if (!gruposPorSitur['SIN_NOMBRE_O_VACIAS']) gruposPorSitur['SIN_NOMBRE_O_VACIAS'] = [{ nombreRepresentativo: '⚠️ PLANTEL SIN NOMBRE', escuelas: [] }];
-          gruposPorSitur['SIN_NOMBRE_O_VACIAS'][0].escuelas.push(c);
+        // 1. Atrapa escuelas en blanco O que digan "NO POSEE CENTROS EDUCATIVOS"
+        if (nombreLimpio === '' || nombreLimpio.includes('NO POSEE CENTROS EDUCATIVOS')) {
+          if (!gruposPorSitur['FANTASMAS']) gruposPorSitur['FANTASMAS'] = [{ nombreRepresentativo: '⚠️ REGISTROS EN BLANCO O SIN CENTRO EDUCATIVO', escuelas: [] }];
+          gruposPorSitur['FANTASMAS'][0].escuelas.push(c);
           return; // Saltamos la validación de similitud
         }
 
-        // 2. Validación normal de similitud
+        // 2. Validación normal de similitud para las demás
         if (!gruposPorSitur[situr]) gruposPorSitur[situr] = [];
         let encontrado = false;
         
@@ -94,13 +94,13 @@ export default function LimpiadorEscuelasPage() {
       const repetidos: any[] = [];
       for (const situr in gruposPorSitur) {
         for (const grupo of gruposPorSitur[situr]) {
-          // Mostrar si hay duplicados OR si es el grupo de escuelas sin nombre
-          if (grupo.escuelas.length > 1 || situr === 'SIN_NOMBRE_O_VACIAS') {
+          // Mostrar si hay duplicados OR si es el grupo de escuelas sin nombre/sin centros
+          if (grupo.escuelas.length > 1 || situr === 'FANTASMAS') {
             repetidos.push({
-              situr: situr === 'SIN_NOMBRE_O_VACIAS' ? 'MÚLTIPLES' : situr,
+              situr: situr === 'FANTASMAS' ? 'MÚLTIPLES' : situr,
               nombreDetectado: grupo.nombreRepresentativo,
               escuelas: grupo.escuelas,
-              esFantasma: situr === 'SIN_NOMBRE_O_VACIAS'
+              esFantasma: situr === 'FANTASMAS'
             });
           }
         }
