@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Trash2, Edit2, Search, ArrowLeft, Building2, ShieldAlert, Crosshair, Lock, Unlock, X, Save, Download, Upload, Eye, CheckCircle2, XCircle } from 'lucide-react';
+import { Trash2, Edit2, Search, ArrowLeft, Building2, ShieldAlert, Crosshair, Lock, Unlock, X, Save, Download, Upload, Eye, CheckCircle2, XCircle, FileText } from 'lucide-react';
 import Link from 'next/link';
 import * as XLSX from 'xlsx';
 
@@ -65,10 +65,10 @@ export default function LimpiadorEscuelasPage() {
   const cargarDatos = async () => {
     setLoading(true);
     
-    // Consulta triple para cruzar datos
+    // Consulta triple: AHORA TRAEMOS TODO EL REPORTE (*) NO SOLO EL CÓDIGO
     const [resCentros, resReportes, resDirectorio] = await Promise.all([
       supabase.from('centros_votacion_2026').select('*'),
-      supabase.from('reportes_concejo_2026').select('cod_centro'),
+      supabase.from('reportes_concejo_2026').select('*'),
       supabase.from('directorio_operativo').select('*')
     ]);
     
@@ -77,7 +77,11 @@ export default function LimpiadorEscuelasPage() {
     const directorio = resDirectorio.data || [];
 
     // Mapas para busqueda rápida
-    const reportesSet = new Set(reportes.map((r: any) => r.cod_centro?.trim()));
+    const reportesMap = new Map();
+    reportes.forEach((r: any) => {
+      reportesMap.set(r.cod_centro?.trim(), r); // Guardamos TODO el objeto del reporte
+    });
+    
     const directorioMap = new Map();
     directorio.forEach((d: any) => {
       directorioMap.set(d.codigo_situr?.trim(), d);
@@ -95,7 +99,10 @@ export default function LimpiadorEscuelasPage() {
         const grado = dirInfo.grado_jerarquia || dirInfo.grado_jerarquia_jefe || '';
         const nombreJefe = dirInfo.nombre_apellido_jefe || 'FUNCIONARIO ASIGNADO';
         
-        c.tieneReporte = reportesSet.has(c.COD_CENTRO?.trim());
+        const reporteInfo = reportesMap.get(c.COD_CENTRO?.trim());
+        
+        c.tieneReporte = !!reporteInfo;
+        c.reporteCompleto = reporteInfo || null; // Adjuntamos la minuta a la escuela
         c.organismo = dirInfo.organismo_responsable || 'COMISIÓN MIXTA DE SEGURIDAD (POR DEFINIR)';
         c.responsable = `${grado} ${nombreJefe}`.trim();
         
@@ -406,10 +413,49 @@ export default function LimpiadorEscuelasPage() {
                           <span className="font-bold text-gray-500 uppercase">Organismo Asignado:</span>
                           <span className="font-black text-gray-800 uppercase sm:text-right">{escuela.organismo}</span>
                         </div>
-                        <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2">
+                        <div className="flex flex-col sm:flex-row justify-between sm:items-center pb-2">
                           <span className="font-bold text-gray-500 uppercase">Responsable Cuadrante:</span>
                           <span className="font-black text-gray-800 uppercase sm:text-right text-[#00529b]">{escuela.responsable}</span>
                         </div>
+
+                        {/* DATOS DE LA MINUTA SI EXISTE REPORTE */}
+                        {escuela.tieneReporte && escuela.reporteCompleto && (
+                          <div className="mt-3 pt-4 border-t-2 border-dashed border-gray-300">
+                            <h4 className="font-black text-[#00529b] uppercase mb-3 flex items-center gap-2">
+                              <FileText size={16} /> Datos de la Inspección (Minuta Oficial)
+                            </h4>
+                            
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+                              <div className="bg-white p-3 border rounded-xl shadow-sm">
+                                <span className="block text-[10px] text-gray-500 font-bold uppercase mb-1">Estado de Infraestructura</span>
+                                <span className={`font-black uppercase text-sm ${escuela.reporteCompleto.escuela_apta === 'APTA' ? 'text-emerald-600' : 'text-red-600'}`}>
+                                  {escuela.reporteCompleto.escuela_apta || 'N/A'}
+                                </span>
+                              </div>
+                              <div className="bg-white p-3 border rounded-xl shadow-sm">
+                                <span className="block text-[10px] text-gray-500 font-bold uppercase mb-1">Mesas Electorales</span>
+                                <span className="font-black text-gray-800 uppercase text-sm">{escuela.reporteCompleto.cierre_mesas || 'N/A'}</span>
+                              </div>
+                              <div className="bg-white p-3 border rounded-xl shadow-sm sm:col-span-2">
+                                <span className="block text-[10px] text-gray-500 font-bold uppercase mb-1">Organismos Presentes en el Sitio</span>
+                                <span className="font-black text-gray-800 uppercase text-sm">{escuela.reporteCompleto.organismos_presentes || 'N/A'}</span>
+                              </div>
+                            </div>
+
+                            <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl shadow-sm">
+                              <span className="block text-[10px] text-blue-800 font-black uppercase mb-2 border-b border-blue-200 pb-1">📝 Reseña / Novedades de la Guardia:</span>
+                              <p className="text-gray-800 font-medium whitespace-pre-wrap text-sm leading-relaxed">
+                                {escuela.reporteCompleto.resena || 'Sin reseña detallada reportada.'}
+                              </p>
+                            </div>
+                            
+                            <div className="mt-3 text-right">
+                              <span className="text-[10px] text-gray-500 font-bold uppercase bg-gray-200 px-2 py-1 rounded-lg">
+                                Registrado el: {new Date(escuela.reporteCompleto.fecha_reporte).toLocaleString('es-VE')}
+                              </span>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
