@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Trash2, Edit2, Search, ArrowLeft, Building2, ShieldAlert, Crosshair, Lock, Unlock, X, Save, Download, Upload, Eye, CheckCircle2, XCircle, FileText, MapPin } from 'lucide-react';
+import { Trash2, Edit2, Search, ArrowLeft, Building2, ShieldAlert, Crosshair, Lock, Unlock, X, Save, Download, Upload, Eye, CheckCircle2, XCircle, FileText, MapPin, Globe } from 'lucide-react';
 import Link from 'next/link';
 import * as XLSX from 'xlsx';
 
@@ -53,11 +53,9 @@ export default function LimpiadorEscuelasPage() {
   const [procesando, setProcesando] = useState<string | null>(null);
   const [detallesVisibles, setDetallesVisibles] = useState<string | null>(null);
   
-  // Referencia y estado para el Excel
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   
-  // Estados para el Modal de Edición
   const [escuelaEdit, setEscuelaEdit] = useState<any | null>(null);
   const [formEdit, setFormEdit] = useState({ nombre: '', cod_centro: '', situr: '', direccion: '' });
   const [desbloquearSitur, setDesbloquearSitur] = useState(false);
@@ -65,7 +63,7 @@ export default function LimpiadorEscuelasPage() {
   const cargarDatos = async () => {
     setLoading(true);
     
-    // Consulta triple: Escuelas, Reportes y Directorio (donde está el nombre de la comuna)
+    // Consulta
     const [resCentros, resReportes, resDirectorio] = await Promise.all([
       supabase.from('centros_votacion_2026').select('*'),
       supabase.from('reportes_concejo_2026').select('*'),
@@ -82,79 +80,92 @@ export default function LimpiadorEscuelasPage() {
       reportesMap.set(r.cod_centro?.trim(), r); 
     });
     
+    // Mapa Inteligente del Directorio (acepta diferentes nombres de columna para SITUR)
     const directorioMap = new Map();
     directorio.forEach((d: any) => {
-      directorioMap.set(d.codigo_situr?.trim(), d);
+      const codigoSitur = (d.codigo_situr || d.situr || d.cod_situr || d.codigo_circuito || '').trim();
+      if (codigoSitur) directorioMap.set(codigoSitur, d);
     });
 
     if (escuelas) {
-      const gruposPorSitur: Record<string, any[]> = {};
+      // AHORA AGRUPAMOS A NIVEL GLOBAL (TODA LA BASE DE DATOS) Y NO POR SITUR
+      const gruposGlobales: { nombreRepresentativo: string, escuelas: any[] }[] = [];
       
       escuelas.forEach(c => {
         const situr = c.CODIGO_CIRCUITO_COMUNAL?.trim() || 'SIN_SITUR';
         const nombreLimpio = limpiarNombre(c['NOMBRE CENTRO']);
         
-        // Agregar datos cruzados a la escuela desde el DIRECTORIO
+        // Agregar datos cruzados
         const dirInfo = directorioMap.get(situr) || {};
-        const grado = dirInfo.grado_jerarquia || dirInfo.grado_jerarquia_jefe || '';
-        const nombreJefe = dirInfo.nombre_apellido_jefe || 'FUNCIONARIO ASIGNADO';
+        const grado = dirInfo.grado_jerarquia || dirInfo.grado_jerarquia_jefe || dirInfo.rango || '';
+        const nombreJefe = dirInfo.nombre_apellido_jefe || dirInfo.responsable || dirInfo.nombre_jefe || 'FUNCIONARIO ASIGNADO';
         
-        // AQUÍ EXTRAEMOS EL NOMBRE DE LA COMUNA DESDE EL DIRECTORIO
-        const nombreComuna = dirInfo.comuna || dirInfo.nombre_comuna || dirInfo.circuito || dirInfo.nombre_circuito || 'COMUNA NO REGISTRADA';
+        // Buscamos inteligentemente el nombre de la Comuna/Circuito
+        const nombreComuna = dirInfo.comuna || dirInfo.nombre_comuna || dirInfo.circuito || dirInfo.nombre_circuito || dirInfo.sector || 'COMUNA NO REGISTRADA';
         
         const reporteInfo = reportesMap.get(c.COD_CENTRO?.trim());
         
         c.tieneReporte = !!reporteInfo;
         c.reporteCompleto = reporteInfo || null; 
-        c.organismo = dirInfo.organismo_responsable || 'COMISIÓN MIXTA DE SEGURIDAD';
+        c.organismo = dirInfo.organismo_responsable || dirInfo.organismo || 'COMISIÓN MIXTA DE SEGURIDAD';
         c.responsable = `${grado} ${nombreJefe}`.trim();
+        c.nombreComuna = nombreComuna;
         
         // 1. Atrapa escuelas en blanco O que digan "NO POSEE CENTROS EDUCATIVOS"
         if (nombreLimpio === '' || nombreLimpio.includes('NO POSEE CENTROS EDUCATIVOS')) {
-          if (!gruposPorSitur['FANTASMAS']) gruposPorSitur['FANTASMAS'] = [{ 
-            nombreRepresentativo: '⚠️ PLANTEL SIN NOMBRE O NO POSEE CENTROS', 
-            nombreCircuito: 'MÚLTIPLES COMUNAS',
-            escuelas: [] 
-          }];
-          gruposPorSitur['FANTASMAS'][0].escuelas.push(c);
+          let fantasmaGroup = gruposGlobales.find(g => g.nombreRepresentativo === '⚠️ PLANTEL SIN NOMBRE O NO POSEE CENTROS');
+          if (!fantasmaGroup) {
+            fantasmaGroup = { nombreRepresentativo: '⚠️ PLANTEL SIN NOMBRE O NO POSEE CENTROS', escuelas: [] };
+            gruposGlobales.push(fantasmaGroup);
+          }
+          fantasmaGroup.escuelas.push(c);
           return; 
         }
 
-        // 2. Validación normal de similitud para las demás
-        if (!gruposPorSitur[situr]) gruposPorSitur[situr] = [];
+        // 2. Validación GLOBAL de similitud (Ignoramos de qué SITUR viene)
         let encontrado = false;
         
-        for (let grupo of gruposPorSitur[situr]) {
+        for (let grupo of gruposGlobales) {
+          if (grupo.nombreRepresentativo === '⚠️ PLANTEL SIN NOMBRE O NO POSEE CENTROS') continue;
+
+          // Exigimos 85% de similitud para agrupar globalmente
           const similitud = calcularSimilitud(grupo.nombreRepresentativo, nombreLimpio);
-          if (similitud >= 80) { 
+          if (similitud >= 85) { 
             grupo.escuelas.push(c);
             encontrado = true;
             break;
           }
         }
+        
         if (!encontrado) {
-          gruposPorSitur[situr].push({ 
+          gruposGlobales.push({ 
             nombreRepresentativo: nombreLimpio, 
-            nombreCircuito: nombreComuna, // GUARDAMOS LA COMUNA AQUÍ
             escuelas: [c] 
           });
         }
       });
 
-      const repetidos: any[] = [];
-      for (const situr in gruposPorSitur) {
-        for (const grupo of gruposPorSitur[situr]) {
-          if (grupo.escuelas.length > 1 || situr === 'FANTASMAS') {
-            repetidos.push({
-              situr: situr === 'FANTASMAS' ? 'MÚLTIPLES' : situr,
-              nombreCircuito: grupo.nombreCircuito,
-              nombreDetectado: grupo.nombreRepresentativo,
-              escuelas: grupo.escuelas,
-              esFantasma: situr === 'FANTASMAS'
-            });
-          }
-        }
-      }
+      // Extraer los repetidos y procesar encabezados dinámicos
+      const repetidos = gruposGlobales
+        .filter(g => g.escuelas.length > 1 || g.nombreRepresentativo === '⚠️ PLANTEL SIN NOMBRE O NO POSEE CENTROS')
+        .map(g => {
+          // Revisamos si las escuelas del grupo pertenecen a 1 o múltiples SITURs
+          const sitursUnicos = [...new Set(g.escuelas.map(e => e.CODIGO_CIRCUITO_COMUNAL?.trim() || 'SIN_SITUR'))];
+          const labelSitur = sitursUnicos.length === 1 ? sitursUnicos[0] : 'MÚLTIPLES SITUR';
+
+          // Revisamos las comunas de este grupo
+          const comunasValidas = [...new Set(g.escuelas.map(e => e.nombreComuna).filter(c => c !== 'COMUNA NO REGISTRADA'))];
+          const labelComuna = comunasValidas.length === 0 ? 'COMUNA NO REGISTRADA' : (comunasValidas.length === 1 ? comunasValidas[0] : 'DIVERSAS COMUNAS');
+
+          return {
+            situr: labelSitur,
+            nombreCircuito: labelComuna,
+            nombreDetectado: g.nombreRepresentativo,
+            escuelas: g.escuelas,
+            esFantasma: g.nombreRepresentativo === '⚠️ PLANTEL SIN NOMBRE O NO POSEE CENTROS'
+          };
+        });
+
       setDuplicados(repetidos);
     }
     setLoading(false);
@@ -168,7 +179,6 @@ export default function LimpiadorEscuelasPage() {
     setDetallesVisibles(prev => prev === cod ? null : cod);
   };
 
-  // --- LOGICA PARA DESCARGAR EXCEL ---
   const descargarExcel = () => {
     const datosPlanos: any[] = [];
     duplicados.forEach(grupo => {
@@ -177,11 +187,11 @@ export default function LimpiadorEscuelasPage() {
           'COD_CENTRO': esc.COD_CENTRO,
           'NOMBRE CENTRO': esc['NOMBRE CENTRO'],
           'CODIGO_CIRCUITO_COMUNAL': esc.CODIGO_CIRCUITO_COMUNAL,
-          'NOMBRE_COMUNA': grupo.nombreCircuito,
+          'NOMBRE_COMUNA': esc.nombreComuna,
           'DIRECCION': esc.DIRECCION,
           'ESTADO_INSPECCION': esc.tieneReporte ? 'LLENADO EN SISTEMA' : 'SIN REPORTE',
           'ORGANISMO_ASIGNADO': esc.organismo,
-          'TIPO_PROBLEMA': grupo.esFantasma ? 'FANTASMA / SIN CENTRO' : 'POSIBLE DUPLICADO'
+          'TIPO_PROBLEMA': grupo.esFantasma ? 'FANTASMA / SIN CENTRO' : 'POSIBLE DUPLICADO GLOBAL'
         });
       });
     });
@@ -197,7 +207,6 @@ export default function LimpiadorEscuelasPage() {
     XLSX.writeFile(workbook, "Reporte_Escuelas_A_Corregir.xlsx");
   };
 
-  // --- LOGICA PARA CARGAR EXCEL Y ACTUALIZAR ---
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -317,9 +326,9 @@ export default function LimpiadorEscuelasPage() {
 
   if (loading || uploading) return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center space-y-4">
-      <Crosshair className={`text-[#00529b] ${uploading ? 'animate-bounce' : 'animate-spin'}`} size={48} />
+      <Globe className={`text-[#00529b] ${uploading ? 'animate-bounce' : 'animate-spin'}`} size={48} />
       <p className="font-black text-[#00529b] uppercase tracking-widest text-sm text-center px-4">
-        {uploading ? 'PROCESANDO EXCEL Y ACTUALIZANDO BASE DE DATOS...' : 'Escaneo Agresivo Cruzando Bases de Datos...'}
+        {uploading ? 'PROCESANDO EXCEL Y ACTUALIZANDO BASE DE DATOS...' : 'Búsqueda Global y Cruzando Directorio...'}
       </p>
     </div>
   );
@@ -331,11 +340,10 @@ export default function LimpiadorEscuelasPage() {
           <ArrowLeft size={16} /> Volver a Admin
         </Link>
         <h1 className="text-xl font-black text-gray-800 flex items-center gap-2 uppercase">
-          <Crosshair className="text-red-600" size={24}/> Radar Agresivo
+          <Globe className="text-red-600" size={24}/> Radar Global
         </h1>
       </div>
 
-      {/* BOTONES DE EXCEL */}
       <div className="max-w-6xl mx-auto flex flex-col md:flex-row gap-4">
         <button 
           onClick={descargarExcel}
@@ -361,21 +369,20 @@ export default function LimpiadorEscuelasPage() {
           <div className="bg-white p-12 rounded-3xl border shadow-sm text-center">
             <Building2 className="mx-auto text-emerald-500 mb-4" size={48} />
             <h2 className="text-xl font-black text-gray-800 uppercase">¡Base de Datos Impecable!</h2>
-            <p className="text-gray-500 font-medium mt-2">No hay escuelas repetidas ni registros en blanco.</p>
+            <p className="text-gray-500 font-medium mt-2">No hay escuelas repetidas a nivel global ni registros vacíos.</p>
           </div>
         ) : (
           duplicados.map((grupo, index) => (
             <div key={index} className={`bg-white rounded-3xl border overflow-hidden shadow-md ${grupo.esFantasma ? 'border-amber-400' : 'border-gray-200'}`}>
               <div className={`px-6 py-4 border-b flex flex-col md:flex-row md:items-center justify-between gap-3 ${grupo.esFantasma ? 'bg-amber-100 border-amber-200' : 'bg-gray-800 border-gray-700'}`}>
                 
-                {/* AQUÍ SE MUESTRA EL NOMBRE DE LA COMUNA DESDE EL DIRECTORIO */}
                 <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-                  <span className={`${grupo.esFantasma ? 'bg-amber-500' : 'bg-red-600'} text-white text-[10px] font-black px-3 py-1.5 rounded shadow-sm uppercase tracking-wider w-max`}>
+                  <span className={`${grupo.situr === 'MÚLTIPLES SITUR' ? 'bg-purple-600' : (grupo.esFantasma ? 'bg-amber-500' : 'bg-red-600')} text-white text-[10px] font-black px-3 py-1.5 rounded shadow-sm uppercase tracking-wider w-max`}>
                     SITUR: {grupo.situr}
                   </span>
                   
                   {!grupo.esFantasma && (
-                    <span className="flex items-center gap-1.5 text-xs font-black text-emerald-400 uppercase bg-gray-900 px-3 py-1 rounded-md">
+                    <span className={`flex items-center gap-1.5 text-xs font-black uppercase bg-gray-900 px-3 py-1 rounded-md ${grupo.nombreCircuito === 'COMUNA NO REGISTRADA' ? 'text-amber-400' : 'text-emerald-400'}`}>
                       <MapPin size={14} /> {grupo.nombreCircuito}
                     </span>
                   )}
@@ -397,7 +404,11 @@ export default function LimpiadorEscuelasPage() {
                     <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 w-full">
                       <div>
                         <p className="text-sm font-black text-gray-900 uppercase">{escuela['NOMBRE CENTRO'] || '— EN BLANCO —'}</p>
-                        <p className="text-xs font-bold text-[#00529b] mt-1 font-mono">CNE: {escuela.COD_CENTRO} <span className="text-gray-400 mx-2">|</span> SITUR: {escuela.CODIGO_CIRCUITO_COMUNAL || 'N/A'}</p>
+                        <p className="text-xs font-bold text-[#00529b] mt-1 font-mono">
+                          CNE: {escuela.COD_CENTRO} 
+                          <span className="text-gray-400 mx-2">|</span> 
+                          <span className={grupo.situr === 'MÚLTIPLES SITUR' ? 'bg-purple-100 text-purple-800 px-2 py-0.5 rounded' : ''}>SITUR: {escuela.CODIGO_CIRCUITO_COMUNAL || 'N/A'}</span>
+                        </p>
                       </div>
                       <div className="flex flex-wrap gap-2 w-full lg:w-auto">
                         <button 
