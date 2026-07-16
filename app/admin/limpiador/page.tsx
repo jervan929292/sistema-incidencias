@@ -1,8 +1,9 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Trash2, Edit2, Search, ArrowLeft, Building2, ShieldAlert, Crosshair, Lock, Unlock, X, Save } from 'lucide-react';
+import { Trash2, Edit2, Search, ArrowLeft, Building2, ShieldAlert, Crosshair, Lock, Unlock, X, Save, Download, Upload } from 'lucide-react';
 import Link from 'next/link';
+import * as XLSX from 'xlsx';
 
 // Algoritmo de limpieza ULTRA agresiva
 function limpiarNombre(text: string | null | undefined) {
@@ -51,6 +52,10 @@ export default function LimpiadorEscuelasPage() {
   const [loading, setLoading] = useState(true);
   const [procesando, setProcesando] = useState<string | null>(null);
   
+  // Referencia y estado para el Excel
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  
   // Estados para el Modal de Edición
   const [escuelaEdit, setEscuelaEdit] = useState<any | null>(null);
   const [formEdit, setFormEdit] = useState({ nombre: '', cod_centro: '', situr: '', direccion: '' });
@@ -67,14 +72,14 @@ export default function LimpiadorEscuelasPage() {
         const situr = c.CODIGO_CIRCUITO_COMUNAL?.trim() || 'SIN_SITUR';
         const nombreLimpio = limpiarNombre(c['NOMBRE CENTRO']);
         
-        // 1. Atrapa escuelas en blanco O que digan "NO POSEE CENTROS EDUCATIVOS"
+        // 1. Atrapa escuelas en blanco (Fantasmas)
         if (nombreLimpio === '' || nombreLimpio.includes('NO POSEE CENTROS EDUCATIVOS')) {
-          if (!gruposPorSitur['FANTASMAS']) gruposPorSitur['FANTASMAS'] = [{ nombreRepresentativo: '⚠️ REGISTROS EN BLANCO O SIN CENTRO EDUCATIVO', escuelas: [] }];
-          gruposPorSitur['FANTASMAS'][0].escuelas.push(c);
+          if (!gruposPorSitur['SIN_NOMBRE_O_VACIAS']) gruposPorSitur['SIN_NOMBRE_O_VACIAS'] = [{ nombreRepresentativo: '⚠️ PLANTEL SIN NOMBRE O NO POSEE CENTROS', escuelas: [] }];
+          gruposPorSitur['SIN_NOMBRE_O_VACIAS'][0].escuelas.push(c);
           return; // Saltamos la validación de similitud
         }
 
-        // 2. Validación normal de similitud para las demás
+        // 2. Validación normal de similitud
         if (!gruposPorSitur[situr]) gruposPorSitur[situr] = [];
         let encontrado = false;
         
@@ -94,13 +99,13 @@ export default function LimpiadorEscuelasPage() {
       const repetidos: any[] = [];
       for (const situr in gruposPorSitur) {
         for (const grupo of gruposPorSitur[situr]) {
-          // Mostrar si hay duplicados OR si es el grupo de escuelas sin nombre/sin centros
-          if (grupo.escuelas.length > 1 || situr === 'FANTASMAS') {
+          // Mostrar si hay duplicados OR si es el grupo de escuelas sin nombre
+          if (grupo.escuelas.length > 1 || situr === 'SIN_NOMBRE_O_VACIAS') {
             repetidos.push({
-              situr: situr === 'FANTASMAS' ? 'MÚLTIPLES' : situr,
+              situr: situr === 'SIN_NOMBRE_O_VACIAS' ? 'MÚLTIPLES' : situr,
               nombreDetectado: grupo.nombreRepresentativo,
               escuelas: grupo.escuelas,
-              esFantasma: situr === 'FANTASMAS'
+              esFantasma: situr === 'SIN_NOMBRE_O_VACIAS'
             });
           }
         }
@@ -113,6 +118,93 @@ export default function LimpiadorEscuelasPage() {
   useEffect(() => {
     cargarDatos();
   }, []);
+
+  // --- LOGICA PARA DESCARGAR EXCEL ---
+  const descargarExcel = () => {
+    const datosPlanos: any[] = [];
+    duplicados.forEach(grupo => {
+      grupo.escuelas.forEach((esc: any) => {
+        datosPlanos.push({
+          'COD_CENTRO': esc.COD_CENTRO,
+          'NOMBRE CENTRO': esc['NOMBRE CENTRO'],
+          'CODIGO_CIRCUITO_COMUNAL': esc.CODIGO_CIRCUITO_COMUNAL,
+          'DIRECCION': esc.DIRECCION,
+          'TIPO_PROBLEMA': grupo.esFantasma ? 'FANTASMA / SIN CENTRO' : 'POSIBLE DUPLICADO'
+        });
+      });
+    });
+
+    if (datosPlanos.length === 0) {
+      alert("No hay escuelas con problemas para descargar.");
+      return;
+    }
+
+    const worksheet = XLSX.utils.json_to_sheet(datosPlanos);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Escuelas_Para_Corregir");
+    XLSX.writeFile(workbook, "Reporte_Escuelas_A_Corregir.xlsx");
+  };
+
+  // --- LOGICA PARA CARGAR EXCEL Y ACTUALIZAR ---
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const confirmar = window.confirm("¿Estás seguro de cargar este archivo?\n\nEl sistema actualizará los nombres, SITUR y dirección en la base de datos basándose en la columna COD_CENTRO.");
+    if (!confirmar) {
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    setUploading(true);
+    const reader = new FileReader();
+    
+    reader.onload = async (evt) => {
+      try {
+        const data = new Uint8Array(evt.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        const rows: any[] = XLSX.utils.sheet_to_json(worksheet);
+
+        let actualizados = 0;
+        let errores = 0;
+
+        for (const row of rows) {
+          const codCentro = row['COD_CENTRO'];
+          if (!codCentro) continue;
+
+          const updateData = {
+            'NOMBRE CENTRO': row['NOMBRE CENTRO'] ? String(row['NOMBRE CENTRO']).toUpperCase() : '',
+            'CODIGO_CIRCUITO_COMUNAL': row['CODIGO_CIRCUITO_COMUNAL'] ? String(row['CODIGO_CIRCUITO_COMUNAL']).trim() : null,
+            'DIRECCION': row['DIRECCION'] ? String(row['DIRECCION']).toUpperCase() : 'DIRECCIÓN EN EVALUACIÓN'
+          };
+
+          const { error } = await supabase
+            .from('centros_votacion_2026')
+            .update(updateData)
+            .eq('COD_CENTRO', codCentro);
+
+          if (error) {
+            console.error("Error actualizando", codCentro, error);
+            errores++;
+          } else {
+            actualizados++;
+          }
+        }
+
+        alert(`✅ PROCESO FINALIZADO\n\nEscuelas actualizadas: ${actualizados}\nErrores: ${errores}`);
+        cargarDatos();
+      } catch (err) {
+        console.error(err);
+        alert("Ocurrió un error al leer el archivo Excel. Asegúrate de que tenga el formato correcto.");
+      } finally {
+        setUploading(false);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
 
   const eliminarEscuela = async (codCentro: string) => {
     const confirmar = window.confirm(`ATENCIÓN: ¿Estás seguro de eliminar la escuela CÓDIGO ${codCentro}?`);
@@ -137,7 +229,7 @@ export default function LimpiadorEscuelasPage() {
       situr: escuela.CODIGO_CIRCUITO_COMUNAL || '',
       direccion: escuela.DIRECCION || ''
     });
-    setDesbloquearSitur(false); // Siempre arranca bloqueado por seguridad
+    setDesbloquearSitur(false); 
   };
 
   const guardarCambios = async () => {
@@ -154,7 +246,7 @@ export default function LimpiadorEscuelasPage() {
         'CODIGO_CIRCUITO_COMUNAL': formEdit.situr,
         'DIRECCION': formEdit.direccion.toUpperCase()
       })
-      .eq('COD_CENTRO', escuelaEdit.COD_CENTRO); // Busca por el código original
+      .eq('COD_CENTRO', escuelaEdit.COD_CENTRO); 
 
     if (!error) {
       alert("✅ Escuela actualizada perfectamente.");
@@ -166,10 +258,12 @@ export default function LimpiadorEscuelasPage() {
     setProcesando(null);
   };
 
-  if (loading) return (
+  if (loading || uploading) return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center space-y-4">
-      <Crosshair className="text-[#00529b] animate-spin" size={48} />
-      <p className="font-black text-[#00529b] uppercase tracking-widest text-sm">Escaneo Agresivo en progreso...</p>
+      <Crosshair className={`text-[#00529b] ${uploading ? 'animate-bounce' : 'animate-spin'}`} size={48} />
+      <p className="font-black text-[#00529b] uppercase tracking-widest text-sm text-center px-4">
+        {uploading ? 'PROCESANDO EXCEL Y ACTUALIZANDO BASE DE DATOS...' : 'Escaneo Agresivo en progreso...'}
+      </p>
     </div>
   );
 
@@ -182,6 +276,27 @@ export default function LimpiadorEscuelasPage() {
         <h1 className="text-xl font-black text-gray-800 flex items-center gap-2 uppercase">
           <Crosshair className="text-red-600" size={24}/> Radar Agresivo
         </h1>
+      </div>
+
+      {/* BOTONES DE EXCEL */}
+      <div className="max-w-6xl mx-auto flex flex-col md:flex-row gap-4">
+        <button 
+          onClick={descargarExcel}
+          className="flex-1 flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-4 rounded-2xl font-black uppercase text-sm shadow-md transition-all active:scale-[0.98]"
+        >
+          <Download size={20} /> 1. Descargar XLSX a Corregir
+        </button>
+        
+        <label className="flex-1 flex items-center justify-center gap-2 bg-[#00529b] hover:bg-blue-800 text-white px-4 py-4 rounded-2xl font-black uppercase text-sm shadow-md transition-all active:scale-[0.98] cursor-pointer">
+          <Upload size={20} /> 2. Cargar XLSX Corregido
+          <input 
+            type="file" 
+            accept=".xlsx, .xls" 
+            className="hidden" 
+            ref={fileInputRef}
+            onChange={handleFileUpload} 
+          />
+        </label>
       </div>
 
       <div className="max-w-6xl mx-auto space-y-6">
