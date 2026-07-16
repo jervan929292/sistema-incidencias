@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Trash2, Edit2, Search, ArrowLeft, Building2, ShieldAlert, Crosshair, Lock, Unlock, X, Save, Download, Upload } from 'lucide-react';
+import { Trash2, Edit2, Search, ArrowLeft, Building2, ShieldAlert, Crosshair, Lock, Unlock, X, Save, Download, Upload, Eye, CheckCircle2, XCircle } from 'lucide-react';
 import Link from 'next/link';
 import * as XLSX from 'xlsx';
 
@@ -51,6 +51,7 @@ export default function LimpiadorEscuelasPage() {
   const [duplicados, setDuplicados] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [procesando, setProcesando] = useState<string | null>(null);
+  const [detallesVisibles, setDetallesVisibles] = useState<string | null>(null);
   
   // Referencia y estado para el Excel
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -63,23 +64,49 @@ export default function LimpiadorEscuelasPage() {
 
   const cargarDatos = async () => {
     setLoading(true);
-    const { data: escuelas, error } = await supabase.from('centros_votacion_2026').select('*');
     
-    if (escuelas && !error) {
+    // Consulta triple para cruzar datos
+    const [resCentros, resReportes, resDirectorio] = await Promise.all([
+      supabase.from('centros_votacion_2026').select('*'),
+      supabase.from('reportes_concejo_2026').select('cod_centro'),
+      supabase.from('directorio_operativo').select('*')
+    ]);
+    
+    const escuelas = resCentros.data || [];
+    const reportes = resReportes.data || [];
+    const directorio = resDirectorio.data || [];
+
+    // Mapas para busqueda rápida
+    const reportesSet = new Set(reportes.map((r: any) => r.cod_centro?.trim()));
+    const directorioMap = new Map();
+    directorio.forEach((d: any) => {
+      directorioMap.set(d.codigo_situr?.trim(), d);
+    });
+
+    if (escuelas) {
       const gruposPorSitur: Record<string, any[]> = {};
       
       escuelas.forEach(c => {
         const situr = c.CODIGO_CIRCUITO_COMUNAL?.trim() || 'SIN_SITUR';
         const nombreLimpio = limpiarNombre(c['NOMBRE CENTRO']);
         
-        // 1. Atrapa escuelas en blanco (Fantasmas)
+        // Agregar datos cruzados a la escuela
+        const dirInfo = directorioMap.get(situr) || {};
+        const grado = dirInfo.grado_jerarquia || dirInfo.grado_jerarquia_jefe || '';
+        const nombreJefe = dirInfo.nombre_apellido_jefe || 'FUNCIONARIO ASIGNADO';
+        
+        c.tieneReporte = reportesSet.has(c.COD_CENTRO?.trim());
+        c.organismo = dirInfo.organismo_responsable || 'COMISIÓN MIXTA DE SEGURIDAD (POR DEFINIR)';
+        c.responsable = `${grado} ${nombreJefe}`.trim();
+        
+        // 1. Atrapa escuelas en blanco O que digan "NO POSEE CENTROS EDUCATIVOS"
         if (nombreLimpio === '' || nombreLimpio.includes('NO POSEE CENTROS EDUCATIVOS')) {
-          if (!gruposPorSitur['SIN_NOMBRE_O_VACIAS']) gruposPorSitur['SIN_NOMBRE_O_VACIAS'] = [{ nombreRepresentativo: '⚠️ PLANTEL SIN NOMBRE O NO POSEE CENTROS', escuelas: [] }];
-          gruposPorSitur['SIN_NOMBRE_O_VACIAS'][0].escuelas.push(c);
-          return; // Saltamos la validación de similitud
+          if (!gruposPorSitur['FANTASMAS']) gruposPorSitur['FANTASMAS'] = [{ nombreRepresentativo: '⚠️ PLANTEL SIN NOMBRE O NO POSEE CENTROS', escuelas: [] }];
+          gruposPorSitur['FANTASMAS'][0].escuelas.push(c);
+          return; 
         }
 
-        // 2. Validación normal de similitud
+        // 2. Validación normal de similitud para las demás
         if (!gruposPorSitur[situr]) gruposPorSitur[situr] = [];
         let encontrado = false;
         
@@ -99,13 +126,12 @@ export default function LimpiadorEscuelasPage() {
       const repetidos: any[] = [];
       for (const situr in gruposPorSitur) {
         for (const grupo of gruposPorSitur[situr]) {
-          // Mostrar si hay duplicados OR si es el grupo de escuelas sin nombre
-          if (grupo.escuelas.length > 1 || situr === 'SIN_NOMBRE_O_VACIAS') {
+          if (grupo.escuelas.length > 1 || situr === 'FANTASMAS') {
             repetidos.push({
-              situr: situr === 'SIN_NOMBRE_O_VACIAS' ? 'MÚLTIPLES' : situr,
+              situr: situr === 'FANTASMAS' ? 'MÚLTIPLES' : situr,
               nombreDetectado: grupo.nombreRepresentativo,
               escuelas: grupo.escuelas,
-              esFantasma: situr === 'SIN_NOMBRE_O_VACIAS'
+              esFantasma: situr === 'FANTASMAS'
             });
           }
         }
@@ -119,6 +145,10 @@ export default function LimpiadorEscuelasPage() {
     cargarDatos();
   }, []);
 
+  const toggleDetalles = (cod: string) => {
+    setDetallesVisibles(prev => prev === cod ? null : cod);
+  };
+
   // --- LOGICA PARA DESCARGAR EXCEL ---
   const descargarExcel = () => {
     const datosPlanos: any[] = [];
@@ -129,6 +159,8 @@ export default function LimpiadorEscuelasPage() {
           'NOMBRE CENTRO': esc['NOMBRE CENTRO'],
           'CODIGO_CIRCUITO_COMUNAL': esc.CODIGO_CIRCUITO_COMUNAL,
           'DIRECCION': esc.DIRECCION,
+          'ESTADO_INSPECCION': esc.tieneReporte ? 'LLENADO EN SISTEMA' : 'SIN REPORTE',
+          'ORGANISMO_ASIGNADO': esc.organismo,
           'TIPO_PROBLEMA': grupo.esFantasma ? 'FANTASMA / SIN CENTRO' : 'POSIBLE DUPLICADO'
         });
       });
@@ -206,9 +238,14 @@ export default function LimpiadorEscuelasPage() {
     reader.readAsArrayBuffer(file);
   };
 
-  const eliminarEscuela = async (codCentro: string) => {
-    const confirmar = window.confirm(`ATENCIÓN: ¿Estás seguro de eliminar la escuela CÓDIGO ${codCentro}?`);
-    if (!confirmar) return;
+  const eliminarEscuela = async (codCentro: string, tieneReporte: boolean) => {
+    if (tieneReporte) {
+      const advertencia = window.confirm(`⚠️ ¡CUIDADO! Esta escuela ya tiene un reporte de inspección llenado en el sistema.\n\nSi la eliminas, ese reporte quedará huerfano en la base de datos. ¿ESTÁS COMPLETAMENTE SEGURO de querer borrarla?`);
+      if (!advertencia) return;
+    } else {
+      const confirmar = window.confirm(`¿Estás seguro de eliminar la escuela CÓDIGO ${codCentro}?`);
+      if (!confirmar) return;
+    }
 
     setProcesando(codCentro);
     const { error } = await supabase.from('centros_votacion_2026').delete().eq('COD_CENTRO', codCentro);
@@ -262,7 +299,7 @@ export default function LimpiadorEscuelasPage() {
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center space-y-4">
       <Crosshair className={`text-[#00529b] ${uploading ? 'animate-bounce' : 'animate-spin'}`} size={48} />
       <p className="font-black text-[#00529b] uppercase tracking-widest text-sm text-center px-4">
-        {uploading ? 'PROCESANDO EXCEL Y ACTUALIZANDO BASE DE DATOS...' : 'Escaneo Agresivo en progreso...'}
+        {uploading ? 'PROCESANDO EXCEL Y ACTUALIZANDO BASE DE DATOS...' : 'Escaneo Agresivo Cruzando Bases de Datos...'}
       </p>
     </div>
   );
@@ -325,26 +362,56 @@ export default function LimpiadorEscuelasPage() {
               
               <div className="divide-y divide-gray-100">
                 {grupo.escuelas.map((escuela: any, idx: number) => (
-                  <div key={idx} className="p-6 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 hover:bg-gray-50 transition-colors">
-                    <div>
-                      <p className="text-sm font-black text-gray-900 uppercase">{escuela['NOMBRE CENTRO'] || '— EN BLANCO —'}</p>
-                      <p className="text-xs font-bold text-[#00529b] mt-1 font-mono">CNE: {escuela.COD_CENTRO} <span className="text-gray-400 mx-2">|</span> SITUR: {escuela.CODIGO_CIRCUITO_COMUNAL || 'N/A'}</p>
+                  <div key={idx} className="p-6 flex flex-col transition-colors hover:bg-gray-50">
+                    <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 w-full">
+                      <div>
+                        <p className="text-sm font-black text-gray-900 uppercase">{escuela['NOMBRE CENTRO'] || '— EN BLANCO —'}</p>
+                        <p className="text-xs font-bold text-[#00529b] mt-1 font-mono">CNE: {escuela.COD_CENTRO} <span className="text-gray-400 mx-2">|</span> SITUR: {escuela.CODIGO_CIRCUITO_COMUNAL || 'N/A'}</p>
+                      </div>
+                      <div className="flex flex-wrap gap-2 w-full lg:w-auto">
+                        <button 
+                          onClick={() => toggleDetalles(escuela.COD_CENTRO)}
+                          className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase transition-all shadow-sm bg-indigo-50 text-indigo-700 hover:bg-indigo-600 hover:text-white border-2 border-indigo-100 hover:border-indigo-600"
+                        >
+                          <Eye size={16} /> Info
+                        </button>
+                        <button 
+                          onClick={() => abrirModalEdicion(escuela)}
+                          className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase transition-all shadow-sm bg-blue-50 text-[#00529b] hover:bg-[#00529b] hover:text-white border-2 border-blue-100 hover:border-[#00529b]"
+                        >
+                          <Edit2 size={16} /> Editar
+                        </button>
+                        <button 
+                          onClick={() => eliminarEscuela(escuela.COD_CENTRO, escuela.tieneReporte)}
+                          disabled={procesando === escuela.COD_CENTRO}
+                          className={`flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase transition-all shadow-sm ${procesando === escuela.COD_CENTRO ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : 'bg-white text-red-600 hover:bg-red-600 hover:text-white border-2 border-red-200 hover:border-red-600'}`}
+                        >
+                          <Trash2 size={16} /> {procesando === escuela.COD_CENTRO ? '...' : 'Eliminar'}
+                        </button>
+                      </div>
                     </div>
-                    <div className="flex gap-2 w-full lg:w-auto">
-                      <button 
-                        onClick={() => abrirModalEdicion(escuela)}
-                        className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase transition-all shadow-sm bg-blue-50 text-[#00529b] hover:bg-[#00529b] hover:text-white border-2 border-blue-100 hover:border-[#00529b]"
-                      >
-                        <Edit2 size={16} /> Editar Todo
-                      </button>
-                      <button 
-                        onClick={() => eliminarEscuela(escuela.COD_CENTRO)}
-                        disabled={procesando === escuela.COD_CENTRO}
-                        className={`flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase transition-all shadow-sm ${procesando === escuela.COD_CENTRO ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : 'bg-white text-red-600 hover:bg-red-600 hover:text-white border-2 border-red-200 hover:border-red-600'}`}
-                      >
-                        <Trash2 size={16} /> {procesando === escuela.COD_CENTRO ? '...' : 'Eliminar'}
-                      </button>
-                    </div>
+                    
+                    {/* SECCIÓN DESPLEGABLE DE INFORMACIÓN */}
+                    {detallesVisibles === escuela.COD_CENTRO && (
+                      <div className="mt-4 bg-gray-100 p-5 rounded-2xl text-xs space-y-3 border border-gray-200 animate-fadeIn">
+                        <div className="flex flex-col sm:flex-row justify-between sm:items-center border-b border-gray-200 pb-3 gap-2">
+                          <span className="font-bold text-gray-500 uppercase">Estado en Sistema:</span>
+                          {escuela.tieneReporte ? (
+                            <span className="flex items-center gap-1.5 font-black text-emerald-600 bg-emerald-100 px-3 py-1 rounded-full"><CheckCircle2 size={16}/> ✅ INSPECCIÓN LLENADA</span>
+                          ) : (
+                            <span className="flex items-center gap-1.5 font-black text-red-500 bg-red-100 px-3 py-1 rounded-full"><XCircle size={16}/> ❌ SIN REPORTE</span>
+                          )}
+                        </div>
+                        <div className="flex flex-col sm:flex-row justify-between sm:items-center border-b border-gray-200 pb-3 gap-2">
+                          <span className="font-bold text-gray-500 uppercase">Organismo Asignado:</span>
+                          <span className="font-black text-gray-800 uppercase sm:text-right">{escuela.organismo}</span>
+                        </div>
+                        <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2">
+                          <span className="font-bold text-gray-500 uppercase">Responsable Cuadrante:</span>
+                          <span className="font-black text-gray-800 uppercase sm:text-right text-[#00529b]">{escuela.responsable}</span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
