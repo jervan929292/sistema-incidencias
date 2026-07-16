@@ -117,7 +117,8 @@ export default function LimpiadorEscuelasPage() {
         const grado = dirInfo.grado_jerarquia || dirInfo.grado_jerarquia_jefe || dirInfo.rango || '';
         const nombreJefe = dirInfo.nombre_apellido_jefe || dirInfo.responsable || dirInfo.nombre_jefe || 'FUNCIONARIO ASIGNADO';
         
-        const nombreComuna = dirInfo.comuna || dirInfo.nombre_comuna || dirInfo.circuito || dirInfo.nombre_circuito || dirInfo.sector || 'COMUNA NO REGISTRADA';
+        // CORRECCIÓN APLICADA AQUÍ: Se añade 'comuna_o_circuito'
+        const nombreComuna = dirInfo.comuna_o_circuito || dirInfo.comuna || dirInfo.nombre_comuna || dirInfo.circuito || dirInfo.nombre_circuito || dirInfo.sector || 'COMUNA NO REGISTRADA';
         const municipio = dirInfo.municipio || dirInfo.nombre_municipio || 'SIN MUNICIPIO';
         const parroquia = dirInfo.parroquia || dirInfo.nombre_parroquia || 'SIN PARROQUIA';
 
