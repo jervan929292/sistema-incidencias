@@ -1,6 +1,11 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
+// Verificamos que la URL exista y sea válida; si no, usamos un placeholder seguro para el build
+const rawUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseUrl = (rawUrl && rawUrl.startsWith('http')) 
+  ? rawUrl 
+  : 'https://placeholder.supabase.co';
+
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-key';
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
