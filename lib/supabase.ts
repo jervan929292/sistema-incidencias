@@ -1,7 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Usamos las credenciales que ya probamos con éxito en la terminal
-const supabaseUrl = 'https://arnzgpkllqjkchvydqbc.supabase.co';
-const supabaseKey = 'sb_publishable_x0KPWEiTh7wy7xtcYm4hJA_xXofMvhK';
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
-export const supabase = createClient(supabaseUrl, supabaseKey);
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
