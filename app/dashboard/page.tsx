@@ -81,7 +81,6 @@ export default function UserDashboardPage() {
  useEffect(() => {
     const initDashboard = async () => {
       // 1. Obtenemos el correo del usuario desde el almacenamiento local o validamos directo en la tabla
-      // Como el auth local está bloqueado por el túnel, consultamos directamente por correo
       const sessionData = localStorage.getItem('user_session');
       let correoA_Buscar = 'ronald.ros1993@gmail.com'; // Por defecto tu correo de prueba o el guardado
 
@@ -106,6 +105,7 @@ export default function UserDashboardPage() {
       
       setUsuarioLogueado(userData);
       setForm(prev => ({ ...prev, circuito_comunal: userData.comuna_o_circuito_comunal || '' }));
+      
       // Consultar cuántos reportes tiene este circuito comunal en la BD
       if (userData.comuna_o_circuito_comunal) {
         const { count } = await supabase
@@ -234,16 +234,17 @@ export default function UserDashboardPage() {
         cantidad: form.cantidad,
         circuito_comunal: form.circuito_comunal.toUpperCase().trim(),
         
-        // ¡LA MAGIA OCURRE AQUÍ!
         // Guardamos explícitamente quién es el dueño del reporte:
         organismo_responsable: usuarioLogueado.organismo_responsable,
-        
         // Y guardamos quiénes apoyaron:
         organismos_involucrados: organismosTexto,
         
         lugar_actividad: lugarCompleto,
         resena: form.resena,
-        observacion: form.observacion
+        observacion: form.observacion,
+        
+        // ¡FECHA REGISTRADA AUTOMÁTICAMENTE AQUÍ!
+        created_at: new Date().toISOString()
       };
 
       const { error } = await supabase.from('incidencias').insert([payload]);
