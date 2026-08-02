@@ -243,8 +243,8 @@ export default function UserDashboardPage() {
         resena: form.resena,
         observacion: form.observacion,
         
-        // ¡FECHA REGISTRADA AUTOMÁTICAMENTE AQUÍ!
-        created_at: new Date().toISOString()
+        // CORREGIDO AQUÍ: SE LLAMA fecha_registro, NO created_at
+        fecha_registro: new Date().toISOString()
       };
 
       const { error } = await supabase.from('incidencias').insert([payload]);
