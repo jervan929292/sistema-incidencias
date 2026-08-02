@@ -1,6 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Valores seguros por defecto para evitar que el build de Vercel falle si la variable está vacía momentáneamente
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-key';
 
