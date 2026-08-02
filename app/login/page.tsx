@@ -34,12 +34,12 @@ export default function LoginPage() {
       const codigoLimpio = codigo.trim();
 
       // Buscamos directamente el usuario y su clave en la tabla operativa
-      const { data: userInDB, error: dbError } = await supabase
+      // Buscamos el usuario por correo y código SITUR de forma segura
+      const { data: users, error: dbError } = await supabase
         .from('directorio_operativo')
         .select('id, rol, email, codigo_situr')
         .ilike('email', correoLimpio)
-        .eq('codigo_situr', codigoLimpio)
-        .maybeSingle();
+        .eq('codigo_situr', codigoLimpio);
 
       if (dbError) {
         setErrorMsg(`Error de base de datos: ${dbError.message}`);
@@ -47,11 +47,13 @@ export default function LoginPage() {
         return;
       }
 
-      if (!userInDB) {
+      if (!users || users.length === 0) {
         setErrorMsg("Credenciales inválidas. Verifica tu correo y código SITUR.");
         setLoading(false);
         return;
       }
+
+      const userInDB = users[0];
 
       // Si todo coincide, guardamos los datos de sesión localmente para que el panel los reconozca
       localStorage.setItem('user_session', JSON.stringify(userInDB));
