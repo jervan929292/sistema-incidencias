@@ -10,7 +10,7 @@ export default function ControlMantenimiento() {
   useEffect(() => {
     // 1. Revisar estado al cargar cualquier página
     const checkMantenimiento = async () => {
-      const { data } = await supabase.from('configuracion_sistema').select('en_mantenimiento').eq('id', 1).single();
+      const { data } = await supabase.from('configuracion_sistema').select('en_mantenimiento').limit(1).maybeSingle();
       
       if (data?.en_mantenimiento) {
         // Si hay mantenimiento, cerramos sesión y expulsamos
