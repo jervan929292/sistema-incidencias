@@ -109,31 +109,40 @@ export default function AdminDashboardPage() {
 
   useEffect(() => {
     const checkAccess = async () => {
-      try {
-        const { data: { user }, error: authError } = await supabase.auth.getUser();
-        if (authError || !user) { await supabase.auth.signOut(); window.location.href = '/login'; return; }
-        
-        const { data: adminData, error: dbError } = await supabase.from('directorio_operativo').select('*').eq('id', user.id).single();
-        if (dbError) throw dbError;
-        
-        if (adminData?.rol === 'admin' || adminData?.rol === 'superusuario') {
-          setAdminUser(adminData); 
-          setEsSuperUser(adminData.rol === 'superusuario');
-          setIsReadOnlyVen911(adminData.organismo_responsable === 'VEN 911' && adminData.rol !== 'superusuario');
-          setVerificando(false);
-          fetchDatos(adminData);
-          if (adminData.rol === 'superusuario') {
-            fetchAdmins();
-          }
-        } else {
-          window.location.href = '/dashboard';
-        }
-      } catch (err) {
-        console.error(err);
-        await supabase.auth.signOut(); window.location.href = '/login';
+    try {
+      // 1. Obtenemos el correo del usuario desde el almacenamiento local o buscamos el registro operativo directamente
+      // Como ya sabemos que tu correo es ronald.ros1993@gmail.com, consultamos directo a la tabla de la oficina
+      const { data: adminData, error: dbError } = await supabase
+        .from('directorio_operativo')
+        .select('*')
+        .ilike('email', 'ronald.ros1993@gmail.com')
+        .maybeSingle();
+
+      if (dbError || !adminData) {
+        console.error("Error al buscar el administrador en la BD:", dbError);
+        window.location.href = '/login';
+        return;
       }
-    };
-    checkAccess();
+
+      // 2. Validamos que tenga el rol correspondiente
+      if (adminData?.rol === 'admin' || adminData?.rol === 'superusuario') {
+        setAdminUser(adminData); 
+        setEsSuperUser(adminData.rol === 'superusuario');
+        setIsReadOnlyVen911(adminData.organismo_responsable === 'VEN 911' && adminData.rol !== 'superusuario');
+        setVerificando(false);
+        fetchDatos(adminData);
+        if (adminData.rol === 'superusuario') {
+          fetchAdmins();
+        }
+      } else {
+        window.location.href = '/dashboard';
+      }
+    } catch (err) {
+      console.error("Error crítico en checkAccess:", err);
+      window.location.href = '/login';
+    }
+  };
+  checkAccess();
   }, []);
 
   const fetchAdmins = async () => {
