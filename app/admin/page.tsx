@@ -110,27 +110,46 @@ export default function AdminDashboardPage() {
   useEffect(() => {
     const checkAccess = async () => {
     try {
-      // 1. Obtenemos el correo del usuario desde el almacenamiento local o buscamos el registro operativo directamente
-      // Como ya sabemos que tu correo es ronald.ros1993@gmail.com, consultamos directo a la tabla de la oficina
-      const { data: adminData, error: dbError } = await supabase
-        .from('directorio_operativo')
-        .select('*')
-        .ilike('email', 'ronald.ros1993@gmail.com')
-        .maybeSingle();
+      // 1. Tomamos el correo del usuario que se logueó guardado en el localStorage
+      const sessionData = localStorage.getItem('user_session');
+      let correoLogueado = '';
 
-      if (dbError || !adminData) {
-        console.error("Error al buscar el administrador en la BD:", dbError);
+      if (sessionData) {
+        try {
+          const parsed = JSON.parse(sessionData);
+          if (parsed?.email) correoLogueado = parsed.email;
+        } catch (e) {}
+      }
+
+      if (!correoLogueado) {
         window.location.href = '/login';
         return;
       }
 
-      // 2. Validamos que tenga el rol correspondiente
+      // 2. Buscamos los datos reales de ESE usuario específico en la base de datos
+      const { data: adminData, error: dbError } = await supabase
+        .from('directorio_operativo')
+        .select('*')
+        .ilike('email', correoLogueado)
+        .maybeSingle();
+
+      if (dbError || !adminData) {
+        console.error("Error al buscar los datos del usuario:", dbError);
+        window.location.href = '/login';
+        return;
+      }
+
+      // 3. Validamos su rol y permisos de forma personalizada
       if (adminData?.rol === 'admin' || adminData?.rol === 'superusuario') {
         setAdminUser(adminData); 
         setEsSuperUser(adminData.rol === 'superusuario');
+        
+        // Si es admin normal (no superusuario), restringimos su vista a su propio organismo
         setIsReadOnlyVen911(adminData.organismo_responsable === 'VEN 911' && adminData.rol !== 'superusuario');
+        
         setVerificando(false);
-        fetchDatos(adminData);
+        fetchDatos(adminData); // Carga los datos filtrados según su perfil
+        
         if (adminData.rol === 'superusuario') {
           fetchAdmins();
         }
