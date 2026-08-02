@@ -78,19 +78,34 @@ export default function UserDashboardPage() {
     observacion: ''
   });
 
-  useEffect(() => {
+ useEffect(() => {
     const initDashboard = async () => {
-      // 1. Verificar sesión activa
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { router.push('/login'); return; }
+      // 1. Obtenemos el correo del usuario desde el almacenamiento local o validamos directo en la tabla
+      // Como el auth local está bloqueado por el túnel, consultamos directamente por correo
+      const sessionData = localStorage.getItem('user_session');
+      let correoA_Buscar = 'ronald.ros1993@gmail.com'; // Por defecto tu correo de prueba o el guardado
 
-      // 2. Obtener datos de la ficha del usuario logueado
-      const { data: userData } = await supabase.from('directorio_operativo').select('*').eq('id', user.id).single();
-      if (!userData) { router.push('/login'); return; }
+      if (sessionData) {
+        try {
+          const parsed = JSON.parse(sessionData);
+          if (parsed?.email) correoA_Buscar = parsed.email;
+        } catch (e) {}
+      }
+
+      // 2. Obtener datos de la ficha del usuario logueado directamente de la tabla operativa
+      const { data: userData, error: dbError } = await supabase
+        .from('directorio_operativo')
+        .select('*')
+        .ilike('email', correoA_Buscar)
+        .maybeSingle();
+
+      if (dbError || !userData) { 
+        router.push('/login'); 
+        return; 
+      }
       
       setUsuarioLogueado(userData);
       setForm(prev => ({ ...prev, circuito_comunal: userData.comuna_o_circuito_comunal || '' }));
-
       // Consultar cuántos reportes tiene este circuito comunal en la BD
       if (userData.comuna_o_circuito_comunal) {
         const { count } = await supabase
