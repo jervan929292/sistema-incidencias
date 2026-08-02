@@ -1,53 +1,88 @@
-'use client';
-import { useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
-import { useRouter, usePathname } from 'next/navigation';
-
-export default function ControlMantenimiento() {
-  const router = useRouter();
-  const pathname = usePathname();
-
-  useEffect(() => {
-    // 1. Revisar estado al cargar cualquier página
-    const checkMantenimiento = async () => {
-      const { data } = await supabase.from('configuracion_sistema').select('en_mantenimiento').limit(1).maybeSingle();
-      
-      if (data?.en_mantenimiento) {
-        // Si hay mantenimiento, cerramos sesión y expulsamos
-        await supabase.auth.signOut();
-        if (pathname !== '/mantenimiento') {
-          router.replace('/mantenimiento');
-        }
-      } else {
-        // Si no hay mantenimiento pero alguien intenta entrar a la vista de mantenimiento, lo sacamos
-        if (pathname === '/mantenimiento') {
-          router.replace('/login');
-        }
-      }
-    };
-    checkMantenimiento();
-
-    // 2. ESCUCHA EN TIEMPO REAL (Magia pura)
-    // Si tú lo cambias a "true" en Supabase, esto saca a todos los que estén conectados al instante
-    const channel = supabase.channel('vigilante-mantenimiento')
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'configuracion_sistema', filter: 'id=eq.1' }, (payload) => {
-        if (payload.new.en_mantenimiento) {
-          supabase.auth.signOut().then(() => {
-            window.location.href = '/mantenimiento';
-          });
-        } else {
-          // Si lo apagas (false), mandamos a la gente a hacer login
-          if (window.location.pathname === '/mantenimiento') {
-             window.location.href = '/login';
-          }
-        }
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [pathname, router]);
-
-  return null; // Es un componente invisible, solo actúa en el fondo
-}
+memory leak detected. 11 end listeners added. Use emitter.setMaxListeners() to increase limit
+n @ contentscript.js:14083
+u @ contentscript.js:14083
+i.addListener @ contentscript.js:14083
+Z.on @ contentscript.js:14082
+O @ contentscript.js:14083
+q @ contentscript.js:14063
+D @ contentscript.js:14063
+P @ contentscript.js:14063
+R @ contentscript.js:14063
+I @ contentscript.js:14063
+(anonymous) @ contentscript.js:14083
+call.__webpack_require__._LM_.__webpack_require__.__webpack_require__ @ contentscript.js:14083
+(anonymous) @ contentscript.js:14083
+(anonymous) @ contentscript.js:14083
+contentscript.js:14083 ObjectMultiplex - orphaned data for stream "app-init-liveness"
+warn @ contentscript.js:14083
+_write @ contentscript.js:14082
+R @ contentscript.js:14063
+A @ contentscript.js:14063
+j.write @ contentscript.js:14063
+d @ contentscript.js:14082
+i.emit @ contentscript.js:14083
+J @ contentscript.js:14082
+K @ contentscript.js:14082
+Z.push @ contentscript.js:14082
+(anonymous) @ contentscript.js:14063
+contentscript.js:14083 ObjectMultiplex - orphaned data for stream "app-init-liveness"
+warn @ contentscript.js:14083
+_write @ contentscript.js:14082
+R @ contentscript.js:14063
+A @ contentscript.js:14063
+j.write @ contentscript.js:14063
+d @ contentscript.js:14082
+i.emit @ contentscript.js:14083
+J @ contentscript.js:14082
+K @ contentscript.js:14082
+Z.push @ contentscript.js:14082
+(anonymous) @ contentscript.js:14082
+transform @ contentscript.js:14063
+s._write @ contentscript.js:14082
+I @ contentscript.js:14083
+L @ contentscript.js:14083
+O.write @ contentscript.js:14083
+d @ contentscript.js:14082
+i.emit @ contentscript.js:14083
+J @ contentscript.js:14082
+K @ contentscript.js:14082
+Z.push @ contentscript.js:14082
+(anonymous) @ contentscript.js:14063
+contentscript.js:14083 ObjectMultiplex - orphaned data for stream "background-liveness"
+warn @ contentscript.js:14083
+_write @ contentscript.js:14082
+R @ contentscript.js:14063
+A @ contentscript.js:14063
+j.write @ contentscript.js:14063
+d @ contentscript.js:14082
+i.emit @ contentscript.js:14083
+J @ contentscript.js:14082
+K @ contentscript.js:14082
+Z.push @ contentscript.js:14082
+(anonymous) @ contentscript.js:14063
+contentscript.js:14083 ObjectMultiplex - orphaned data for stream "background-liveness"
+warn @ contentscript.js:14083
+_write @ contentscript.js:14082
+R @ contentscript.js:14063
+A @ contentscript.js:14063
+j.write @ contentscript.js:14063
+d @ contentscript.js:14082
+i.emit @ contentscript.js:14083
+J @ contentscript.js:14082
+K @ contentscript.js:14082
+Z.push @ contentscript.js:14082
+(anonymous) @ contentscript.js:14082
+transform @ contentscript.js:14063
+s._write @ contentscript.js:14082
+I @ contentscript.js:14083
+L @ contentscript.js:14083
+O.write @ contentscript.js:14083
+d @ contentscript.js:14082
+i.emit @ contentscript.js:14083
+J @ contentscript.js:14082
+K @ contentscript.js:14082
+Z.push @ contentscript.js:14082
+(anonymous) @ contentscript.js:14063
+forward-logs-shared.ts:95 Download the React DevTools for a better development experience: https://react.dev/link/react-devtools
+forward-logs-shared.ts:95 [HMR] connected
+2admin:1 Uncaught (in promise) Error: A listener indicated an asynchronous response by returning true, but the message channel closed before a response was received
