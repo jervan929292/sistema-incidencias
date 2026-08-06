@@ -1,7 +1,14 @@
-import type { NextConfig } from "next";
+import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  async rewrites() {
+    return [
+      {
+        source: '/api/supabase/:path*',
+        destination: 'https://14disun0wg.localto.net/:path*', 
+      },
+    ];
+  },
 };
 
 export default nextConfig;
