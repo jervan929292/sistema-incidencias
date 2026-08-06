@@ -1,6 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Verificamos que la URL exista y sea válida; si no, usamos un placeholder seguro para el build
 const rawUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseUrl = (rawUrl && rawUrl.startsWith('http')) 
   ? rawUrl 
@@ -19,6 +18,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   global: {
     headers: {
       'x-client-info': 'sistema-incidencias-ven911',
+      'localtonet-skip-warning': 'true',
     },
   },
 });
