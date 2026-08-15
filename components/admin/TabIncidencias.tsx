@@ -4,7 +4,6 @@ import { supabase } from '@/lib/supabase';
 import { Search, FileSpreadsheet, FileText, Filter, ShieldAlert, Activity, ShieldCheck, Siren, Target, Eye, X, Info, Loader2, Wifi, Database } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
-
 const LISTA_ORGANISMOS = [
   "CICPC",
   "CUERPO DE POLICIA NACIONAL BOLIVARIANA",
@@ -224,7 +223,7 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
     XLSX.writeFile(wb, 'Reporte_Incidencias_VEN911.xlsx');
   };
 
-  const handleGenerarPDFIncidencias = () => {
+  const handleGenerarPDFIncidencias = async () => {
     if (incidenciasFiltradas.length === 0) { 
       alert("No hay registros para exportar."); 
       return; 
@@ -547,5 +546,4 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
 
     </div>
   );
-};
-//prueva
+}
