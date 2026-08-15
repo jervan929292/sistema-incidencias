@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Search, FileSpreadsheet, FileText, Filter, ShieldAlert, Activity, ShieldCheck, Siren, Target, Eye, X, Info, Loader2, Wifi, Database } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import html2pdf from 'html2pdf.js';
 
 const LISTA_ORGANISMOS = [
   "CICPC",
@@ -224,11 +225,12 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
   };
 
   const handleGenerarPDFIncidencias = () => {
-    if (incidenciasFiltradas.length === 0) { alert("No hay registros para exportar."); return; }
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) return;
+    if (incidenciasFiltradas.length === 0) { 
+      alert("No hay registros para exportar."); 
+      return; 
+    }
 
-    // Construir las filas de la tabla
+    // 1. Construir las filas de la tabla
     const filasHtml = incidenciasFiltradas.map(inc => {
       const jefe = usuarios.find(u => u.comuna_o_circuito_comunal === inc.circuito_comunal);
       const resena = inc.resena_informativa || inc.resena || 'N/A';
@@ -236,106 +238,61 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
       const orgA_Mostrar = jefe?.organismo_responsable || inc.organismo_responsable || 'N/A';
       return `
       <tr>
-        <td>${new Date(inc.fecha_registro).toLocaleString()}</td>
-        <td><strong>${inc.circuito_comunal}</strong></td>
-        <td>${jefe?.municipio || 'N/A'} / ${jefe?.parroquia || 'N/A'}</td>
-        <td>${inc.clasificacion}</td>
-        <td>${inc.incidencia}</td>
-        <td><b>${orgA_Mostrar}</b><br/><span style="color:#666; font-size:8px;">Apoyo: ${inc.organismos_involucrados || 'Ninguno'}</span></td>
-        <td class="resena-text">${resena}</td>
-        <td class="resena-text">${obs}</td>
+        <td style="padding: 6px; border: 1px solid #cbd5e1;">${new Date(inc.fecha_registro).toLocaleString()}</td>
+        <td style="padding: 6px; border: 1px solid #cbd5e1;"><strong>${inc.circuito_comunal}</strong></td>
+        <td style="padding: 6px; border: 1px solid #cbd5e1;">${jefe?.municipio || 'N/A'} / ${jefe?.parroquia || 'N/A'}</td>
+        <td style="padding: 6px; border: 1px solid #cbd5e1;">${inc.clasificacion}</td>
+        <td style="padding: 6px; border: 1px solid #cbd5e1;">${inc.incidencia}</td>
+        <td style="padding: 6px; border: 1px solid #cbd5e1;"><b>${orgA_Mostrar}</b><br/><span style="color:#666; font-size:8px;">Apoyo: ${inc.organismos_involucrados || 'Ninguno'}</span></td>
+        <td style="padding: 6px; border: 1px solid #cbd5e1; text-align: justify;">${resena}</td>
+        <td style="padding: 6px; border: 1px solid #cbd5e1; text-align: justify;">${obs}</td>
       </tr>
       `;
     }).join('');
 
-    // Obtener la fecha y hora actual para el reporte
     const fechaReporte = new Date().toLocaleString();
 
-    const htmlContent = `
-      <!DOCTYPE html>
-      <html lang="es">
-      <head>
-        <meta charset="UTF-8">
-        <title>Reporte de Incidencias</title>
-        <style>
-          body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; font-size: 10px; color: #333; }
-          
-          /* Estilos para el encabezado con Logos */
-          .header-container { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 2px solid #00529b; padding-bottom: 10px; }
-          .logos { display: flex; align-items: center; gap: 15px; }
-          .logo-img { height: 50px; object-fit: contain; } 
-          .header-title { text-align: right; }
-          .header-title h1 { margin: 0; color: #00529b; font-size: 16px; text-transform: uppercase; }
-          .header-title p { margin: 2px 0 0 0; color: #666; font-size: 10px; }
-
-          /* Estilos para el resumen cuantitativo (Tarjetas) */
-          .stats-container { display: flex; justify-content: space-between; margin-bottom: 20px; gap: 10px; }
-          .stat-card { border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; flex: 1; text-align: center; background-color: #f8fafc; }
-          .stat-title { font-size: 9px; color: #64748b; text-transform: uppercase; font-weight: bold; margin-bottom: 5px; }
-          .stat-value { font-size: 18px; font-weight: 900; color: #0f172a; margin: 0; }
-          
-          /* Colores específicos para cada tarjeta imitando tu UI */
-          .stat-total .stat-value { color: #1e293b; }
-          .stat-prev .stat-value { color: #2563eb; }
-          .stat-patr .stat-value { color: #d97706; }
-          .stat-efec .stat-value { color: #059669; }
-
-          /* Filtros aplicados */
-          .filtros-aplicados { margin-bottom: 15px; font-size: 9px; color: #475569; background: #f1f5f9; padding: 8px; border-radius: 4px;}
-
-          /* Estilos de la tabla */
-          table { width: 100%; border-collapse: collapse; margin-top: 10px; page-break-inside: auto; }
-          tr { page-break-inside: avoid; page-break-after: auto; }
-          th, td { border: 1px solid #cbd5e1; padding: 6px; text-align: left; vertical-align: top; }
-          th { background-color: #00529b; color: white; font-size: 9px; }
-          .resena-text { text-align: justify; }
-
-          @media print { 
-            @page { size: landscape; margin: 1cm; } 
-            body { padding: 0; }
-            .header-container { border-bottom-color: #000; }
-            th { background-color: #f1f5f9; color: #000; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-          }
-        </style>
-      </head>
-      <body>
+    // 2. Crear el contenedor principal para el PDF
+    const contenedor = document.createElement('div');
+    // IMPORTANTE: Asegúrate de que las imágenes estén en la carpeta public con estos nombres
+    contenedor.innerHTML = `
+      <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; font-size: 10px; color: #333; background: white; width: 100%;">
         
         <!-- ENCABEZADO CON LOGOS -->
-        <div class="header-container">
-          <div class="logos">
-            <!-- AQUÍ DEBES PONER LA RUTA REAL DE TUS LOGOS. EJ: /logo1.png -->
-            <img src="/logo1.png" alt="Cuadrantes de Paz" class="logo-img" onerror="this.style.display='none'">
-            <img src="/logo2.png" alt="Ministerio" class="logo-img" onerror="this.style.display='none'">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 2px solid #00529b; padding-bottom: 10px;">
+          <div style="display: flex; align-items: center; gap: 15px;">
+            <img src="/logo1.png" alt="Cuadrantes de Paz" style="height: 50px; object-fit: contain;">
+            <img src="/logo2.png" alt="Ministerio" style="height: 50px; object-fit: contain;">
           </div>
-          <div class="header-title">
-            <h1>Reporte General de Incidencias Operativas</h1>
-            <p>Estado Falcón - Sistema VEN 911</p>
-            <p>Generado el: ${fechaReporte}</p>
+          <div style="text-align: right;">
+            <h1 style="margin: 0; color: #00529b; font-size: 16px; text-transform: uppercase;">Reporte General de Incidencias</h1>
+            <p style="margin: 2px 0 0 0; color: #666; font-size: 10px;">Estado Falcón - Sistema VEN 911</p>
+            <p style="margin: 2px 0 0 0; color: #666; font-size: 10px;">Generado el: ${fechaReporte}</p>
           </div>
         </div>
 
-        <!-- RESUMEN CUANTITATIVO -->
-        <div class="stats-container">
-          <div class="stat-card stat-total">
-            <div class="stat-title">Total Registradas</div>
-            <div class="stat-value">${totalActividades}</div>
+        <!-- RESUMEN CUANTITATIVO (Tarjetas) -->
+        <div style="display: flex; justify-content: space-between; margin-bottom: 20px; gap: 10px;">
+          <div style="border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; flex: 1; text-align: center; background-color: #f8fafc;">
+            <div style="font-size: 9px; color: #64748b; text-transform: uppercase; font-weight: bold; margin-bottom: 5px;">Total Registradas</div>
+            <div style="font-size: 18px; font-weight: 900; color: #1e293b; margin: 0;">${totalActividades}</div>
           </div>
-          <div class="stat-card stat-prev">
-            <div class="stat-title">Preventiva</div>
-            <div class="stat-value">${totalPreventiva}</div>
+          <div style="border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; flex: 1; text-align: center; background-color: #f8fafc;">
+            <div style="font-size: 9px; color: #64748b; text-transform: uppercase; font-weight: bold; margin-bottom: 5px;">Preventiva</div>
+            <div style="font-size: 18px; font-weight: 900; color: #2563eb; margin: 0;">${totalPreventiva}</div>
           </div>
-          <div class="stat-card stat-patr">
-            <div class="stat-title">Patrullaje</div>
-            <div class="stat-value">${totalPatrullaje}</div>
+          <div style="border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; flex: 1; text-align: center; background-color: #f8fafc;">
+            <div style="font-size: 9px; color: #64748b; text-transform: uppercase; font-weight: bold; margin-bottom: 5px;">Patrullaje</div>
+            <div style="font-size: 18px; font-weight: 900; color: #d97706; margin: 0;">${totalPatrullaje}</div>
           </div>
-          <div class="stat-card stat-efec">
-            <div class="stat-title">Efectividad y Rend.</div>
-            <div class="stat-value">${totalEfectividad}</div>
+          <div style="border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; flex: 1; text-align: center; background-color: #f8fafc;">
+            <div style="font-size: 9px; color: #64748b; text-transform: uppercase; font-weight: bold; margin-bottom: 5px;">Efectividad y Rend.</div>
+            <div style="font-size: 18px; font-weight: 900; color: #059669; margin: 0;">${totalEfectividad}</div>
           </div>
         </div>
 
         <!-- INDICADOR DE FILTROS -->
-        <div class="filtros-aplicados">
+        <div style="margin-bottom: 15px; font-size: 9px; color: #475569; background: #f1f5f9; padding: 8px; border-radius: 4px;">
           <strong>Filtros aplicados:</strong> 
           ${fechaDesde ? `Desde: ${fechaDesde}` : ''} 
           ${fechaHasta ? `| Hasta: ${fechaHasta}` : ''}
@@ -345,33 +302,35 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
         </div>
 
         <!-- TABLA DE DATOS -->
-        <table>
+        <table style="width: 100%; border-collapse: collapse; margin-top: 10px;">
           <thead>
             <tr>
-              <th style="width: 8%;">FECHA / HORA</th>
-              <th style="width: 12%;">CIRCUITO COMUNAL</th>
-              <th style="width: 12%;">MUNI / PARROQ</th>
-              <th style="width: 10%;">CLASIFICACIÓN</th>
-              <th style="width: 10%;">INCIDENCIA</th>
-              <th style="width: 12%;">ORGANISMOS</th>
-              <th style="width: 18%;">RESEÑA INFORMATIVA</th>
-              <th style="width: 18%;">OBSERVACIONES</th>
+              <th style="width: 8%; background-color: #00529b; color: white; padding: 6px; border: 1px solid #cbd5e1; font-size: 9px; text-align: left;">FECHA / HORA</th>
+              <th style="width: 12%; background-color: #00529b; color: white; padding: 6px; border: 1px solid #cbd5e1; font-size: 9px; text-align: left;">CIRCUITO COMUNAL</th>
+              <th style="width: 12%; background-color: #00529b; color: white; padding: 6px; border: 1px solid #cbd5e1; font-size: 9px; text-align: left;">MUNI / PARROQ</th>
+              <th style="width: 10%; background-color: #00529b; color: white; padding: 6px; border: 1px solid #cbd5e1; font-size: 9px; text-align: left;">CLASIFICACIÓN</th>
+              <th style="width: 10%; background-color: #00529b; color: white; padding: 6px; border: 1px solid #cbd5e1; font-size: 9px; text-align: left;">INCIDENCIA</th>
+              <th style="width: 12%; background-color: #00529b; color: white; padding: 6px; border: 1px solid #cbd5e1; font-size: 9px; text-align: left;">ORGANISMOS</th>
+              <th style="width: 18%; background-color: #00529b; color: white; padding: 6px; border: 1px solid #cbd5e1; font-size: 9px; text-align: left;">RESEÑA INFORMATIVA</th>
+              <th style="width: 18%; background-color: #00529b; color: white; padding: 6px; border: 1px solid #cbd5e1; font-size: 9px; text-align: left;">OBSERVACIONES</th>
             </tr>
           </thead>
           <tbody>${filasHtml}</tbody>
         </table>
-        
-        <script>
-          // Pequeña pausa para asegurar que las imágenes (logos) carguen antes de imprimir
-          setTimeout(() => { 
-            window.print(); 
-          }, 800);
-        </script>
-      </body>
-      </html>
+      </div>
     `;
-    printWindow.document.write(htmlContent);
-    printWindow.document.close();
+
+    // 3. Configuración para descargar el PDF usando html2pdf
+    const opciones = {
+      margin:       10, // Margen en milímetros
+      filename:     `Reporte_Incidencias_${new Date().getTime()}.pdf`,
+      image:        { type: 'jpeg', quality: 0.98 },
+      html2canvas:  { scale: 2, useCORS: true }, // scale: 2 mejora la calidad de la foto
+      jsPDF:        { unit: 'mm', format: 'a4', orientation: 'landscape' } // Formato A4 horizontal
+    };
+
+    // 4. Generar y descargar
+    (html2pdf() as any).from(contenedor).set(opciones).save();
   };
 
   return (
