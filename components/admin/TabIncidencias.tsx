@@ -546,4 +546,5 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
 
     </div>
   );
-}
+};
+//prueva
