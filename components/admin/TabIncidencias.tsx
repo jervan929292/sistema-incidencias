@@ -223,13 +223,12 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
     XLSX.writeFile(wb, 'Reporte_Incidencias_VEN911.xlsx');
   };
 
-  const handleGenerarPDFIncidencias = async () => {
+  const handleGenerarPDFIncidencias = () => {
     if (incidenciasFiltradas.length === 0) { 
       alert("No hay registros para exportar."); 
       return; 
     }
 
-    // 1. Construir las filas de la tabla
     const filasHtml = incidenciasFiltradas.map(inc => {
       const jefe = usuarios.find(u => u.comuna_o_circuito_comunal === inc.circuito_comunal);
       const resena = inc.resena_informativa || inc.resena || 'N/A';
@@ -251,17 +250,15 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
 
     const fechaReporte = new Date().toLocaleString();
 
-    // 2. Crear el contenedor principal para el PDF
     const contenedor = document.createElement('div');
-    // IMPORTANTE: Asegúrate de que las imágenes estén en la carpeta public con estos nombres
     contenedor.innerHTML = `
       <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; font-size: 10px; color: #333; background: white; width: 100%;">
         
         <!-- ENCABEZADO CON LOGOS -->
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 2px solid #00529b; padding-bottom: 10px;">
           <div style="display: flex; align-items: center; gap: 15px;">
-            <img src="/logo1.png" alt="Cuadrantes de Paz" style="height: 50px; object-fit: contain;">
-            <img src="/logo2.png" alt="Ministerio" style="height: 50px; object-fit: contain;">
+            <img src="/logo1.png" alt="Cuadrantes de Paz" style="height: 50px; object-fit: contain;" onerror="this.style.display='none'">
+            <img src="/logo2.png" alt="Ministerio" style="height: 50px; object-fit: contain;" onerror="this.style.display='none'">
           </div>
           <div style="text-align: right;">
             <h1 style="margin: 0; color: #00529b; font-size: 16px; text-transform: uppercase;">Reporte General de Incidencias</h1>
@@ -319,18 +316,27 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
       </div>
     `;
 
-    // 3. Configuración para descargar el PDF usando html2pdf
-    const opciones = {
-      margin:       10,
-      filename:     `Reporte_Incidencias_${new Date().getTime()}.pdf`,
-      image:        { type: 'jpeg', quality: 0.98 },
-      html2canvas:  { scale: 2, useCORS: true },
-      jsPDF:        { unit: 'mm', format: 'a4', orientation: 'landscape' }
+    // 3. Función para descargar usando html2pdf (se ejecuta después de cargar el script)
+    const ejecutarDescarga = () => {
+      const opciones = {
+        margin:       10,
+        filename:     `Reporte_Incidencias_${new Date().getTime()}.pdf`,
+        image:        { type: 'jpeg', quality: 0.98 },
+        html2canvas:  { scale: 2, useCORS: true },
+        jsPDF:        { unit: 'mm', format: 'a4', orientation: 'landscape' }
+      };
+      (window as any).html2pdf().from(contenedor).set(opciones).save();
     };
 
-    // 4. Generar y descargar (CARGA DINÁMICA PARA EVITAR ERROR SSR)
-    const html2pdfLib = (await import('html2pdf.js')).default;
-    (html2pdfLib() as any).from(contenedor).set(opciones).save();
+    // 4. Inyectar librería desde CDN web (A prueba de fallos de Vercel/SSR)
+    if (!(window as any).html2pdf) {
+      const script = document.createElement('script');
+      script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js";
+      script.onload = ejecutarDescarga;
+      document.head.appendChild(script);
+    } else {
+      ejecutarDescarga();
+    }
   };
 
   return (
