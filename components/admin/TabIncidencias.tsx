@@ -94,7 +94,6 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
     }
 
     let descargados: any[] = [];
-    // ¡AQUÍ ESTÁ LA CORRECCIÓN! Supabase solo permite 1000 como máximo por página
     let loteSize = 1000; 
     let inicio = 0;
     let intentosFallo = 0; 
@@ -125,11 +124,9 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
         setIncidenciasDB(descargados);
         setTotalRecords(descargados.length); 
         
-        // ¡CORRECCIÓN! Sumamos exactamente la cantidad de registros que nos devolvió Supabase
         inicio += batch.length; 
         setProgress(Math.min(100, Math.round((inicio / totalEsperado) * 100)));
         
-        // Si nos devolvió menos de los 1000 que pedimos, significa que llegamos al final exacto
         if (batch.length < loteSize) break; 
       } else {
         break;
@@ -230,6 +227,8 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
     if (incidenciasFiltradas.length === 0) { alert("No hay registros para exportar."); return; }
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
+
+    // Construir las filas de la tabla
     const filasHtml = incidenciasFiltradas.map(inc => {
       const jefe = usuarios.find(u => u.comuna_o_circuito_comunal === inc.circuito_comunal);
       const resena = inc.resena_informativa || inc.resena || 'N/A';
@@ -246,8 +245,11 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
         <td class="resena-text">${resena}</td>
         <td class="resena-text">${obs}</td>
       </tr>
-      `
+      `;
     }).join('');
+
+    // Obtener la fecha y hora actual para el reporte
+    const fechaReporte = new Date().toLocaleString();
 
     const htmlContent = `
       <!DOCTYPE html>
@@ -256,20 +258,115 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
         <meta charset="UTF-8">
         <title>Reporte de Incidencias</title>
         <style>
-          body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; font-size: 10px;}
-          table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+          body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; font-size: 10px; color: #333; }
+          
+          /* Estilos para el encabezado con Logos */
+          .header-container { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 2px solid #00529b; padding-bottom: 10px; }
+          .logos { display: flex; align-items: center; gap: 15px; }
+          .logo-img { height: 50px; object-fit: contain; } 
+          .header-title { text-align: right; }
+          .header-title h1 { margin: 0; color: #00529b; font-size: 16px; text-transform: uppercase; }
+          .header-title p { margin: 2px 0 0 0; color: #666; font-size: 10px; }
+
+          /* Estilos para el resumen cuantitativo (Tarjetas) */
+          .stats-container { display: flex; justify-content: space-between; margin-bottom: 20px; gap: 10px; }
+          .stat-card { border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; flex: 1; text-align: center; background-color: #f8fafc; }
+          .stat-title { font-size: 9px; color: #64748b; text-transform: uppercase; font-weight: bold; margin-bottom: 5px; }
+          .stat-value { font-size: 18px; font-weight: 900; color: #0f172a; margin: 0; }
+          
+          /* Colores específicos para cada tarjeta imitando tu UI */
+          .stat-total .stat-value { color: #1e293b; }
+          .stat-prev .stat-value { color: #2563eb; }
+          .stat-patr .stat-value { color: #d97706; }
+          .stat-efec .stat-value { color: #059669; }
+
+          /* Filtros aplicados */
+          .filtros-aplicados { margin-bottom: 15px; font-size: 9px; color: #475569; background: #f1f5f9; padding: 8px; border-radius: 4px;}
+
+          /* Estilos de la tabla */
+          table { width: 100%; border-collapse: collapse; margin-top: 10px; page-break-inside: auto; }
+          tr { page-break-inside: avoid; page-break-after: auto; }
           th, td { border: 1px solid #cbd5e1; padding: 6px; text-align: left; vertical-align: top; }
-          th { background-color: #00529b; color: white; }
-          @media print { @page { size: landscape; margin: 1cm; } }
+          th { background-color: #00529b; color: white; font-size: 9px; }
+          .resena-text { text-align: justify; }
+
+          @media print { 
+            @page { size: landscape; margin: 1cm; } 
+            body { padding: 0; }
+            .header-container { border-bottom-color: #000; }
+            th { background-color: #f1f5f9; color: #000; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          }
         </style>
       </head>
       <body>
-        <h2>Reporte General de Incidencias Operativas - Estado Falcón</h2>
+        
+        <!-- ENCABEZADO CON LOGOS -->
+        <div class="header-container">
+          <div class="logos">
+            <!-- AQUÍ DEBES PONER LA RUTA REAL DE TUS LOGOS. EJ: /logo1.png -->
+            <img src="/logo1.png" alt="Cuadrantes de Paz" class="logo-img" onerror="this.style.display='none'">
+            <img src="/logo2.png" alt="Ministerio" class="logo-img" onerror="this.style.display='none'">
+          </div>
+          <div class="header-title">
+            <h1>Reporte General de Incidencias Operativas</h1>
+            <p>Estado Falcón - Sistema VEN 911</p>
+            <p>Generado el: ${fechaReporte}</p>
+          </div>
+        </div>
+
+        <!-- RESUMEN CUANTITATIVO -->
+        <div class="stats-container">
+          <div class="stat-card stat-total">
+            <div class="stat-title">Total Registradas</div>
+            <div class="stat-value">${totalActividades}</div>
+          </div>
+          <div class="stat-card stat-prev">
+            <div class="stat-title">Preventiva</div>
+            <div class="stat-value">${totalPreventiva}</div>
+          </div>
+          <div class="stat-card stat-patr">
+            <div class="stat-title">Patrullaje</div>
+            <div class="stat-value">${totalPatrullaje}</div>
+          </div>
+          <div class="stat-card stat-efec">
+            <div class="stat-title">Efectividad y Rend.</div>
+            <div class="stat-value">${totalEfectividad}</div>
+          </div>
+        </div>
+
+        <!-- INDICADOR DE FILTROS -->
+        <div class="filtros-aplicados">
+          <strong>Filtros aplicados:</strong> 
+          ${fechaDesde ? `Desde: ${fechaDesde}` : ''} 
+          ${fechaHasta ? `| Hasta: ${fechaHasta}` : ''}
+          ${filtroIncidenciaCircuito ? `| Circuito: ${filtroIncidenciaCircuito}` : ''}
+          ${filtroIncidenciaMuni ? `| Municipio: ${filtroIncidenciaMuni}` : ''}
+          ${!fechaDesde && !fechaHasta && !filtroIncidenciaCircuito && !filtroIncidenciaMuni ? 'Ninguno (Mostrando todos los registros)' : ''}
+        </div>
+
+        <!-- TABLA DE DATOS -->
         <table>
-          <thead><tr><th>FECHA</th><th>CIRCUITO</th><th>MUNI/PARROQ</th><th>CLASIFICACIÓN</th><th>INCIDENCIA</th><th>ORGANISMOS</th><th>RESEÑA</th><th>OBSERVACIONES</th></tr></thead>
+          <thead>
+            <tr>
+              <th style="width: 8%;">FECHA / HORA</th>
+              <th style="width: 12%;">CIRCUITO COMUNAL</th>
+              <th style="width: 12%;">MUNI / PARROQ</th>
+              <th style="width: 10%;">CLASIFICACIÓN</th>
+              <th style="width: 10%;">INCIDENCIA</th>
+              <th style="width: 12%;">ORGANISMOS</th>
+              <th style="width: 18%;">RESEÑA INFORMATIVA</th>
+              <th style="width: 18%;">OBSERVACIONES</th>
+            </tr>
+          </thead>
           <tbody>${filasHtml}</tbody>
         </table>
-        <script>setTimeout(() => { window.print(); window.close(); }, 1000);</script>
+        
+        <script>
+          // Pequeña pausa para asegurar que las imágenes (logos) carguen antes de imprimir
+          setTimeout(() => { 
+            window.print(); 
+          }, 800);
+        </script>
       </body>
       </html>
     `;
