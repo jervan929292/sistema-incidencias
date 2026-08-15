@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Search, FileSpreadsheet, FileText, Filter, ShieldAlert, Activity, ShieldCheck, Siren, Target, Eye, X, Info, Loader2, Wifi, Database } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import html2pdf from 'html2pdf.js';
+
 
 const LISTA_ORGANISMOS = [
   "CICPC",
@@ -322,15 +322,16 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
 
     // 3. Configuración para descargar el PDF usando html2pdf
     const opciones = {
-      margin:       10, // Margen en milímetros
+      margin:       10,
       filename:     `Reporte_Incidencias_${new Date().getTime()}.pdf`,
       image:        { type: 'jpeg', quality: 0.98 },
-      html2canvas:  { scale: 2, useCORS: true }, // scale: 2 mejora la calidad de la foto
-      jsPDF:        { unit: 'mm', format: 'a4', orientation: 'landscape' } // Formato A4 horizontal
+      html2canvas:  { scale: 2, useCORS: true },
+      jsPDF:        { unit: 'mm', format: 'a4', orientation: 'landscape' }
     };
 
-    // 4. Generar y descargar
-    (html2pdf() as any).from(contenedor).set(opciones).save();
+    // 4. Generar y descargar (CARGA DINÁMICA PARA EVITAR ERROR SSR)
+    const html2pdfLib = (await import('html2pdf.js')).default;
+    (html2pdfLib() as any).from(contenedor).set(opciones).save();
   };
 
   return (
