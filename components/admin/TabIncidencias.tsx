@@ -173,12 +173,26 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
   const circuitosIncidenciaUnicos = Array.from(new Set(usuarios.filter(u => (filtroIncidenciaMuni === '' || u.municipio === filtroIncidenciaMuni) && (filtroIncidenciaParro === '' || u.parroquia === filtroIncidenciaParro)).map(u => u.comuna_o_circuito_comunal))).filter(Boolean).sort();
 
   const incidenciasFiltradas = incidenciasDB.filter(inc => {
+    // NUEVA LÓGICA DE FILTRADO POR TURNOS DE 24 HORAS (6:00 AM a 6:00 AM)
     if (fechaDesde || fechaHasta) {
       if (!inc.fecha_registro) return false;
       const incTime = new Date(inc.fecha_registro).getTime();
-      if (fechaDesde && incTime < new Date(`${fechaDesde}T00:00:00`).getTime()) return false;
-      if (fechaHasta && incTime > new Date(`${fechaHasta}T23:59:59`).getTime()) return false;
+      
+      if (fechaDesde) {
+        // Empieza a las 6:00 AM del día seleccionado
+        const startTime = new Date(`${fechaDesde}T06:00:00`).getTime();
+        if (incTime < startTime) return false;
+      }
+      
+      if (fechaHasta) {
+        // Termina a las 6:00 AM del día SIGUIENTE al seleccionado
+        const hastaDate = new Date(`${fechaHasta}T06:00:00`);
+        hastaDate.setDate(hastaDate.getDate() + 1); 
+        const endTime = hastaDate.getTime();
+        if (incTime >= endTime) return false;
+      }
     }
+
     const jefe = usuarios.find(u => u.comuna_o_circuito_comunal === inc.circuito_comunal);
     if (filtroIncidenciaMuni && jefe?.municipio !== filtroIncidenciaMuni) return false;
     if (filtroIncidenciaParro && jefe?.parroquia !== filtroIncidenciaParro) return false;
@@ -223,12 +237,13 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
     XLSX.writeFile(wb, 'Reporte_Incidencias_VEN911.xlsx');
   };
 
-  const handleGenerarPDFIncidencias = () => {
+  const handleGenerarPDFIncidencias = async () => {
     if (incidenciasFiltradas.length === 0) { 
       alert("No hay registros para exportar."); 
       return; 
     }
 
+    // 1. Construir las filas de la tabla
     const filasHtml = incidenciasFiltradas.map(inc => {
       const jefe = usuarios.find(u => u.comuna_o_circuito_comunal === inc.circuito_comunal);
       const resena = inc.resena_informativa || inc.resena || 'N/A';
@@ -250,7 +265,9 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
 
     const fechaReporte = new Date().toLocaleString();
 
+    // 2. Crear el contenedor principal para el PDF
     const contenedor = document.createElement('div');
+    // IMPORTANTE: Asegúrate de que las imágenes estén en la carpeta public con estos nombres
     contenedor.innerHTML = `
       <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; font-size: 10px; color: #333; background: white; width: 100%;">
         
@@ -261,7 +278,7 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
             <img src="/logo2.png" alt="Ministerio" style="height: 50px; object-fit: contain;" onerror="this.style.display='none'">
           </div>
           <div style="text-align: right;">
-            <h1 style="margin: 0; color: #00529b; font-size: 16px; text-transform: uppercase;">Reporte General de Incidencias</h1>
+            <h1 style="margin: 0; color: #00529b; font-size: 16px; text-transform: uppercase;">Reporte General de Incidencias Operativas</h1>
             <p style="margin: 2px 0 0 0; color: #666; font-size: 10px;">Estado Falcón - Sistema VEN 911</p>
             <p style="margin: 2px 0 0 0; color: #666; font-size: 10px;">Generado el: ${fechaReporte}</p>
           </div>
@@ -290,8 +307,8 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
         <!-- INDICADOR DE FILTROS -->
         <div style="margin-bottom: 15px; font-size: 9px; color: #475569; background: #f1f5f9; padding: 8px; border-radius: 4px;">
           <strong>Filtros aplicados:</strong> 
-          ${fechaDesde ? `Desde: ${fechaDesde}` : ''} 
-          ${fechaHasta ? `| Hasta: ${fechaHasta}` : ''}
+          ${fechaDesde ? `Desde: ${fechaDesde} (6:00 AM)` : ''} 
+          ${fechaHasta ? `| Hasta: ${fechaHasta} (6:00 AM día sgte.)` : ''}
           ${filtroIncidenciaCircuito ? `| Circuito: ${filtroIncidenciaCircuito}` : ''}
           ${filtroIncidenciaMuni ? `| Municipio: ${filtroIncidenciaMuni}` : ''}
           ${!fechaDesde && !fechaHasta && !filtroIncidenciaCircuito && !filtroIncidenciaMuni ? 'Ninguno (Mostrando todos los registros)' : ''}
