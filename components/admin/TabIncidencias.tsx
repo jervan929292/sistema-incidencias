@@ -35,11 +35,14 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
   const [incidenciasDB, setIncidenciasDB] = useState<any[]>([]);
   const [sectoresDB, setSectoresDB] = useState<any[]>([]);
   
-  const [loadingData, setLoadingData] = useState(true);
+  // Estados para la carga bajo demanda
+  const [loadingData, setLoadingData] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
   const [progress, setProgress] = useState(0);
   const [totalRecords, setTotalRecords] = useState(0);
   const [isLive, setIsLive] = useState(false);
 
+  // Estados de los filtros (Nacen vacíos)
   const [fechaDesde, setFechaDesde] = useState('');
   const [fechaHasta, setFechaHasta] = useState('');
   const [filtroIncidenciaMuni, setFiltroIncidenciaMuni] = useState('');
@@ -54,40 +57,25 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
 
   const channelRef = useRef<any>(null);
 
-  useEffect(() => {
-    // --- LÓGICA DE AUTO-COMPLETADO DEL TURNO ACTUAL PARA EVITAR COLAPSO DE LA PC ---
-    const now = new Date();
-    // Si la hora es antes de las 6:00 AM, el turno aún pertenece al día de ayer
-    if (now.getHours() < 6) {
-      now.setDate(now.getDate() - 1);
-    }
-    const yyyy = now.getFullYear();
-    const mm = String(now.getMonth() + 1).padStart(2, '0');
-    const dd = String(now.getDate()).padStart(2, '0');
-    const fechaTurno = `${yyyy}-${mm}-${dd}`;
-    
-    // Rellenamos automáticamente las cajitas al abrir la página
-    setFechaDesde(fechaTurno);
-    setFechaHasta(fechaTurno);
+  // Candado de seguridad: Solo se enciende el botón si hay algo escrito
+  const hayFiltrosActivos = Boolean(
+    fechaDesde || fechaHasta || filtroIncidenciaMuni || filtroIncidenciaParro || 
+    filtroIncidenciaCircuito || filtroIncidenciaClasificacion || filtroIncidenciaTipo || filtroIncidenciaOrganismo
+  );
 
-    // Iniciar la descarga de datos
-    iniciarCargaProgresiva();
-    
+  useEffect(() => {
+    // Al abrir la página, SOLO descargamos el directorio de usuarios, NO las incidencias
+    cargarEstructuraBase();
     return () => {
       if (channelRef.current) supabase.removeChannel(channelRef.current);
     };
   }, []);
 
-  const iniciarCargaProgresiva = async () => {
-    setLoadingData(true);
-    setProgress(0);
-    setTotalRecords(0); 
-
+  const cargarEstructuraBase = async () => {
     const isSuper = adminUser.rol === 'superusuario';
     const isReadVen911 = adminUser.organismo_responsable === 'VEN 911' && !isSuper;
     const veTodo = isSuper || isReadVen911;
 
-    // Cargar Usuarios
     const { data: usersData } = await supabase.from('directorio_operativo').select('id, comuna_o_circuito_comunal, organismo_responsable, municipio, parroquia, nombre_apellido_jefe, grado_jerarquia, telefono_celular_jefe, codigo_situr');
     let usuariosProcesados = usersData || [];
     
@@ -96,54 +84,111 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
     }
     setUsuarios(usuariosProcesados);
     const circuitosPermitidos = new Set(usuariosProcesados.map(u => u.comuna_o_circuito_comunal));
-
+    
     supabase.from('sectores').select('*').then(({ data }) => { if (data) setSectoresDB(data); });
 
-    // Cargar total esperado
-    const { count } = await supabase.from('incidencias').select('*', { count: 'exact', head: true });
+    // Encendemos el Tiempo Real por si llega algo nuevo mientras miran
+    activarTiempoReal(veTodo, circuitosPermitidos);
+  };
+
+  // NUEVA FUNCIÓN: Busca en la base de datos SOLO lo que se pide en los filtros
+  const ejecutarBusqueda = async () => {
+    if (!hayFiltrosActivos) return;
+
+    setLoadingData(true);
+    setHasSearched(true);
+    setProgress(0);
+    setIncidenciasDB([]);
+    setTotalRecords(0);
+
+    const isSuper = adminUser.rol === 'superusuario';
+    const isReadVen911 = adminUser.organismo_responsable === 'VEN 911' && !isSuper;
+    const veTodo = isSuper || isReadVen911;
+    const circuitosPermitidos = new Set(usuarios.map(u => u.comuna_o_circuito_comunal));
+
+    // Construimos la consulta SQL (Le decimos a Supabase que busque en el servidor y solo nos dé lo filtrado)
+    let query = supabase.from('incidencias').select('*', { count: 'exact', head: true });
+
+    if (fechaDesde && fechaHasta) {
+      query = query.gte('fecha_registro', `${fechaDesde}T00:00:00`).lte('fecha_registro', `${fechaHasta}T23:59:59`);
+    } else if (fechaDesde) {
+      query = query.gte('fecha_registro', `${fechaDesde}T00:00:00`).lte('fecha_registro', `${fechaDesde}T23:59:59`);
+    } else if (fechaHasta) {
+      query = query.lte('fecha_registro', `${fechaHasta}T23:59:59`);
+    }
+
+    if (filtroIncidenciaCircuito) {
+      query = query.eq('circuito_comunal', filtroIncidenciaCircuito);
+    } else if (filtroIncidenciaMuni || filtroIncidenciaParro || filtroIncidenciaOrganismo) {
+       let usuariosFiltrados = usuarios;
+       if (filtroIncidenciaMuni) usuariosFiltrados = usuariosFiltrados.filter(u => u.municipio === filtroIncidenciaMuni);
+       if (filtroIncidenciaParro) usuariosFiltrados = usuariosFiltrados.filter(u => u.parroquia === filtroIncidenciaParro);
+       if (filtroIncidenciaOrganismo) usuariosFiltrados = usuariosFiltrados.filter(u => matchesOrganismo(u.organismo_responsable, filtroIncidenciaOrganismo));
+       const circuitosValidos = usuariosFiltrados.map(u => u.comuna_o_circuito_comunal);
+       if (circuitosValidos.length > 0) {
+         query = query.in('circuito_comunal', circuitosValidos);
+       } else {
+         query = query.eq('circuito_comunal', 'NO_MATCH'); 
+       }
+    }
+
+    if (filtroIncidenciaClasificacion) query = query.eq('clasificacion', filtroIncidenciaClasificacion);
+    if (filtroIncidenciaTipo) query = query.eq('incidencia', filtroIncidenciaTipo);
+
+    // Contamos cuántos cumplen la condición ANTES de descargar
+    const { count, error: countError } = await query;
     const totalEsperado = count || 0;
 
-    if (totalEsperado === 0) {
+    if (totalEsperado === 0 || countError) {
       setLoadingData(false);
       setProgress(100);
-      activarTiempoReal(veTodo, circuitosPermitidos);
       return;
     }
 
+    // Descargamos SOLO esa cantidad calculada
     let descargados: any[] = [];
-    let loteSize = 1000; 
     let inicio = 0;
-    let intentosFallo = 0; 
+    const loteSize = 1000;
 
     while (inicio < totalEsperado) {
-      const { data: batch, error } = await supabase
-        .from('incidencias')
-        .select('*')
-        .order('fecha_registro', { ascending: false })
-        .range(inicio, inicio + loteSize - 1);
+      let batchQuery = supabase.from('incidencias').select('*').order('fecha_registro', { ascending: false }).range(inicio, inicio + loteSize - 1);
+      
+      if (fechaDesde && fechaHasta) {
+        batchQuery = batchQuery.gte('fecha_registro', `${fechaDesde}T00:00:00`).lte('fecha_registro', `${fechaHasta}T23:59:59`);
+      } else if (fechaDesde) {
+        batchQuery = batchQuery.gte('fecha_registro', `${fechaDesde}T00:00:00`).lte('fecha_registro', `${fechaDesde}T23:59:59`);
+      } else if (fechaHasta) {
+        batchQuery = batchQuery.lte('fecha_registro', `${fechaHasta}T23:59:59`);
+      }
+
+      if (filtroIncidenciaCircuito) {
+        batchQuery = batchQuery.eq('circuito_comunal', filtroIncidenciaCircuito);
+      } else if (filtroIncidenciaMuni || filtroIncidenciaParro || filtroIncidenciaOrganismo) {
+         let usuariosFiltrados = usuarios;
+         if (filtroIncidenciaMuni) usuariosFiltrados = usuariosFiltrados.filter(u => u.municipio === filtroIncidenciaMuni);
+         if (filtroIncidenciaParro) usuariosFiltrados = usuariosFiltrados.filter(u => u.parroquia === filtroIncidenciaParro);
+         if (filtroIncidenciaOrganismo) usuariosFiltrados = usuariosFiltrados.filter(u => matchesOrganismo(u.organismo_responsable, filtroIncidenciaOrganismo));
+         const circuitosValidos = usuariosFiltrados.map(u => u.comuna_o_circuito_comunal);
+         if(circuitosValidos.length > 0) batchQuery = batchQuery.in('circuito_comunal', circuitosValidos);
+         else batchQuery = batchQuery.eq('circuito_comunal', 'NO_MATCH');
+      }
+      if (filtroIncidenciaClasificacion) batchQuery = batchQuery.eq('clasificacion', filtroIncidenciaClasificacion);
+      if (filtroIncidenciaTipo) batchQuery = batchQuery.eq('incidencia', filtroIncidenciaTipo);
+
+      const { data: batch, error } = await batchQuery;
 
       if (error) {
-        intentosFallo++;
-        if (intentosFallo > 3) {
-          console.error("Error crítico de red:", error);
-          break; 
-        }
         await new Promise(res => setTimeout(res, 1000)); 
         continue;
       }
 
       if (batch && batch.length > 0) {
-        intentosFallo = 0; 
-        
         const validBatch = veTodo ? batch : batch.filter(inc => circuitosPermitidos.has(inc.circuito_comunal));
         descargados = [...descargados, ...validBatch];
-        
         setIncidenciasDB(descargados);
         setTotalRecords(descargados.length); 
-        
         inicio += batch.length; 
         setProgress(Math.min(100, Math.round((inicio / totalEsperado) * 100)));
-        
         if (batch.length < loteSize) break; 
       } else {
         break;
@@ -152,7 +197,6 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
 
     setProgress(100);
     setLoadingData(false);
-    activarTiempoReal(veTodo, circuitosPermitidos);
   };
 
   const activarTiempoReal = (veTodo: boolean, circuitosPermitidos: Set<string>) => {
@@ -190,32 +234,21 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
   const circuitosIncidenciaUnicos = Array.from(new Set(usuarios.filter(u => (filtroIncidenciaMuni === '' || u.municipio === filtroIncidenciaMuni) && (filtroIncidenciaParro === '' || u.parroquia === filtroIncidenciaParro)).map(u => u.comuna_o_circuito_comunal))).filter(Boolean).sort();
 
   const incidenciasFiltradas = incidenciasDB.filter(inc => {
-    // LÓGICA DE FILTRADO POR GUARDIA DE 24 HORAS (6:00 AM a 6:00 AM)
+    // Validamos en tiempo real con las opciones visuales seleccionadas
     if (fechaDesde || fechaHasta) {
       if (!inc.fecha_registro) return false;
       const incTime = new Date(inc.fecha_registro).getTime();
-      
       let startTime = 0;
       let endTime = Infinity;
 
-      if (fechaDesde) {
-        // Empieza a las 6:00 AM del día seleccionado en "Desde"
-        startTime = new Date(`${fechaDesde}T06:00:00`).getTime();
-      }
-
+      if (fechaDesde) startTime = new Date(`${fechaDesde}T00:00:00`).getTime();
       if (fechaHasta) {
-        // Si tiene "Hasta", termina a las 6:00 AM del día SIGUIENTE al "Hasta"
-        const hastaDate = new Date(`${fechaHasta}T06:00:00`);
-        hastaDate.setDate(hastaDate.getDate() + 1);
-        endTime = hastaDate.getTime();
+        endTime = new Date(`${fechaHasta}T23:59:59`).getTime();
       } else if (fechaDesde) {
-        // SI SOLO ELIGE "DESDE", crea una cápsula de exactamente 24 HORAS
-        const desdeDate = new Date(`${fechaDesde}T06:00:00`);
-        desdeDate.setDate(desdeDate.getDate() + 1);
-        endTime = desdeDate.getTime();
+        endTime = new Date(`${fechaDesde}T23:59:59`).getTime();
       }
 
-      if (incTime < startTime || incTime >= endTime) {
+      if (incTime < startTime || incTime > endTime) {
         return false;
       }
     }
@@ -270,7 +303,6 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
       return; 
     }
 
-    // 1. Construir las filas de la tabla
     const filasHtml = incidenciasFiltradas.map(inc => {
       const jefe = usuarios.find(u => u.comuna_o_circuito_comunal === inc.circuito_comunal);
       const resena = inc.resena_informativa || inc.resena || 'N/A';
@@ -292,9 +324,7 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
 
     const fechaReporte = new Date().toLocaleString();
 
-    // 2. Crear el contenedor principal para el PDF
     const contenedor = document.createElement('div');
-    // IMPORTANTE: Asegúrate de que las imágenes estén en la carpeta public con estos nombres
     contenedor.innerHTML = `
       <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; font-size: 10px; color: #333; background: white; width: 100%;">
         
@@ -333,12 +363,11 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
 
         <!-- INDICADOR DE FILTROS -->
         <div style="margin-bottom: 15px; font-size: 9px; color: #475569; background: #f1f5f9; padding: 8px; border-radius: 4px;">
-          <strong>Filtros de Guardia aplicados:</strong> 
-          ${fechaDesde ? `Inicio: ${fechaDesde} (6:00 AM)` : ''} 
-          ${fechaHasta ? `| Cierre: ${fechaHasta} (6:00 AM sgte.)` : (fechaDesde ? `| Cierre: ${fechaDesde} (6:00 AM sgte.)` : '')}
+          <strong>Filtros aplicados:</strong> 
+          ${fechaDesde ? `Desde: ${fechaDesde} (00:00)` : ''} 
+          ${fechaHasta ? `| Hasta: ${fechaHasta} (23:59)` : (fechaDesde ? `| Hasta: ${fechaDesde} (23:59)` : '')}
           ${filtroIncidenciaCircuito ? `| Circuito: ${filtroIncidenciaCircuito}` : ''}
           ${filtroIncidenciaMuni ? `| Municipio: ${filtroIncidenciaMuni}` : ''}
-          ${!fechaDesde && !fechaHasta && !filtroIncidenciaCircuito && !filtroIncidenciaMuni ? 'Ninguno (Mostrando todos los registros)' : ''}
         </div>
 
         <!-- TABLA DE DATOS -->
@@ -360,7 +389,6 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
       </div>
     `;
 
-    // 3. Función para descargar usando html2pdf
     const ejecutarDescarga = () => {
       const opciones = {
         margin:       10,
@@ -372,7 +400,6 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
       (window as any).html2pdf().from(contenedor).set(opciones).save();
     };
 
-    // 4. Inyectar librería desde CDN web (A prueba de fallos de Vercel/SSR)
     if (!(window as any).html2pdf) {
       const script = document.createElement('script');
       script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js";
@@ -408,9 +435,13 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
                   <div className="bg-gradient-to-r from-[#00529b] to-blue-400 h-2 rounded-full transition-all duration-300 ease-out" style={{ width: `${progress}%` }}></div>
                 </div>
               </div>
+            ) : hasSearched ? (
+              <p className="text-xs text-emerald-600 font-bold mt-0.5 flex items-center gap-1">
+                <Database size={14}/> Búsqueda Finalizada: {totalRecords.toLocaleString()} Registros encontrados
+              </p>
             ) : (
-              <p className="text-xs text-gray-500 font-bold mt-0.5 flex items-center gap-1">
-                <Database size={14}/> {totalRecords.toLocaleString()} Registros descargados
+              <p className="text-xs text-gray-400 font-bold mt-0.5 flex items-center gap-1">
+                <Search size={14}/> Esperando parámetros de búsqueda...
               </p>
             )}
           </div>
@@ -419,83 +450,97 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
 
       {/* TARJETAS DE ESTADISTICAS RÁPIDAS */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white border border-gray-200 rounded-2xl p-4 flex items-center gap-4 shadow-sm">
+        <div className={`bg-white border ${hasSearched ? 'border-blue-200' : 'border-gray-200 opacity-50'} rounded-2xl p-4 flex items-center gap-4 shadow-sm transition-all`}>
           <div className="bg-blue-50 p-3 rounded-full text-[#00529b]"><Activity size={28} /></div>
-          <div><p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">Total Registradas</p><p className="text-2xl font-black text-gray-800 leading-none mt-1">{totalActividades}</p></div>
+          <div><p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">Total Registradas</p><p className="text-2xl font-black text-gray-800 leading-none mt-1">{hasSearched ? totalActividades : '-'}</p></div>
         </div>
-        <div className="bg-white border border-gray-200 rounded-2xl p-4 flex items-center gap-4 shadow-sm">
+        <div className={`bg-white border ${hasSearched ? 'border-blue-200' : 'border-gray-200 opacity-50'} rounded-2xl p-4 flex items-center gap-4 shadow-sm transition-all`}>
           <div className="bg-blue-50 p-3 rounded-full text-blue-600"><ShieldCheck size={28} /></div>
-          <div><p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">Preventiva</p><p className="text-2xl font-black text-gray-800 leading-none mt-1">{totalPreventiva}</p></div>
+          <div><p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">Preventiva</p><p className="text-2xl font-black text-gray-800 leading-none mt-1">{hasSearched ? totalPreventiva : '-'}</p></div>
         </div>
-        <div className="bg-white border border-gray-200 rounded-2xl p-4 flex items-center gap-4 shadow-sm">
+        <div className={`bg-white border ${hasSearched ? 'border-blue-200' : 'border-gray-200 opacity-50'} rounded-2xl p-4 flex items-center gap-4 shadow-sm transition-all`}>
           <div className="bg-amber-50 p-3 rounded-full text-amber-500"><Siren size={28} /></div>
-          <div><p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">Patrullaje</p><p className="text-2xl font-black text-gray-800 leading-none mt-1">{totalPatrullaje}</p></div>
+          <div><p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">Patrullaje</p><p className="text-2xl font-black text-gray-800 leading-none mt-1">{hasSearched ? totalPatrullaje : '-'}</p></div>
         </div>
-        <div className="bg-white border border-gray-200 rounded-2xl p-4 flex items-center gap-4 shadow-sm">
+        <div className={`bg-white border ${hasSearched ? 'border-blue-200' : 'border-gray-200 opacity-50'} rounded-2xl p-4 flex items-center gap-4 shadow-sm transition-all`}>
           <div className="bg-emerald-50 p-3 rounded-full text-emerald-500"><Target size={28} /></div>
-          <div><p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">Efectividad y Rend.</p><p className="text-2xl font-black text-gray-800 leading-none mt-1">{totalEfectividad}</p></div>
+          <div><p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">Efectividad y Rend.</p><p className="text-2xl font-black text-gray-800 leading-none mt-1">{hasSearched ? totalEfectividad : '-'}</p></div>
         </div>
       </div>
 
       {/* FILTROS */}
-      <div className="bg-gray-50 p-5 rounded-2xl shadow-sm border border-gray-200">
-        <div className="font-bold text-gray-700 flex items-center gap-2 mb-4 border-b border-gray-200 pb-3"><Filter size={18} className="text-[#00529b]" /> Filtros de Búsqueda de Base de Datos</div>
+      <div className="bg-blue-50/30 p-5 rounded-2xl shadow-sm border border-blue-100">
+        <div className="font-bold text-[#00529b] flex items-center justify-between gap-2 mb-4 border-b border-blue-100 pb-3">
+          <div className="flex items-center gap-2"><Filter size={18} /> Módulo de Búsqueda y Filtrado en la Nube</div>
+        </div>
+        
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-5">
           <div className="lg:col-span-1">
-            <label className="block text-[10px] font-bold text-[#00529b] mb-1 uppercase">Día Guardia (Inicia 6:00 AM)</label>
-            <input type="date" className="w-full p-2 border-2 border-blue-200 focus:border-blue-400 rounded-lg bg-white text-sm" value={fechaDesde} onChange={e => setFechaDesde(e.target.value)} />
+            <label className="block text-[10px] font-bold text-[#00529b] mb-1 uppercase">Desde (00:00)</label>
+            <input type="date" className="w-full p-2 border border-gray-300 focus:border-blue-500 rounded-lg bg-white text-sm" value={fechaDesde} onChange={e => setFechaDesde(e.target.value)} />
           </div>
           <div className="lg:col-span-1">
-            <label className="block text-[10px] font-bold text-[#00529b] mb-1 uppercase">Hasta (Cierre 6:00 AM sgte)</label>
-            <input type="date" className="w-full p-2 border-2 border-blue-200 focus:border-blue-400 rounded-lg bg-white text-sm" value={fechaHasta} onChange={e => setFechaHasta(e.target.value)} />
+            <label className="block text-[10px] font-bold text-[#00529b] mb-1 uppercase">Hasta (23:59)</label>
+            <input type="date" className="w-full p-2 border border-gray-300 focus:border-blue-500 rounded-lg bg-white text-sm" value={fechaHasta} onChange={e => setFechaHasta(e.target.value)} />
           </div>
           <div className="lg:col-span-1">
-            <label className="block text-xs font-bold text-gray-500 mb-1">Filtrar Municipio</label>
-            <select className="w-full p-2 border rounded-lg bg-white text-sm" value={filtroIncidenciaMuni} onChange={e => { setFiltroIncidenciaMuni(e.target.value); setFiltroIncidenciaParro(''); setFiltroIncidenciaCircuito(''); }}>
-              <option value="">Todos los Municipios</option>
+            <label className="block text-[10px] font-bold text-gray-600 mb-1 uppercase">Filtrar Municipio</label>
+            <select className="w-full p-2 border border-gray-300 focus:border-blue-500 rounded-lg bg-white text-sm" value={filtroIncidenciaMuni} onChange={e => { setFiltroIncidenciaMuni(e.target.value); setFiltroIncidenciaParro(''); setFiltroIncidenciaCircuito(''); }}>
+              <option value="">Todos</option>
               {municipiosUnicos.map((m,i) => <option key={i} value={m as string}>{m}</option>)}
             </select>
           </div>
           <div className="lg:col-span-1">
-            <label className="block text-xs font-bold text-gray-500 mb-1">Filtrar Parroquia</label>
-            <select className="w-full p-2 border rounded-lg bg-white text-sm disabled:bg-gray-100" value={filtroIncidenciaParro} onChange={e => { setFiltroIncidenciaParro(e.target.value); setFiltroIncidenciaCircuito(''); }} disabled={!filtroIncidenciaMuni}>
-              <option value="">Todas las Parroquias</option>
+            <label className="block text-[10px] font-bold text-gray-600 mb-1 uppercase">Filtrar Parroquia</label>
+            <select className="w-full p-2 border border-gray-300 focus:border-blue-500 rounded-lg bg-white text-sm disabled:bg-gray-100" value={filtroIncidenciaParro} onChange={e => { setFiltroIncidenciaParro(e.target.value); setFiltroIncidenciaCircuito(''); }} disabled={!filtroIncidenciaMuni}>
+              <option value="">Todas</option>
               {parroquiasIncidenciaUnicas.map((p,i) => <option key={i} value={p as string}>{p}</option>)}
             </select>
           </div>
           <div className="lg:col-span-1">
-            <label className="block text-xs font-bold text-gray-500 mb-1">Filtrar Circuito</label>
-            <select className="w-full p-2 border rounded-lg bg-white text-sm disabled:bg-gray-100" value={filtroIncidenciaCircuito} onChange={e => setFiltroIncidenciaCircuito(e.target.value)} disabled={!filtroIncidenciaParro}>
-              <option value="">Todos los Circuitos</option>
+            <label className="block text-[10px] font-bold text-gray-600 mb-1 uppercase">Filtrar Circuito</label>
+            <select className="w-full p-2 border border-gray-300 focus:border-blue-500 rounded-lg bg-white text-sm disabled:bg-gray-100" value={filtroIncidenciaCircuito} onChange={e => setFiltroIncidenciaCircuito(e.target.value)}>
+              <option value="">Todos</option>
               {circuitosIncidenciaUnicos.map((c, i) => <option key={i} value={c as string}>{c}</option>)}
             </select>
           </div>
           <div className="lg:col-span-1">
-            <label className="block text-xs font-bold text-gray-500 mb-1">Filtrar Clasificación</label>
-            <select className="w-full p-2 border rounded-lg bg-white text-sm" value={filtroIncidenciaClasificacion} onChange={e => setFiltroIncidenciaClasificacion(e.target.value)}>
+            <label className="block text-[10px] font-bold text-gray-600 mb-1 uppercase">Clasificación</label>
+            <select className="w-full p-2 border border-gray-300 focus:border-blue-500 rounded-lg bg-white text-sm" value={filtroIncidenciaClasificacion} onChange={e => setFiltroIncidenciaClasificacion(e.target.value)}>
               <option value="">Todas</option><option value="PREVENTIVA">PREVENTIVA</option><option value="PATRULLAJE">PATRULLAJE</option><option value="OPERATIVIDAD Y RENDIMIENTO OPERATIVO">EFECTIVIDAD Y RENDIMIENTO</option>
             </select>
           </div>
           <div className="lg:col-span-1">
-            <label className="block text-xs font-bold text-gray-500 mb-1">Filtrar Incidencia</label>
-            <select className="w-full p-2 border rounded-lg bg-white text-sm" value={filtroIncidenciaTipo} onChange={e => setFiltroIncidenciaTipo(e.target.value)}>
-              <option value="">Todas</option>
-              {incidenciasTipoUnicas.map((t, i) => <option key={i} value={t as string}>{t}</option>)}
-            </select>
+            <label className="block text-[10px] font-bold text-gray-600 mb-1 uppercase">Incidencia Específica</label>
+            <input type="text" placeholder="Ej. Robo, Accidente..." className="w-full p-2 border border-gray-300 focus:border-blue-500 rounded-lg bg-white text-sm uppercase" value={filtroIncidenciaTipo} onChange={e => setFiltroIncidenciaTipo(e.target.value.toUpperCase())} />
           </div>
           {(esSuperUser || isReadOnlyVen911) && (
             <div className="lg:col-span-1">
-              <label className="block text-xs font-bold text-gray-500 mb-1">Filtrar Organismo</label>
-              <select className="w-full p-2 border rounded-lg bg-white text-sm" value={filtroIncidenciaOrganismo} onChange={e => setFiltroIncidenciaOrganismo(e.target.value)}>
+              <label className="block text-[10px] font-bold text-gray-600 mb-1 uppercase">Organismo</label>
+              <select className="w-full p-2 border border-gray-300 focus:border-blue-500 rounded-lg bg-white text-sm" value={filtroIncidenciaOrganismo} onChange={e => setFiltroIncidenciaOrganismo(e.target.value)}>
                 <option value="">Todos</option>
                 {LISTA_ORGANISMOS.map((org, i) => <option key={i} value={org}>{org}</option>)}
               </select>
             </div>
           )}
         </div>
-        <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t border-gray-200">
-          <button onClick={handleGenerarExcelIncidencias} className="bg-emerald-500 text-white px-6 py-2 rounded-lg font-bold shadow-sm hover:bg-emerald-600 transition-all flex items-center justify-center gap-2"><FileSpreadsheet size={18} /> Excel (Tabla)</button>
-          <button onClick={handleGenerarPDFIncidencias} className="bg-red-500 text-white px-6 py-2 rounded-lg font-bold shadow-sm hover:bg-red-600 transition-all flex items-center justify-center gap-2"><FileText size={18} /> PDF (Reporte)</button>
+
+        {/* BOTONES DE ACCIÓN */}
+        <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t border-blue-100 items-center justify-between">
+          <button 
+            onClick={ejecutarBusqueda} 
+            disabled={!hayFiltrosActivos || loadingData}
+            className={`w-full sm:w-auto px-8 py-3 rounded-xl font-black text-sm transition-all flex items-center justify-center gap-2 shadow-md
+              ${!hayFiltrosActivos ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700 hover:shadow-lg transform hover:-translate-y-0.5'}`}
+          >
+            {loadingData ? <Loader2 size={18} className="animate-spin" /> : <Search size={18} />}
+            {loadingData ? 'DESCARGANDO DATOS...' : 'BUSCAR RANGO'}
+          </button>
+          
+          <div className="flex gap-3 w-full sm:w-auto opacity-90 hover:opacity-100 transition-opacity">
+            <button disabled={!hasSearched || incidenciasFiltradas.length === 0} onClick={handleGenerarExcelIncidencias} className="w-full sm:w-auto bg-emerald-500 text-white px-4 py-2 rounded-lg font-bold shadow-sm hover:bg-emerald-600 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"><FileSpreadsheet size={16} /> Excel</button>
+            <button disabled={!hasSearched || incidenciasFiltradas.length === 0} onClick={handleGenerarPDFIncidencias} className="w-full sm:w-auto bg-red-500 text-white px-4 py-2 rounded-lg font-bold shadow-sm hover:bg-red-600 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"><FileText size={16} /> PDF</button>
+          </div>
         </div>
       </div>
 
@@ -515,8 +560,10 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {loadingData && incidenciasDB.length === 0 ? (
-              <tr><td colSpan={8} className="p-16 text-center"><Loader2 size={36} className="animate-spin text-[#00529b] mx-auto mb-2"/><p className="font-bold text-gray-500">Descargando Base de Datos Histórica...</p></td></tr>
+            {!hasSearched && !loadingData ? (
+               <tr><td colSpan={8} className="p-20 text-center bg-gray-50/50"><Search size={48} className="mx-auto text-gray-300 mb-3"/><p className="text-gray-500 font-bold text-sm">Seleccione los filtros arriba y presione "BUSCAR RANGO" para cargar la información.</p></td></tr>
+            ) : loadingData ? (
+              <tr><td colSpan={8} className="p-16 text-center"><Loader2 size={36} className="animate-spin text-blue-500 mx-auto mb-2"/><p className="font-bold text-gray-500">Descargando registros desde la Nube...</p></td></tr>
             ) : incidenciasFiltradas.length > 0 ? (
               incidenciasFiltradas.map((incidencia, index) => (
                 <tr key={index} className="hover:bg-gray-50 transition-colors">
@@ -546,7 +593,7 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
                 </tr>
               ))
             ) : (
-              <tr><td colSpan={8} className="p-16 text-center"><ShieldAlert size={56} className="mb-4 opacity-20 text-gray-400 mx-auto" /><p className="text-lg font-bold text-gray-500">No hay incidencias que coincidan con los filtros</p></td></tr>
+              <tr><td colSpan={8} className="p-16 text-center"><ShieldAlert size={56} className="mb-4 opacity-20 text-gray-400 mx-auto" /><p className="text-lg font-bold text-gray-500">No hay incidencias que coincidan con estos parámetros</p></td></tr>
             )}
           </tbody>
         </table>
