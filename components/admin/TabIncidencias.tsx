@@ -173,23 +173,34 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
   const circuitosIncidenciaUnicos = Array.from(new Set(usuarios.filter(u => (filtroIncidenciaMuni === '' || u.municipio === filtroIncidenciaMuni) && (filtroIncidenciaParro === '' || u.parroquia === filtroIncidenciaParro)).map(u => u.comuna_o_circuito_comunal))).filter(Boolean).sort();
 
   const incidenciasFiltradas = incidenciasDB.filter(inc => {
-    // NUEVA LÓGICA DE FILTRADO POR TURNOS DE 24 HORAS (6:00 AM a 6:00 AM)
+    // NUEVA LÓGICA DE FILTRADO POR GUARDIA DE 24 HORAS (6:00 AM a 6:00 AM)
     if (fechaDesde || fechaHasta) {
       if (!inc.fecha_registro) return false;
       const incTime = new Date(inc.fecha_registro).getTime();
       
+      let startTime = 0;
+      let endTime = Infinity;
+
       if (fechaDesde) {
-        // Empieza a las 6:00 AM del día seleccionado
-        const startTime = new Date(`${fechaDesde}T06:00:00`).getTime();
-        if (incTime < startTime) return false;
+        // Empieza a las 6:00 AM del día seleccionado en "Desde"
+        startTime = new Date(`${fechaDesde}T06:00:00`).getTime();
       }
-      
+
       if (fechaHasta) {
-        // Termina a las 6:00 AM del día SIGUIENTE al seleccionado
+        // Si tiene "Hasta", termina a las 6:00 AM del día SIGUIENTE al "Hasta"
         const hastaDate = new Date(`${fechaHasta}T06:00:00`);
-        hastaDate.setDate(hastaDate.getDate() + 1); 
-        const endTime = hastaDate.getTime();
-        if (incTime >= endTime) return false;
+        hastaDate.setDate(hastaDate.getDate() + 1);
+        endTime = hastaDate.getTime();
+      } else if (fechaDesde) {
+        // SI SOLO ELIGE "DESDE", crea una cápsula de exactamente 24 HORAS
+        // Termina a las 6:00 AM del día siguiente al "Desde"
+        const desdeDate = new Date(`${fechaDesde}T06:00:00`);
+        desdeDate.setDate(desdeDate.getDate() + 1);
+        endTime = desdeDate.getTime();
+      }
+
+      if (incTime < startTime || incTime >= endTime) {
+        return false;
       }
     }
 
@@ -267,7 +278,6 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
 
     // 2. Crear el contenedor principal para el PDF
     const contenedor = document.createElement('div');
-    // IMPORTANTE: Asegúrate de que las imágenes estén en la carpeta public con estos nombres
     contenedor.innerHTML = `
       <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; font-size: 10px; color: #333; background: white; width: 100%;">
         
@@ -306,9 +316,9 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
 
         <!-- INDICADOR DE FILTROS -->
         <div style="margin-bottom: 15px; font-size: 9px; color: #475569; background: #f1f5f9; padding: 8px; border-radius: 4px;">
-          <strong>Filtros aplicados:</strong> 
-          ${fechaDesde ? `Desde: ${fechaDesde} (6:00 AM)` : ''} 
-          ${fechaHasta ? `| Hasta: ${fechaHasta} (6:00 AM día sgte.)` : ''}
+          <strong>Filtros de Guardia aplicados:</strong> 
+          ${fechaDesde ? `Inicio: ${fechaDesde} (6:00 AM)` : ''} 
+          ${fechaHasta ? `| Cierre: ${fechaHasta} (6:00 AM sgte.)` : (fechaDesde ? `| Cierre: ${fechaDesde} (6:00 AM sgte.)` : '')}
           ${filtroIncidenciaCircuito ? `| Circuito: ${filtroIncidenciaCircuito}` : ''}
           ${filtroIncidenciaMuni ? `| Municipio: ${filtroIncidenciaMuni}` : ''}
           ${!fechaDesde && !fechaHasta && !filtroIncidenciaCircuito && !filtroIncidenciaMuni ? 'Ninguno (Mostrando todos los registros)' : ''}
@@ -333,7 +343,7 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
       </div>
     `;
 
-    // 3. Función para descargar usando html2pdf (se ejecuta después de cargar el script)
+    // 3. Función para descargar usando html2pdf
     const ejecutarDescarga = () => {
       const opciones = {
         margin:       10,
@@ -345,7 +355,7 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
       (window as any).html2pdf().from(contenedor).set(opciones).save();
     };
 
-    // 4. Inyectar librería desde CDN web (A prueba de fallos de Vercel/SSR)
+    // 4. Inyectar librería dinámica
     if (!(window as any).html2pdf) {
       const script = document.createElement('script');
       script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js";
@@ -410,12 +420,18 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
         </div>
       </div>
 
-      {/* FILTROS */}
+      {/* FILTROS CON TEXTOS DE GUARDIA */}
       <div className="bg-gray-50 p-5 rounded-2xl shadow-sm border border-gray-200">
         <div className="font-bold text-gray-700 flex items-center gap-2 mb-4 border-b border-gray-200 pb-3"><Filter size={18} className="text-[#00529b]" /> Filtros de Búsqueda de Base de Datos</div>
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-5">
-          <div className="lg:col-span-1"><label className="block text-xs font-bold text-gray-500 mb-1">Desde</label><input type="date" className="w-full p-2 border rounded-lg bg-white text-sm" value={fechaDesde} onChange={e => setFechaDesde(e.target.value)} /></div>
-          <div className="lg:col-span-1"><label className="block text-xs font-bold text-gray-500 mb-1">Hasta</label><input type="date" className="w-full p-2 border rounded-lg bg-white text-sm" value={fechaHasta} onChange={e => setFechaHasta(e.target.value)} /></div>
+          <div className="lg:col-span-1">
+            <label className="block text-[10px] font-bold text-[#00529b] mb-1 uppercase">Día Guardia (Inicia 6:00 AM)</label>
+            <input type="date" className="w-full p-2 border-2 border-blue-200 focus:border-blue-400 rounded-lg bg-white text-sm" value={fechaDesde} onChange={e => setFechaDesde(e.target.value)} />
+          </div>
+          <div className="lg:col-span-1">
+            <label className="block text-[10px] font-bold text-[#00529b] mb-1 uppercase">Hasta (Cierre 6:00 AM sgte)</label>
+            <input type="date" className="w-full p-2 border-2 border-blue-200 focus:border-blue-400 rounded-lg bg-white text-sm" value={fechaHasta} onChange={e => setFechaHasta(e.target.value)} />
+          </div>
           <div className="lg:col-span-1">
             <label className="block text-xs font-bold text-gray-500 mb-1">Filtrar Municipio</label>
             <select className="w-full p-2 border rounded-lg bg-white text-sm" value={filtroIncidenciaMuni} onChange={e => { setFiltroIncidenciaMuni(e.target.value); setFiltroIncidenciaParro(''); setFiltroIncidenciaCircuito(''); }}>
