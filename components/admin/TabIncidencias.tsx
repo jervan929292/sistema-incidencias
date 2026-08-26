@@ -55,7 +55,24 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
   const channelRef = useRef<any>(null);
 
   useEffect(() => {
+    // --- LÓGICA DE AUTO-COMPLETADO DEL TURNO ACTUAL PARA EVITAR COLAPSO DE LA PC ---
+    const now = new Date();
+    // Si la hora es antes de las 6:00 AM, el turno aún pertenece al día de ayer
+    if (now.getHours() < 6) {
+      now.setDate(now.getDate() - 1);
+    }
+    const yyyy = now.getFullYear();
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const dd = String(now.getDate()).padStart(2, '0');
+    const fechaTurno = `${yyyy}-${mm}-${dd}`;
+    
+    // Rellenamos automáticamente las cajitas al abrir la página
+    setFechaDesde(fechaTurno);
+    setFechaHasta(fechaTurno);
+
+    // Iniciar la descarga de datos
     iniciarCargaProgresiva();
+    
     return () => {
       if (channelRef.current) supabase.removeChannel(channelRef.current);
     };
@@ -173,7 +190,7 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
   const circuitosIncidenciaUnicos = Array.from(new Set(usuarios.filter(u => (filtroIncidenciaMuni === '' || u.municipio === filtroIncidenciaMuni) && (filtroIncidenciaParro === '' || u.parroquia === filtroIncidenciaParro)).map(u => u.comuna_o_circuito_comunal))).filter(Boolean).sort();
 
   const incidenciasFiltradas = incidenciasDB.filter(inc => {
-    // NUEVA LÓGICA DE FILTRADO POR GUARDIA DE 24 HORAS (6:00 AM a 6:00 AM)
+    // LÓGICA DE FILTRADO POR GUARDIA DE 24 HORAS (6:00 AM a 6:00 AM)
     if (fechaDesde || fechaHasta) {
       if (!inc.fecha_registro) return false;
       const incTime = new Date(inc.fecha_registro).getTime();
@@ -193,7 +210,6 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
         endTime = hastaDate.getTime();
       } else if (fechaDesde) {
         // SI SOLO ELIGE "DESDE", crea una cápsula de exactamente 24 HORAS
-        // Termina a las 6:00 AM del día siguiente al "Desde"
         const desdeDate = new Date(`${fechaDesde}T06:00:00`);
         desdeDate.setDate(desdeDate.getDate() + 1);
         endTime = desdeDate.getTime();
@@ -278,6 +294,7 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
 
     // 2. Crear el contenedor principal para el PDF
     const contenedor = document.createElement('div');
+    // IMPORTANTE: Asegúrate de que las imágenes estén en la carpeta public con estos nombres
     contenedor.innerHTML = `
       <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; font-size: 10px; color: #333; background: white; width: 100%;">
         
@@ -355,7 +372,7 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
       (window as any).html2pdf().from(contenedor).set(opciones).save();
     };
 
-    // 4. Inyectar librería dinámica
+    // 4. Inyectar librería desde CDN web (A prueba de fallos de Vercel/SSR)
     if (!(window as any).html2pdf) {
       const script = document.createElement('script');
       script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js";
@@ -420,7 +437,7 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
         </div>
       </div>
 
-      {/* FILTROS CON TEXTOS DE GUARDIA */}
+      {/* FILTROS */}
       <div className="bg-gray-50 p-5 rounded-2xl shadow-sm border border-gray-200">
         <div className="font-bold text-gray-700 flex items-center gap-2 mb-4 border-b border-gray-200 pb-3"><Filter size={18} className="text-[#00529b]" /> Filtros de Búsqueda de Base de Datos</div>
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-5">
