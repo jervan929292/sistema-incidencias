@@ -42,7 +42,7 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
   const [totalRecords, setTotalRecords] = useState(0);
   const [isLive, setIsLive] = useState(false);
 
-  // Estados de los filtros (Nacen vacíos)
+  // Estados de los filtros
   const [fechaDesde, setFechaDesde] = useState('');
   const [fechaHasta, setFechaHasta] = useState('');
   const [filtroIncidenciaMuni, setFiltroIncidenciaMuni] = useState('');
@@ -57,14 +57,12 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
 
   const channelRef = useRef<any>(null);
 
-  // Candado de seguridad: Solo se enciende el botón si hay algo escrito
   const hayFiltrosActivos = Boolean(
     fechaDesde || fechaHasta || filtroIncidenciaMuni || filtroIncidenciaParro || 
     filtroIncidenciaCircuito || filtroIncidenciaClasificacion || filtroIncidenciaTipo || filtroIncidenciaOrganismo
   );
 
   useEffect(() => {
-    // Al abrir la página, SOLO descargamos la estructura base, NO las incidencias
     cargarEstructuraBase();
     return () => {
       if (channelRef.current) supabase.removeChannel(channelRef.current);
@@ -87,11 +85,10 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
     
     supabase.from('sectores').select('*').then(({ data }) => { if (data) setSectoresDB(data); });
 
-    // Encendemos el Tiempo Real por si llega algo nuevo mientras miran
     activarTiempoReal(veTodo, circuitosPermitidos);
   };
 
-  // NUEVA FUNCIÓN: Busca en la base de datos SOLO lo que se pide en los filtros (Días exactos 00:00 a 23:59)
+  // FUNCIÓN CON ZONA HORARIA DE VENEZUELA (-04:00) ESTRICTA
   const ejecutarBusqueda = async () => {
     if (!hayFiltrosActivos) return;
 
@@ -108,12 +105,13 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
 
     let query = supabase.from('incidencias').select('*', { count: 'exact', head: true });
 
+    // Inyección de Timezone estricta para forzar cortes a media noche exacta de Venezuela
     if (fechaDesde && fechaHasta) {
-      query = query.gte('fecha_registro', `${fechaDesde}T00:00:00`).lte('fecha_registro', `${fechaHasta}T23:59:59`);
+      query = query.gte('fecha_registro', `${fechaDesde}T00:00:00-04:00`).lte('fecha_registro', `${fechaHasta}T23:59:59-04:00`);
     } else if (fechaDesde) {
-      query = query.gte('fecha_registro', `${fechaDesde}T00:00:00`).lte('fecha_registro', `${fechaDesde}T23:59:59`);
+      query = query.gte('fecha_registro', `${fechaDesde}T00:00:00-04:00`).lte('fecha_registro', `${fechaDesde}T23:59:59-04:00`);
     } else if (fechaHasta) {
-      query = query.lte('fecha_registro', `${fechaHasta}T23:59:59`);
+      query = query.lte('fecha_registro', `${fechaHasta}T23:59:59-04:00`);
     }
 
     if (filtroIncidenciaCircuito) {
@@ -150,12 +148,13 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
     while (inicio < totalEsperado) {
       let batchQuery = supabase.from('incidencias').select('*').order('fecha_registro', { ascending: false }).range(inicio, inicio + loteSize - 1);
       
+      // Mismo forzado de timezone aquí
       if (fechaDesde && fechaHasta) {
-        batchQuery = batchQuery.gte('fecha_registro', `${fechaDesde}T00:00:00`).lte('fecha_registro', `${fechaHasta}T23:59:59`);
+        batchQuery = batchQuery.gte('fecha_registro', `${fechaDesde}T00:00:00-04:00`).lte('fecha_registro', `${fechaHasta}T23:59:59-04:00`);
       } else if (fechaDesde) {
-        batchQuery = batchQuery.gte('fecha_registro', `${fechaDesde}T00:00:00`).lte('fecha_registro', `${fechaDesde}T23:59:59`);
+        batchQuery = batchQuery.gte('fecha_registro', `${fechaDesde}T00:00:00-04:00`).lte('fecha_registro', `${fechaDesde}T23:59:59-04:00`);
       } else if (fechaHasta) {
-        batchQuery = batchQuery.lte('fecha_registro', `${fechaHasta}T23:59:59`);
+        batchQuery = batchQuery.lte('fecha_registro', `${fechaHasta}T23:59:59-04:00`);
       }
 
       if (filtroIncidenciaCircuito) {
@@ -231,18 +230,18 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
   const circuitosIncidenciaUnicos = Array.from(new Set(usuarios.filter(u => (filtroIncidenciaMuni === '' || u.municipio === filtroIncidenciaMuni) && (filtroIncidenciaParro === '' || u.parroquia === filtroIncidenciaParro)).map(u => u.comuna_o_circuito_comunal))).filter(Boolean).sort();
 
   const incidenciasFiltradas = incidenciasDB.filter(inc => {
-    // Filtrado local estrictamente de 00:00 a 23:59
+    // Filtrado local forzado a huso horario venezolano
     if (fechaDesde || fechaHasta) {
       if (!inc.fecha_registro) return false;
       const incTime = new Date(inc.fecha_registro).getTime();
       let startTime = 0;
       let endTime = Infinity;
 
-      if (fechaDesde) startTime = new Date(`${fechaDesde}T00:00:00`).getTime();
+      if (fechaDesde) startTime = new Date(`${fechaDesde}T00:00:00-04:00`).getTime();
       if (fechaHasta) {
-        endTime = new Date(`${fechaHasta}T23:59:59`).getTime();
+        endTime = new Date(`${fechaHasta}T23:59:59-04:00`).getTime();
       } else if (fechaDesde) {
-        endTime = new Date(`${fechaDesde}T23:59:59`).getTime();
+        endTime = new Date(`${fechaDesde}T23:59:59-04:00`).getTime();
       }
 
       if (incTime < startTime || incTime > endTime) {
