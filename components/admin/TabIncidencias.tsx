@@ -64,7 +64,7 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
   );
 
   useEffect(() => {
-    // Al abrir la página, SOLO descargamos el directorio de usuarios, NO las incidencias
+    // Al abrir la página, SOLO descargamos la estructura base, NO las incidencias
     cargarEstructuraBase();
     return () => {
       if (channelRef.current) supabase.removeChannel(channelRef.current);
@@ -91,7 +91,7 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
     activarTiempoReal(veTodo, circuitosPermitidos);
   };
 
-  // NUEVA FUNCIÓN: Busca en la base de datos SOLO lo que se pide en los filtros
+  // NUEVA FUNCIÓN: Busca en la base de datos SOLO lo que se pide en los filtros (Días exactos 00:00 a 23:59)
   const ejecutarBusqueda = async () => {
     if (!hayFiltrosActivos) return;
 
@@ -106,7 +106,6 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
     const veTodo = isSuper || isReadVen911;
     const circuitosPermitidos = new Set(usuarios.map(u => u.comuna_o_circuito_comunal));
 
-    // Construimos la consulta SQL (Le decimos a Supabase que busque en el servidor y solo nos dé lo filtrado)
     let query = supabase.from('incidencias').select('*', { count: 'exact', head: true });
 
     if (fechaDesde && fechaHasta) {
@@ -135,7 +134,6 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
     if (filtroIncidenciaClasificacion) query = query.eq('clasificacion', filtroIncidenciaClasificacion);
     if (filtroIncidenciaTipo) query = query.eq('incidencia', filtroIncidenciaTipo);
 
-    // Contamos cuántos cumplen la condición ANTES de descargar
     const { count, error: countError } = await query;
     const totalEsperado = count || 0;
 
@@ -145,7 +143,6 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
       return;
     }
 
-    // Descargamos SOLO esa cantidad calculada
     let descargados: any[] = [];
     let inicio = 0;
     const loteSize = 1000;
@@ -234,7 +231,7 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
   const circuitosIncidenciaUnicos = Array.from(new Set(usuarios.filter(u => (filtroIncidenciaMuni === '' || u.municipio === filtroIncidenciaMuni) && (filtroIncidenciaParro === '' || u.parroquia === filtroIncidenciaParro)).map(u => u.comuna_o_circuito_comunal))).filter(Boolean).sort();
 
   const incidenciasFiltradas = incidenciasDB.filter(inc => {
-    // Validamos en tiempo real con las opciones visuales seleccionadas
+    // Filtrado local estrictamente de 00:00 a 23:59
     if (fechaDesde || fechaHasta) {
       if (!inc.fecha_registro) return false;
       const incTime = new Date(inc.fecha_registro).getTime();
