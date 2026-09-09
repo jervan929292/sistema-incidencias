@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import { ShieldCheck, Loader2, AlertCircle, CheckCircle2, MapPin, FileText, Users, HelpCircle, ChevronDown, Activity, Edit3, Trash2, Plus, Building2 } from 'lucide-react';
+import { ShieldCheck, Loader2, AlertCircle, CheckCircle2, MapPin, FileText, Users, HelpCircle, ChevronDown, Activity, Edit3, Trash2, Plus, Building2, CalendarDays } from 'lucide-react';
 
 // ==========================================
 // LISTA EXTRAÍDA DE TU ARCHIVO EXCEL
@@ -40,8 +40,9 @@ export default function UserDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [enviando, setEnviando] = useState(false);
   
-  // ESTADO: Contador de reportes del circuito
+  // ESTADOS: Contadores de reportes del circuito
   const [totalReportes, setTotalReportes] = useState(0);
+  const [reportesHoy, setReportesHoy] = useState(0); // NUEVO: Contador del día
 
   // Catálogos descargados de la Base de Datos
   const [clasificaciones, setClasificaciones] = useState<any[]>([]);
@@ -80,9 +81,9 @@ export default function UserDashboardPage() {
 
  useEffect(() => {
     const initDashboard = async () => {
-      // 1. Obtenemos el correo del usuario desde el almacenamiento local o validamos directo en la tabla
+      // 1. Obtenemos el correo del usuario desde el almacenamiento local
       const sessionData = localStorage.getItem('user_session');
-      let correoA_Buscar = 'ronald.ros1993@gmail.com'; // Por defecto tu correo de prueba o el guardado
+      let correoA_Buscar = 'ronald.ros1993@gmail.com';
 
       if (sessionData) {
         try {
@@ -91,7 +92,7 @@ export default function UserDashboardPage() {
         } catch (e) {}
       }
 
-      // 2. Obtener datos de la ficha del usuario logueado directamente de la tabla operativa
+      // 2. Obtener datos de la ficha del usuario logueado
       const { data: userData, error: dbError } = await supabase
         .from('directorio_operativo')
         .select('*')
@@ -106,14 +107,32 @@ export default function UserDashboardPage() {
       setUsuarioLogueado(userData);
       setForm(prev => ({ ...prev, circuito_comunal: userData.comuna_o_circuito_comunal || '' }));
       
-      // Consultar cuántos reportes tiene este circuito comunal en la BD
+      // Consultar estadísticas si tiene circuito asignado
       if (userData.comuna_o_circuito_comunal) {
-        const { count } = await supabase
+        // A) Total Histórico
+        const { count: totalCount } = await supabase
           .from('incidencias')
           .select('*', { count: 'exact', head: true })
           .eq('circuito_comunal', userData.comuna_o_circuito_comunal);
         
-        if (count !== null) setTotalReportes(count);
+        if (totalCount !== null) setTotalReportes(totalCount);
+
+        // B) Total del Día de Hoy (00:00 a 23:59 hora Venezuela)
+        const now = new Date();
+        const yyyy = now.getFullYear();
+        const mm = String(now.getMonth() + 1).padStart(2, '0');
+        const dd = String(now.getDate()).padStart(2, '0');
+        const hoyInicio = `${yyyy}-${mm}-${dd}T00:00:00-04:00`;
+        const hoyFin = `${yyyy}-${mm}-${dd}T23:59:59-04:00`;
+
+        const { count: hoyCount } = await supabase
+          .from('incidencias')
+          .select('*', { count: 'exact', head: true })
+          .eq('circuito_comunal', userData.comuna_o_circuito_comunal)
+          .gte('fecha_registro', hoyInicio)
+          .lte('fecha_registro', hoyFin);
+
+        if (hoyCount !== null) setReportesHoy(hoyCount);
       }
 
       // 3. Descargar Catálogos del Excel desde Supabase
@@ -221,7 +240,6 @@ export default function UserDashboardPage() {
 
     try {
       const lugarCompleto = `${form.lugar_actividad} (Sector: ${form.sector_especifico})`;
-      // Si no seleccionaron ninguno de apoyo, pasamos "NINGUNO" o vacío
       const organismosTexto = form.organismos_involucrados.length > 0 
         ? form.organismos_involucrados.join(' - ').toUpperCase() 
         : 'NINGUNO';
@@ -233,17 +251,11 @@ export default function UserDashboardPage() {
         actividad: form.actividad,
         cantidad: form.cantidad,
         circuito_comunal: form.circuito_comunal.toUpperCase().trim(),
-        
-        // Guardamos explícitamente quién es el dueño del reporte:
         organismo_responsable: usuarioLogueado.organismo_responsable,
-        // Y guardamos quiénes apoyaron:
         organismos_involucrados: organismosTexto,
-        
         lugar_actividad: lugarCompleto,
         resena: form.resena,
         observacion: form.observacion,
-        
-        // CORREGIDO AQUÍ: SE LLAMA fecha_registro, NO created_at
         fecha_registro: new Date().toISOString()
       };
 
@@ -252,8 +264,10 @@ export default function UserDashboardPage() {
 
       setSuccessMsg("¡Reporte de Incidencia enviado con éxito al Centro de Comando VEN 911!");
       
+      // Sumar al contador visual para que sea instantáneo sin recargar la página
       if (!reporteEspecial) {
         setTotalReportes(prev => prev + 1);
+        setReportesHoy(prev => prev + 1);
       }
       
       setForm({
@@ -300,10 +314,16 @@ export default function UserDashboardPage() {
               <p className="text-sm font-black text-gray-800">{usuarioLogueado?.grado_jerarquia} {usuarioLogueado?.nombre_apellido_jefe}</p>
               <p className="text-xs text-blue-600 font-bold uppercase tracking-wide">SITUR: {usuarioLogueado?.codigo_situr}</p>
               
-              {/* ETIQUETA CONTADOR DE REPORTES */}
-              <div className="mt-2 inline-flex items-center gap-1.5 bg-emerald-100 border border-emerald-200 text-emerald-800 px-3 py-1 rounded-full shadow-sm">
-                <Activity size={14} className="text-emerald-600" />
-                <span className="text-[10px] font-black uppercase tracking-wider">{totalReportes} Novedades Registradas</span>
+              {/* ETIQUETAS CONTADORES DE REPORTES (TOTAL Y HOY) */}
+              <div className="mt-2 flex flex-wrap justify-center sm:justify-end gap-2">
+                <div className="inline-flex items-center gap-1.5 bg-emerald-100 border border-emerald-200 text-emerald-800 px-3 py-1 rounded-full shadow-sm" title="Total Histórico">
+                  <Activity size={14} className="text-emerald-600" />
+                  <span className="text-[10px] font-black uppercase tracking-wider">{totalReportes} Totales</span>
+                </div>
+                <div className="inline-flex items-center gap-1.5 bg-blue-100 border border-blue-200 text-blue-800 px-3 py-1 rounded-full shadow-sm" title="Registradas el día de hoy">
+                  <CalendarDays size={14} className="text-blue-600" />
+                  <span className="text-[10px] font-black uppercase tracking-wider">{reportesHoy} Novedades Hoy</span>
+                </div>
               </div>
             </div>
 
