@@ -13,6 +13,25 @@ const LISTA_ORGANISMOS = [
   "POLICIA MUNICIPAL DE MIRANDA"
 ];
 
+// Formateador estricto para mostrar siempre la hora oficial de Venezuela
+const formatearFechaVenezuela = (fechaIso: string) => {
+  if (!fechaIso) return 'N/A';
+  try {
+    return new Date(fechaIso).toLocaleString('es-VE', {
+      timeZone: 'America/Caracas',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true
+    });
+  } catch (e) {
+    return new Date(fechaIso).toLocaleString();
+  }
+};
+
 const getSiglas = (organismo: string) => {
   const orgLow = (organismo || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
   if (orgLow.includes('cicpc')) return 'CICPC';
@@ -35,14 +54,12 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
   const [incidenciasDB, setIncidenciasDB] = useState<any[]>([]);
   const [sectoresDB, setSectoresDB] = useState<any[]>([]);
   
-  // Estados para la carga bajo demanda
   const [loadingData, setLoadingData] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [progress, setProgress] = useState(0);
   const [totalRecords, setTotalRecords] = useState(0);
   const [isLive, setIsLive] = useState(false);
 
-  // Estados de los filtros
   const [fechaDesde, setFechaDesde] = useState('');
   const [fechaHasta, setFechaHasta] = useState('');
   const [filtroIncidenciaMuni, setFiltroIncidenciaMuni] = useState('');
@@ -88,7 +105,6 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
     activarTiempoReal(veTodo, circuitosPermitidos);
   };
 
-  // FUNCIÓN CON ZONA HORARIA DE VENEZUELA (-04:00) ESTRICTA
   const ejecutarBusqueda = async () => {
     if (!hayFiltrosActivos) return;
 
@@ -105,16 +121,14 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
 
     let query = supabase.from('incidencias').select('*', { count: 'exact', head: true });
 
-    // Inyección de Timezone estricta para forzar cortes a media noche exacta de Venezuela
     if (fechaDesde && fechaHasta) {
-      query = query.gte('fecha_registro', `${fechaDesde}T00:00:00-04:00`).lte('fecha_registro', `${fechaHasta}T23:59:59-04:00`);
+      query = query.gte('fecha_registro', `${fechaDesde}T00:00:00-04:00`).lte('fecha_registro', `${fechaHasta}T23:59:59.999-04:00`);
     } else if (fechaDesde) {
-      query = query.gte('fecha_registro', `${fechaDesde}T00:00:00-04:00`).lte('fecha_registro', `${fechaDesde}T23:59:59-04:00`);
+      query = query.gte('fecha_registro', `${fechaDesde}T00:00:00-04:00`).lte('fecha_registro', `${fechaDesde}T23:59:59.999-04:00`);
     } else if (fechaHasta) {
-      query = query.lte('fecha_registro', `${fechaHasta}T23:59:59-04:00`);
+      query = query.lte('fecha_registro', `${fechaHasta}T23:59:59.999-04:00`);
     }
 
-    // CORRECCIÓN: Separamos el filtro de organismo de la restricción de circuitos para no omitir datos
     if (filtroIncidenciaCircuito) {
       query = query.eq('circuito_comunal', filtroIncidenciaCircuito);
     } else if (filtroIncidenciaMuni || filtroIncidenciaParro) {
@@ -148,16 +162,14 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
     while (inicio < totalEsperado) {
       let batchQuery = supabase.from('incidencias').select('*').order('fecha_registro', { ascending: false }).range(inicio, inicio + loteSize - 1);
       
-      // Mismo forzado de timezone aquí
       if (fechaDesde && fechaHasta) {
-        batchQuery = batchQuery.gte('fecha_registro', `${fechaDesde}T00:00:00-04:00`).lte('fecha_registro', `${fechaHasta}T23:59:59-04:00`);
+        batchQuery = batchQuery.gte('fecha_registro', `${fechaDesde}T00:00:00-04:00`).lte('fecha_registro', `${fechaHasta}T23:59:59.999-04:00`);
       } else if (fechaDesde) {
-        batchQuery = batchQuery.gte('fecha_registro', `${fechaDesde}T00:00:00-04:00`).lte('fecha_registro', `${fechaDesde}T23:59:59-04:00`);
+        batchQuery = batchQuery.gte('fecha_registro', `${fechaDesde}T00:00:00-04:00`).lte('fecha_registro', `${fechaDesde}T23:59:59.999-04:00`);
       } else if (fechaHasta) {
-        batchQuery = batchQuery.lte('fecha_registro', `${fechaHasta}T23:59:59-04:00`);
+        batchQuery = batchQuery.lte('fecha_registro', `${fechaHasta}T23:59:59.999-04:00`);
       }
 
-      // CORRECCIÓN: Misma lógica optimizada para la paginación
       if (filtroIncidenciaCircuito) {
         batchQuery = batchQuery.eq('circuito_comunal', filtroIncidenciaCircuito);
       } else if (filtroIncidenciaMuni || filtroIncidenciaParro) {
@@ -231,7 +243,6 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
   const circuitosIncidenciaUnicos = Array.from(new Set(usuarios.filter(u => (filtroIncidenciaMuni === '' || u.municipio === filtroIncidenciaMuni) && (filtroIncidenciaParro === '' || u.parroquia === filtroIncidenciaParro)).map(u => u.comuna_o_circuito_comunal))).filter(Boolean).sort();
 
   const incidenciasFiltradas = incidenciasDB.filter(inc => {
-    // Filtrado local forzado a huso horario venezolano
     if (fechaDesde || fechaHasta) {
       if (!inc.fecha_registro) return false;
       const incTime = new Date(inc.fecha_registro).getTime();
@@ -240,9 +251,9 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
 
       if (fechaDesde) startTime = new Date(`${fechaDesde}T00:00:00-04:00`).getTime();
       if (fechaHasta) {
-        endTime = new Date(`${fechaHasta}T23:59:59-04:00`).getTime();
+        endTime = new Date(`${fechaHasta}T23:59:59.999-04:00`).getTime();
       } else if (fechaDesde) {
-        endTime = new Date(`${fechaDesde}T23:59:59-04:00`).getTime();
+        endTime = new Date(`${fechaDesde}T23:59:59.999-04:00`).getTime();
       }
 
       if (incTime < startTime || incTime > endTime) {
@@ -257,7 +268,6 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
     if (filtroIncidenciaClasificacion && inc.clasificacion !== filtroIncidenciaClasificacion) return false;
     if (filtroIncidenciaTipo && inc.incidencia !== filtroIncidenciaTipo) return false;
     
-    // CORRECCIÓN: Evaluamos el organismo de la incidencia primero, luego el del jefe
     if (filtroIncidenciaOrganismo) {
       const orgIncidencia = inc.organismo_responsable || inc.organismo_reportante || jefe?.organismo_responsable || '';
       if (!matchesOrganismo(orgIncidencia, filtroIncidenciaOrganismo)) return false;
@@ -284,7 +294,7 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
     incidenciasFiltradas.forEach(inc => {
       const jefe = usuarios.find(u => u.comuna_o_circuito_comunal === inc.circuito_comunal);
       wsData.push([
-        new Date(inc.fecha_registro).toLocaleString(),
+        formatearFechaVenezuela(inc.fecha_registro),
         jefe?.estado || 'FALCÓN', jefe?.municipio || 'N/A', jefe?.parroquia || 'N/A',
         inc.circuito_comunal || 'N/A', inc.clasificacion || 'N/A', inc.incidencia || 'N/A', inc.actividad || 'N/A',
         jefe?.organismo_responsable || inc.organismo_responsable || 'N/A',
@@ -310,7 +320,7 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
       const orgA_Mostrar = jefe?.organismo_responsable || inc.organismo_responsable || 'N/A';
       return `
       <tr>
-        <td style="padding: 6px; border: 1px solid #cbd5e1;">${new Date(inc.fecha_registro).toLocaleString()}</td>
+        <td style="padding: 6px; border: 1px solid #cbd5e1;">${formatearFechaVenezuela(inc.fecha_registro)}</td>
         <td style="padding: 6px; border: 1px solid #cbd5e1;"><strong>${inc.circuito_comunal}</strong></td>
         <td style="padding: 6px; border: 1px solid #cbd5e1;">${jefe?.municipio || 'N/A'} / ${jefe?.parroquia || 'N/A'}</td>
         <td style="padding: 6px; border: 1px solid #cbd5e1;">${inc.clasificacion}</td>
@@ -322,13 +332,12 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
       `;
     }).join('');
 
-    const fechaReporte = new Date().toLocaleString();
+    const fechaReporte = new Date().toLocaleString('es-VE', { timeZone: 'America/Caracas' });
 
     const contenedor = document.createElement('div');
     contenedor.innerHTML = `
       <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; font-size: 10px; color: #333; background: white; width: 100%;">
         
-        <!-- ENCABEZADO CON LOGOS -->
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 2px solid #00529b; padding-bottom: 10px;">
           <div style="display: flex; align-items: center; gap: 15px;">
             <img src="/logo1.png" alt="Cuadrantes de Paz" style="height: 50px; object-fit: contain;" onerror="this.style.display='none'">
@@ -341,7 +350,6 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
           </div>
         </div>
 
-        <!-- RESUMEN CUANTITATIVO (Tarjetas) -->
         <div style="display: flex; justify-content: space-between; margin-bottom: 20px; gap: 10px;">
           <div style="border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; flex: 1; text-align: center; background-color: #f8fafc;">
             <div style="font-size: 9px; color: #64748b; text-transform: uppercase; font-weight: bold; margin-bottom: 5px;">Total Registradas</div>
@@ -361,7 +369,6 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
           </div>
         </div>
 
-        <!-- INDICADOR DE FILTROS -->
         <div style="margin-bottom: 15px; font-size: 9px; color: #475569; background: #f1f5f9; padding: 8px; border-radius: 4px;">
           <strong>Filtros aplicados:</strong> 
           ${fechaDesde ? `Desde: ${fechaDesde} (00:00)` : ''} 
@@ -370,7 +377,6 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
           ${filtroIncidenciaMuni ? `| Municipio: ${filtroIncidenciaMuni}` : ''}
         </div>
 
-        <!-- TABLA DE DATOS -->
         <table style="width: 100%; border-collapse: collapse; margin-top: 10px;">
           <thead>
             <tr>
@@ -413,7 +419,6 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
   return (
     <div className="animate-fade-in w-full space-y-6">
       
-      {/* BARRA DE CARGA PROGRESIVA Y STATUS EN TIEMPO REAL */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white rounded-2xl border p-4 shadow-sm">
         <div className="flex items-center gap-4 w-full md:w-auto flex-1">
           <div className="bg-blue-100 p-3 rounded-xl border border-blue-200">
@@ -448,7 +453,6 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
         </div>
       </div>
 
-      {/* TARJETAS DE ESTADISTICAS RÁPIDAS */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className={`bg-white border ${hasSearched ? 'border-blue-200' : 'border-gray-200 opacity-50'} rounded-2xl p-4 flex items-center gap-4 shadow-sm transition-all`}>
           <div className="bg-blue-50 p-3 rounded-full text-[#00529b]"><Activity size={28} /></div>
@@ -468,7 +472,6 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
         </div>
       </div>
 
-      {/* FILTROS */}
       <div className="bg-blue-50/30 p-5 rounded-2xl shadow-sm border border-blue-100">
         <div className="font-bold text-[#00529b] flex items-center justify-between gap-2 mb-4 border-b border-blue-100 pb-3">
           <div className="flex items-center gap-2"><Filter size={18} /> Módulo de Búsqueda y Filtrado en la Nube</div>
@@ -525,7 +528,6 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
           )}
         </div>
 
-        {/* BOTONES DE ACCIÓN */}
         <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t border-blue-100 items-center justify-between">
           <button 
             onClick={ejecutarBusqueda} 
@@ -544,7 +546,6 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
         </div>
       </div>
 
-      {/* TABLA PRINCIPAL DE INCIDENCIAS */}
       <div className="overflow-x-auto overflow-y-auto max-h-[50vh] rounded-xl border border-gray-200 w-full shadow-inner relative bg-white">
         <table className="w-full min-w-max text-left text-xs">
           <thead className="text-gray-700 uppercase tracking-wider text-[10px]">
@@ -568,7 +569,7 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
               incidenciasFiltradas.map((incidencia, index) => (
                 <tr key={index} className="hover:bg-gray-50 transition-colors">
                   <td className="p-3 text-center sticky left-0 bg-white z-10"><button onClick={() => setIncidenciaSeleccionada(incidencia)} className="bg-blue-100 text-[#00529b] p-1.5 rounded-lg hover:bg-[#00529b] hover:text-white transition-all shadow-sm"><Eye size={16} /></button></td>
-                  <td className="p-3">{new Date(incidencia.fecha_registro).toLocaleString()}</td>
+                  <td className="p-3">{formatearFechaVenezuela(incidencia.fecha_registro)}</td>
                   <td className="p-3 font-bold text-gray-800">
                     <div className="flex flex-col">
                       <div className="flex items-center justify-between gap-1.5 w-full max-w-[180px]">
@@ -599,12 +600,14 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
         </table>
       </div>
 
-      {/* MODAL DETALLES DEL REPORTE */}
       {incidenciaSeleccionada && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
           <div className="bg-white rounded-[2rem] p-6 max-w-3xl w-full shadow-2xl border flex flex-col max-h-[90vh] overflow-hidden relative">
             <div className="flex justify-between items-start border-b pb-4 mb-4">
-              <div><h3 className="text-xl font-black text-[#00529b] flex items-center gap-2"><ShieldAlert size={24} className="text-amber-500" /> Detalles del Reporte</h3><p className="text-xs text-gray-500 mt-1 font-bold">Registrado el {new Date(incidenciaSeleccionada.fecha_registro).toLocaleString()}</p></div>
+              <div>
+                <h3 className="text-xl font-black text-[#00529b] flex items-center gap-2"><ShieldAlert size={24} className="text-amber-500" /> Detalles del Reporte</h3>
+                <p className="text-xs text-gray-500 mt-1 font-bold">Registrado el {formatearFechaVenezuela(incidenciaSeleccionada.fecha_registro)}</p>
+              </div>
               <button onClick={() => setIncidenciaSeleccionada(null)} className="text-gray-400 hover:text-red-500 bg-gray-100 hover:bg-red-50 p-2 rounded-full transition-all"><X size={20} /></button>
             </div>
             <div className="overflow-y-auto pr-2 space-y-4">
@@ -626,7 +629,6 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
         </div>
       )}
 
-      {/* MODAL DETALLES DEL CIRCUITO */}
       {circuitoInfoSeleccionado && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-[100] animate-fade-in backdrop-blur-sm">
           <div className="bg-white rounded-3xl p-6 max-w-lg w-full shadow-2xl border flex flex-col relative">
