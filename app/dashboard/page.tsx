@@ -4,9 +4,6 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { ShieldCheck, Loader2, AlertCircle, CheckCircle2, MapPin, FileText, Users, HelpCircle, ChevronDown, Activity, Edit3, Trash2, Plus, Building2, CalendarDays } from 'lucide-react';
 
-// ==========================================
-// LISTA EXTRAÍDA DE TU ARCHIVO EXCEL
-// ==========================================
 const LISTA_ORGANISMOS = [
   "Cuerpo de Investigaciones Científicas Penales y Criminalísticas",
   "Dirección de Atención Integral Penitenciaria",
@@ -40,30 +37,24 @@ export default function UserDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [enviando, setEnviando] = useState(false);
   
-  // ESTADOS: Contadores de reportes del circuito
   const [totalReportes, setTotalReportes] = useState(0);
-  const [reportesHoy, setReportesHoy] = useState(0); // NUEVO: Contador del día
+  const [reportesHoy, setReportesHoy] = useState(0);
 
-  // Catálogos descargados de la Base de Datos
   const [clasificaciones, setClasificaciones] = useState<any[]>([]);
   const [allIncidencias, setAllIncidencias] = useState<any[]>([]);
   const [allActividades, setAllActividades] = useState<any[]>([]);
   const [misSectores, setMisSectores] = useState<any[]>([]);
 
-  // GESTIÓN DE MIS SECTORES
   const [mostrarModalSectores, setMostrarModalSectores] = useState(false);
   const [nuevoSector, setNuevoSector] = useState('');
   const [guardandoSector, setGuardandoSector] = useState(false);
 
-  // Desplegables en Cascada Filtrados
   const [incidenciasFiltradas, setIncidenciasFiltradas] = useState<any[]>([]);
   const [actividadesFiltradas, setActividadesFiltradas] = useState<any[]>([]);
 
-  // Mensajes de Interfaz
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
-  // ESTADO DEL FORMULARIO DE REPORTE
   const [reporteEspecial, setReporteEspecial] = useState(false);
   const [dropdownOrganismosAbierto, setDropdownOrganismosAbierto] = useState(false);
   const [form, setForm] = useState({
@@ -79,9 +70,8 @@ export default function UserDashboardPage() {
     observacion: ''
   });
 
- useEffect(() => {
+  useEffect(() => {
     const initDashboard = async () => {
-      // 1. Obtenemos el correo del usuario desde el almacenamiento local
       const sessionData = localStorage.getItem('user_session');
       let correoA_Buscar = 'ronald.ros1993@gmail.com';
 
@@ -92,7 +82,6 @@ export default function UserDashboardPage() {
         } catch (e) {}
       }
 
-      // 2. Obtener datos de la ficha del usuario logueado
       const { data: userData, error: dbError } = await supabase
         .from('directorio_operativo')
         .select('*')
@@ -107,7 +96,6 @@ export default function UserDashboardPage() {
       setUsuarioLogueado(userData);
       setForm(prev => ({ ...prev, circuito_comunal: userData.comuna_o_circuito_comunal || '' }));
       
-      // Consultar estadísticas si tiene circuito asignado
       if (userData.comuna_o_circuito_comunal) {
         // A) Total Histórico
         const { count: totalCount } = await supabase
@@ -117,13 +105,20 @@ export default function UserDashboardPage() {
         
         if (totalCount !== null) setTotalReportes(totalCount);
 
-        // B) Total del Día de Hoy (00:00 a 23:59 hora Venezuela)
-        const now = new Date();
-        const yyyy = now.getFullYear();
-        const mm = String(now.getMonth() + 1).padStart(2, '0');
-        const dd = String(now.getDate()).padStart(2, '0');
-        const hoyInicio = `${yyyy}-${mm}-${dd}T00:00:00-04:00`;
-        const hoyFin = `${yyyy}-${mm}-${dd}T23:59:59-04:00`;
+        // B) Total del Día de Hoy obtenido con la fecha real del servidor
+        let fechaHoyVen = '';
+        try {
+          const { data: serverDate } = await supabase.rpc('get_fecha_venezuela');
+          if (serverDate) fechaHoyVen = serverDate;
+        } catch (e) {}
+
+        if (!fechaHoyVen) {
+          // Respaldo seguro con Intl forzando zona horaria de Caracas
+          fechaHoyVen = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas' }).format(new Date());
+        }
+
+        const hoyInicio = `${fechaHoyVen}T00:00:00-04:00`;
+        const hoyFin = `${fechaHoyVen}T23:59:59-04:00`;
 
         const { count: hoyCount } = await supabase
           .from('incidencias')
@@ -135,7 +130,6 @@ export default function UserDashboardPage() {
         if (hoyCount !== null) setReportesHoy(hoyCount);
       }
 
-      // 3. Descargar Catálogos del Excel desde Supabase
       const { data: catClas } = await supabase.from('catalogo_clasificacion').select('*').order('nombre', { ascending: true });
       const { data: catInc } = await supabase.from('catalogo_incidencia').select('*').order('nombre', { ascending: true });
       const { data: catAct } = await supabase.from('catalogo_actividad').select('*').order('nombre', { ascending: true });
@@ -244,6 +238,8 @@ export default function UserDashboardPage() {
         ? form.organismos_involucrados.join(' - ').toUpperCase() 
         : 'NINGUNO';
 
+      // NOTA: NO se envía fecha_registro desde el cliente.
+      // PostgreSQL / Supabase asignará now() desde su servidor sincronizado automáticamente.
       const payload = {
         usuario_id: usuarioLogueado.id,
         clasificacion: form.clasificacion,
@@ -255,8 +251,7 @@ export default function UserDashboardPage() {
         organismos_involucrados: organismosTexto,
         lugar_actividad: lugarCompleto,
         resena: form.resena,
-        observacion: form.observacion,
-        fecha_registro: new Date().toISOString()
+        observacion: form.observacion
       };
 
       const { error } = await supabase.from('incidencias').insert([payload]);
@@ -264,7 +259,6 @@ export default function UserDashboardPage() {
 
       setSuccessMsg("¡Reporte de Incidencia enviado con éxito al Centro de Comando VEN 911!");
       
-      // Sumar al contador visual para que sea instantáneo sin recargar la página
       if (!reporteEspecial) {
         setTotalReportes(prev => prev + 1);
         setReportesHoy(prev => prev + 1);
@@ -314,7 +308,6 @@ export default function UserDashboardPage() {
               <p className="text-sm font-black text-gray-800">{usuarioLogueado?.grado_jerarquia} {usuarioLogueado?.nombre_apellido_jefe}</p>
               <p className="text-xs text-blue-600 font-bold uppercase tracking-wide">SITUR: {usuarioLogueado?.codigo_situr}</p>
               
-              {/* ETIQUETAS CONTADORES DE REPORTES (TOTAL Y HOY) */}
               <div className="mt-2 flex flex-wrap justify-center sm:justify-end gap-2">
                 <div className="inline-flex items-center gap-1.5 bg-emerald-100 border border-emerald-200 text-emerald-800 px-3 py-1 rounded-full shadow-sm" title="Total Histórico">
                   <Activity size={14} className="text-emerald-600" />
@@ -327,7 +320,6 @@ export default function UserDashboardPage() {
               </div>
             </div>
 
-            {/* DIVISOR Y BOTONERA */}
             <div className="hidden sm:block w-px h-10 bg-gray-300 mx-1"></div>
             
             <div className="flex gap-2 w-full sm:w-auto justify-center">
@@ -355,7 +347,6 @@ export default function UserDashboardPage() {
               <p className="text-xs text-gray-500 font-semibold mt-1">Carga cuantitativa de actividades ejecutadas en territorio</p>
             </div>
 
-            {/* BOTÓN / SWITCH DE REPORTE ESPECIAL */}
             <label className="flex items-center gap-2 bg-amber-50 border border-amber-200 p-2.5 rounded-xl cursor-pointer hover:bg-amber-100/70 transition-all select-none">
               <input 
                 type="checkbox" 
@@ -377,7 +368,6 @@ export default function UserDashboardPage() {
             </label>
           </div>
 
-          {/* MENSAJES INFORMATIVOS */}
           {errorMsg && (
             <div className="mb-6 bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-xl text-sm font-bold flex items-center gap-2 animate-fade-in">
               <AlertCircle size={18} className="shrink-0" /> <p>{errorMsg}</p>
@@ -389,10 +379,8 @@ export default function UserDashboardPage() {
             </div>
           )}
 
-          {/* CUERPO DEL FORMULARIO */}
           <form onSubmit={handleSubmit} className="space-y-6">
             
-            {/* NUEVO: BANNER VISUAL DEL ORGANISMO RESPONSABLE */}
             <div className="bg-[#f8fafc] p-4 rounded-2xl border border-gray-200 flex items-center justify-between">
               <div>
                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Organismo que registra y cierra el caso:</p>
@@ -408,7 +396,6 @@ export default function UserDashboardPage() {
               </div>
             </div>
 
-            {/* BLOQUE TERRITORIAL */}
             <div className="p-4 bg-slate-50 border rounded-2xl grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold text-gray-600 mb-1 flex items-center gap-1">
@@ -452,7 +439,6 @@ export default function UserDashboardPage() {
               </div>
             </div>
 
-            {/* SELECCIÓN DINÁMICA EN CASCADA */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <label className="block text-xs font-bold text-gray-600 mb-1">1. Clasificación</label>
@@ -496,7 +482,6 @@ export default function UserDashboardPage() {
               </div>
             </div>
 
-            {/* ORGANISMOS MULTI-SELECCIÓN (AHORA SON DE APOYO) */}
             <div className="relative">
               <label className="block text-xs font-bold text-gray-600 mb-1">Organismos de Apoyo / Presentes (Opcional)</label>
               
@@ -540,7 +525,6 @@ export default function UserDashboardPage() {
               )}
             </div>
 
-            {/* LUGAR PRE_DISEÑADO */}
             <div>
               <label className="block text-xs font-bold text-gray-600 mb-1 flex items-center gap-1">
                 <MapPin size={14} className="text-gray-400" /> Dirección o Punto de Referencia
@@ -555,7 +539,6 @@ export default function UserDashboardPage() {
               />
             </div>
 
-            {/* TEXTAREAS DE DETALLES */}
             <div>
               <label className="block text-xs font-bold text-gray-600 mb-1 flex items-center gap-1">
                 <FileText size={14} className="text-gray-400" /> Reseña Informativa
@@ -570,7 +553,6 @@ export default function UserDashboardPage() {
               />
             </div>
 
-            {/* CUADRO DE OBSERVACIONES OBLIGATORIO PARA REPORTES ESPECIALES */}
             <div>
               <label className="block text-xs font-bold text-gray-600 mb-1 flex items-center gap-1">
                 <HelpCircle size={14} className={reporteEspecial ? "text-amber-600" : "text-gray-400"} /> 
@@ -586,7 +568,6 @@ export default function UserDashboardPage() {
               />
             </div>
 
-            {/* BOTÓN DE GUARDADO */}
             <button 
               type="submit" 
               disabled={enviando}
@@ -605,9 +586,6 @@ export default function UserDashboardPage() {
         </div>
       </div>
 
-      {/* ==========================================
-          MODAL PARA GESTIONAR MIS SECTORES
-          ========================================== */}
       {mostrarModalSectores && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
           <div className="bg-white rounded-[2rem] p-8 max-w-md w-full shadow-2xl border">
@@ -615,7 +593,6 @@ export default function UserDashboardPage() {
               <MapPin size={24} /> Mis Sectores Asignados
             </h3>
 
-            {/* Lista de sectores actuales */}
             <div className="max-h-60 overflow-y-auto mb-6 space-y-2 pr-2">
               {misSectores.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-6 text-gray-400">
@@ -638,7 +615,6 @@ export default function UserDashboardPage() {
               )}
             </div>
 
-            {/* Agregar nuevo sector */}
             <div className="mb-6">
               <label className="block text-xs font-bold text-gray-500 mb-2">Agregar Nuevo Sector</label>
               <div className="flex gap-2">
@@ -661,8 +637,8 @@ export default function UserDashboardPage() {
               </div>
             </div>
 
-            <button
-              onClick={() => setMostrarModalSectores(false)}
+            <button 
+              onClick={() => setMostrarModalSectores(false)} 
               className="w-full bg-gray-200 text-gray-700 p-4 rounded-xl font-black uppercase tracking-wide hover:bg-gray-300 transition-all"
             >
               Cerrar Ventana
