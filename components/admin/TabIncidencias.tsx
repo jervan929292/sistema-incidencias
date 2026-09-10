@@ -114,13 +114,13 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
       query = query.lte('fecha_registro', `${fechaHasta}T23:59:59-04:00`);
     }
 
+    // CORRECCIÓN: Separamos el filtro de organismo de la restricción de circuitos para no omitir datos
     if (filtroIncidenciaCircuito) {
       query = query.eq('circuito_comunal', filtroIncidenciaCircuito);
-    } else if (filtroIncidenciaMuni || filtroIncidenciaParro || filtroIncidenciaOrganismo) {
+    } else if (filtroIncidenciaMuni || filtroIncidenciaParro) {
        let usuariosFiltrados = usuarios;
        if (filtroIncidenciaMuni) usuariosFiltrados = usuariosFiltrados.filter(u => u.municipio === filtroIncidenciaMuni);
        if (filtroIncidenciaParro) usuariosFiltrados = usuariosFiltrados.filter(u => u.parroquia === filtroIncidenciaParro);
-       if (filtroIncidenciaOrganismo) usuariosFiltrados = usuariosFiltrados.filter(u => matchesOrganismo(u.organismo_responsable, filtroIncidenciaOrganismo));
        const circuitosValidos = usuariosFiltrados.map(u => u.comuna_o_circuito_comunal);
        if (circuitosValidos.length > 0) {
          query = query.in('circuito_comunal', circuitosValidos);
@@ -157,17 +157,18 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
         batchQuery = batchQuery.lte('fecha_registro', `${fechaHasta}T23:59:59-04:00`);
       }
 
+      // CORRECCIÓN: Misma lógica optimizada para la paginación
       if (filtroIncidenciaCircuito) {
         batchQuery = batchQuery.eq('circuito_comunal', filtroIncidenciaCircuito);
-      } else if (filtroIncidenciaMuni || filtroIncidenciaParro || filtroIncidenciaOrganismo) {
+      } else if (filtroIncidenciaMuni || filtroIncidenciaParro) {
          let usuariosFiltrados = usuarios;
          if (filtroIncidenciaMuni) usuariosFiltrados = usuariosFiltrados.filter(u => u.municipio === filtroIncidenciaMuni);
          if (filtroIncidenciaParro) usuariosFiltrados = usuariosFiltrados.filter(u => u.parroquia === filtroIncidenciaParro);
-         if (filtroIncidenciaOrganismo) usuariosFiltrados = usuariosFiltrados.filter(u => matchesOrganismo(u.organismo_responsable, filtroIncidenciaOrganismo));
          const circuitosValidos = usuariosFiltrados.map(u => u.comuna_o_circuito_comunal);
          if(circuitosValidos.length > 0) batchQuery = batchQuery.in('circuito_comunal', circuitosValidos);
          else batchQuery = batchQuery.eq('circuito_comunal', 'NO_MATCH');
       }
+      
       if (filtroIncidenciaClasificacion) batchQuery = batchQuery.eq('clasificacion', filtroIncidenciaClasificacion);
       if (filtroIncidenciaTipo) batchQuery = batchQuery.eq('incidencia', filtroIncidenciaTipo);
 
@@ -255,10 +256,13 @@ export default function TabIncidencias({ adminUser, esSuperUser, isReadOnlyVen91
     if (filtroIncidenciaCircuito && inc.circuito_comunal !== filtroIncidenciaCircuito) return false;
     if (filtroIncidenciaClasificacion && inc.clasificacion !== filtroIncidenciaClasificacion) return false;
     if (filtroIncidenciaTipo && inc.incidencia !== filtroIncidenciaTipo) return false;
+    
+    // CORRECCIÓN: Evaluamos el organismo de la incidencia primero, luego el del jefe
     if (filtroIncidenciaOrganismo) {
-      const orgDelCircuito = jefe?.organismo_responsable || '';
-      if (!matchesOrganismo(orgDelCircuito, filtroIncidenciaOrganismo)) return false;
+      const orgIncidencia = inc.organismo_responsable || inc.organismo_reportante || jefe?.organismo_responsable || '';
+      if (!matchesOrganismo(orgIncidencia, filtroIncidenciaOrganismo)) return false;
     }
+    
     return true;
   });
 
