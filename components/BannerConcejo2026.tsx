@@ -12,7 +12,7 @@ export default function BannerConcejo2026() {
   const pathname = usePathname();
 
   useEffect(() => {
-    // Solo verificar si estamos dentro de /admin o /dashboard
+    // Solo permitir en /admin o /dashboard
     if (!pathname.startsWith('/admin') && !pathname.startsWith('/dashboard')) {
       setLoading(false);
       return;
@@ -29,22 +29,36 @@ export default function BannerConcejo2026() {
 
         if (config && config.activo === false) {
           setLoading(false);
-          return; // Si está apagado, no mostramos nada
+          return;
         }
 
         setMostrarBanner(true);
 
-        // 2. Obtener el rol del usuario autenticado
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
+        // 2. Obtener el correo desde localStorage (igual que tu app)
+        let correoLogueado = '';
+        const sessionData = localStorage.getItem('user_session');
+        if (sessionData) {
+          try {
+            const parsed = JSON.parse(sessionData);
+            if (parsed?.email) correoLogueado = parsed.email;
+          } catch (e) {}
+        }
 
+        if (!correoLogueado) {
+          setLoading(false);
+          return;
+        }
+
+        // 3. Buscar el rol del usuario en directorio_operativo usando su correo
         const { data: perfil } = await supabase
           .from('directorio_operativo')
           .select('rol')
-          .eq('id', user.id)
-          .single();
+          .ilike('email', correoLogueado)
+          .maybeSingle();
 
-        if (perfil) setRol(perfil.rol);
+        if (perfil) {
+          setRol(perfil.rol);
+        }
 
       } catch (error) {
         console.error("Error cargando banner:", error);
@@ -56,12 +70,11 @@ export default function BannerConcejo2026() {
     cargarDatos();
   }, [pathname]);
 
-  // Si no estamos en /admin ni en /dashboard, o está cargando, o no hay rol / interruptor encendido, no se muestra.
   if ((!pathname.startsWith('/admin') && !pathname.startsWith('/dashboard')) || loading || !rol || !mostrarBanner) {
     return null;
   }
 
-  // Vista para Administradores (en /admin)
+  // Vista para Administradores (/admin)
   if (rol === 'superusuario' || rol === 'admin') {
     return (
       <div className="w-full bg-gradient-to-r from-red-700 via-amber-600 to-red-800 text-white px-4 py-3 flex flex-col md:flex-row items-center justify-between gap-3 shadow-md z-50 relative">
@@ -84,7 +97,7 @@ export default function BannerConcejo2026() {
     );
   }
 
-  // Vista para Usuarios Operativos (en /dashboard)
+  // Vista para Usuarios Operativos (/dashboard)
   if (rol === 'usuario') {
     return (
       <div className="w-full bg-gradient-to-r from-[#00529b] via-blue-600 to-[#003d73] text-white px-4 py-3 flex flex-col md:flex-row items-center justify-between gap-3 shadow-md z-50 relative">
