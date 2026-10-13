@@ -84,7 +84,7 @@ export default function BannerConcejo2026() {
           </div>
           <p className="text-[11px] md:text-sm font-black tracking-wide uppercase leading-tight">
             Monitor Centralizado: <br className="block md:hidden"/>
-            <span className="text-amber-200">Inspección de Planteles Escolares</span>
+            <span className="text-amber-200">Segunda Consulta Popular Nacional 2026</span>
           </p>
         </div>
         <Link 
@@ -107,7 +107,7 @@ export default function BannerConcejo2026() {
           </div>
           <p className="text-[11px] md:text-sm font-bold tracking-wide uppercase leading-tight">
             Módulo Operativo Activo: <br className="block md:hidden"/>
-            <span className="text-emerald-200 font-black">Diagnóstico de Infraestructura Escolar</span>
+            <span className="text-emerald-200 font-black">Segunda Consulta Popular Nacional 2026</span>
           </p>
         </div>
         <Link 
