@@ -10,11 +10,12 @@ export default function ControlMantenimiento() {
 
   useEffect(() => {
     const checkMantenimiento = async () => {
+      // ⚠️ Filtramos específicamente por la clave 'alertas_sistema'
       const { data } = await supabase
         .from('configuracion_sistema')
-        .select('activo, alerta_ven_activa, mensaje_alerta')
-        .limit(1)
-        .maybeSingle();
+        .select('activo')
+        .eq('clave', 'alertas_sistema')
+        .single();
       
       if (data?.activo) {
         await supabase.auth.signOut();
@@ -31,13 +32,16 @@ export default function ControlMantenimiento() {
 
     const channel = supabase.channel('vigilante-mantenimiento')
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'configuracion_sistema' }, (payload: any) => {
-        if (payload.new?.activo) {
-          supabase.auth.signOut().then(() => {
-            window.location.href = '/mantenimiento';
-          });
-        } else {
-          if (window.location.pathname === '/mantenimiento') {
-            window.location.href = '/login';
+        // Verificar si la fila actualizada es la de alertas_sistema
+        if (payload.new?.clave === 'alertas_sistema') {
+          if (payload.new?.activo) {
+            supabase.auth.signOut().then(() => {
+              window.location.href = '/mantenimiento';
+            });
+          } else {
+            if (window.location.pathname === '/mantenimiento') {
+              window.location.href = '/login';
+            }
           }
         }
       })
