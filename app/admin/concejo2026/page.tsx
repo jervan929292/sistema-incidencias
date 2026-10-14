@@ -24,7 +24,7 @@ export default function SalaSituacionalConcejoPage() {
       try {
         setLoading(true);
 
-        // 1. Obtener el correo desde localStorage (idéntico al resto de tu sistema)
+        // 1. Obtener el correo desde localStorage
         let correoLogueado = '';
         const sessionData = localStorage.getItem('user_session');
         if (sessionData) {
@@ -38,7 +38,6 @@ export default function SalaSituacionalConcejoPage() {
 
         let perfilEncontrado = null;
         if (correoLogueado) {
-          // Buscar el perfil exacto en directorio_operativo usando el correo
           const { data: adminByEmail } = await supabase
             .from('directorio_operativo')
             .select('*')
@@ -50,7 +49,6 @@ export default function SalaSituacionalConcejoPage() {
           }
         }
 
-        // Si no se encuentra por correo de localStorage, intentar respaldo con Supabase Auth
         if (!perfilEncontrado) {
           const { data: { user } } = await supabase.auth.getUser();
           if (user?.email) {
@@ -136,18 +134,19 @@ export default function SalaSituacionalConcejoPage() {
     return mapaExacto;
   }, [reportes]);
 
-  // Identificación dinámica del usuario logueado
+  // Únicamente VEN 911 o SUPERUSUARIO pueden ver todo los organismos
   const orgUser = (adminProfile?.organismo_responsable || adminProfile?.organismo || '').toUpperCase();
   const rolUser = (adminProfile?.rol || '').toUpperCase();
   
   const isVen911OrSuper = rolUser === 'SUPERUSUARIO' || 
-                          rolUser === 'ADMIN' || 
-                          orgUser.includes('VEN') || 
-                          orgUser.includes('911');
+                          orgUser.includes('VEN 911') || 
+                          orgUser.includes('VEN-911') ||
+                          orgUser === 'VEN 911';
 
-  // Si es VEN 911 / Superusuario, ve todo o según el selector.
-  // Si es un organismo específico (ej. POLIMIRANDA), solo ve centros asociados a su organismo.
-  const organismoSeguro = isVen911OrSuper ? filtroOrganismo : (adminProfile?.organismo_responsable || adminProfile?.organismo || '');
+  // Si no es VEN 911 ni SUPERUSUARIO, se restringe estrictamente a su organismo asignado
+  const organismoSeguro = isVen911OrSuper 
+    ? filtroOrganismo 
+    : (adminProfile?.organismo_responsable || adminProfile?.organismo || '');
 
   const municipiosUnicos = useMemo(() => {
     const mCentros = centros.map(c => c.MUNICIPIO || c.municipio).filter(Boolean);
@@ -286,7 +285,7 @@ export default function SalaSituacionalConcejoPage() {
 
   return (
     <div className="min-h-screen bg-gray-100 p-6 space-y-4">
-      {/* CABECERA CON DATOS REALES DEL USUARIO CONECTADO */}
+      {/* CABECERA DE USUARIO AUTENTICADO */}
       <div className="bg-white p-4 rounded-2xl border shadow-sm flex justify-between items-center flex-wrap gap-4">
         <Link href="/admin" className="inline-flex items-center gap-1.5 text-gray-500 hover:text-[#00529b] font-bold text-xs uppercase bg-gray-50 px-4 py-2.5 rounded-xl border border-gray-200 transition-colors">
           <ArrowLeft size={16} /> Volver a Inicio Admin
@@ -363,7 +362,7 @@ export default function SalaSituacionalConcejoPage() {
           </select>
         </div>
 
-        {/* Solo visible para VEN 911 / Superusuarios */}
+        {/* Solo visible si el usuario pertenece al VEN 911 o es SUPERUSUARIO */}
         {isVen911OrSuper && (
           <div className="flex flex-col">
             <label className="text-[10px] font-bold text-gray-400 mb-1 uppercase">Organismo</label>
