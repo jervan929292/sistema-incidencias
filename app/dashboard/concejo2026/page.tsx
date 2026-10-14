@@ -125,7 +125,7 @@ export default function ConcejoTerritorialPage() {
       return;
     }
 
-    if (escuela.entrega_cotillon !== 'SI' && escuela.entrega_cotillon !== 'NO') {
+    if (escuela.entrega_cotillon !== 'SI' && esc.entrega_cotillon !== 'NO') {
       alert("⚠️ ALTO: Debe indicar si se hizo entrega de cotillón (Sí / No).");
       return;
     }
@@ -190,31 +190,29 @@ export default function ConcejoTerritorialPage() {
       const comunaActual = jefe?.comuna_o_circuito_comunal || jefe?.circuito || '';
       
       let codCentroFinal = cneVirtualModal;
-      let municipioFinal = jefe?.municipio || 'SIN MUNICIPIO';
-      let parroquiaFinal = jefe?.parroquia || 'SIN PARROQUIA';
-
       if (centroExistenteSeleccionado) {
         codCentroFinal = centroExistenteSeleccionado.COD_CENTRO || centroExistenteSeleccionado.cod_centro;
-        municipioFinal = centroExistenteSeleccionado.MUNICIPIO || centroExistenteSeleccionado.municipio || municipioFinal;
-        parroquiaFinal = centroExistenteSeleccionado.PARROQUIA || centroExistenteSeleccionado.parroquia || parroquiaFinal;
       } else {
         const siguienteNum = escuelas.length + 1;
         codCentroFinal = `${siturActual || 'N/A'}-${siguienteNum}`;
       }
 
+      // TOMAR MUNICIPIO Y PARROQUIA ESTRICTAMENTE DEL FUNCIONARIO LOGUEADO
+      let municipioFinal = jefe?.municipio || 'SIN MUNICIPIO';
+      let parroquiaFinal = jefe?.parroquia || 'SIN PARROQUIA';
+
       // Normalizar municipio con prefijo MP.
-      if (!municipioFinal.toUpperCase().startsWith('MP.')) {
-        municipioFinal = `MP. ${municipioFinal.toUpperCase()}`;
-      }
+      const muniUpper = municipioFinal.toString().trim().toUpperCase();
+      const municipioConPrefijo = muniUpper.startsWith('MP.') ? muniUpper : `MP. ${muniUpper}`;
 
       const payload = {
         cod_centro: codCentroFinal,
         codigo_situr: siturActual,
         nombre_centro: nombreBusqueda.trim().toUpperCase(),
         direccion: direccionModal.trim().toUpperCase(),
-        municipio: municipioFinal.toUpperCase(),
-        parroquia: parroquiaFinal.toUpperCase(),
-        circuito_comunal: comunaActual.toUpperCase(),
+        municipio: municipioConPrefijo,
+        parroquia: parroquiaFinal.toString().trim().toUpperCase(),
+        circuito_comunal: comunaActual.toString().trim().toUpperCase(),
         organismo: (jefe?.organismo_responsable || jefe?.organismo || 'S/O').toUpperCase(),
         funcionario_nombre: `${jefe?.grado_jerarquia || ''} ${jefe?.nombre_apellido_jefe || jefe?.jefe || ''}`.trim().toUpperCase(),
         funcionario_rango: jefe?.grado_jerarquia || jefe?.rango || 'Funcionario',
@@ -225,7 +223,7 @@ export default function ConcejoTerritorialPage() {
       const { error } = await supabase.from('centros_registrados_organismos').insert([payload]);
       if (error) throw error;
 
-      alert(`✅ Centro registrado con éxito en tu circuito.`);
+      alert(`✅ Centro registrado con éxito bajo tu jurisdicción (${municipioConPrefijo}).`);
       setMostrarModalNueva(false);
       window.location.reload(); 
     } catch (err: any) {
@@ -528,7 +526,7 @@ export default function ConcejoTerritorialPage() {
                           className="p-3 hover:bg-blue-50 cursor-pointer transition-colors flex flex-col"
                         >
                           <span className="font-black text-xs text-gray-800 uppercase">{nombreC}</span>
-                          <span className="text-[10px] text-blue-600 font-bold">CNE: {codC} — {item.MUNICIPIO || item.municipio || 'FALCÓN'}</span>
+                          <span className="text-[10px] text-blue-600 font-bold">CNE: {codC}</span>
                         </div>
                       );
                     })}
