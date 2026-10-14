@@ -60,6 +60,20 @@ export default function ConcejoTerritorialPage() {
         const siturCodigo = (userData.codigo_situr || userData.situr || '').toString().trim();
 
         if (siturCodigo) {
+          // 1. Cargar primero los reportes existentes de este SITUR para saber qué centros ha agregado el funcionario
+          const { data: reportesExistentes } = await supabase
+            .from('reportes_concejo_2026')
+            .select('*')
+            .eq('codigo_situr', siturCodigo)
+            .order('fecha_reporte', { ascending: false })
+            .limit(5000);
+
+          // 2. Extraer los códigos de centro reportados por el funcionario para mostrarlos exclusivamente aquí
+          const codigosReportados = Array.from(
+            new Set((reportesExistentes || []).map(r => (r.cod_centro || r.COD_CENTRO)?.toString().trim()).filter(Boolean))
+          );
+
+          // También buscar si hay centros en la tabla principal enlazados a este SITUR explícitamente
           const fetchCentrosAsignados = async () => {
             let todosLosCentros: any[] = [];
             let limite = 1000;
@@ -80,14 +94,34 @@ export default function ConcejoTerritorialPage() {
             return todosLosCentros;
           };
 
-          const centros = await fetchCentrosAsignados();
+          const centrosDirectos = await fetchCentrosAsignados();
+          
+          // Combinar centros directos del SITUR y centros que tengan reportes activos
+          const mapaCentrosUnicos = new Map();
+          centrosDirectos.forEach(c => {
+            const idC = (c.COD_CENTRO || c.cod_centro)?.toString().trim();
+            if (idC) mapaCentrosUnicos.set(idC, c);
+          });
 
-          const { data: reportesExistentes } = await supabase
-            .from('reportes_concejo_2026')
-            .select('*')
-            .eq('codigo_situr', siturCodigo)
-            .order('fecha_reporte', { ascending: false })
-            .limit(5000);
+          // Si hay centros reportados que no estén en el lote directo, los buscamos por su CNE
+          if (codigosReportados.length > 0) {
+            const codigosFaltantes = codigosReportados.filter(cod => !mapaCentrosUnicos.has(cod));
+            if (codigosFaltantes.length > 0) {
+              const { data: centrosAdicionales } = await supabase
+                .from('centros_votacion_2026')
+                .select('*')
+                .in('COD_CENTRO', codigosFaltantes);
+              
+              if (centrosAdicionales) {
+                centrosAdicionales.forEach(c => {
+                  const idC = (c.COD_CENTRO || c.cod_centro)?.toString().trim();
+                  if (idC) mapaCentrosUnicos.set(idC, c);
+                });
+              }
+            }
+          }
+
+          const centros = Array.from(mapaCentrosUnicos.values());
 
           if (centros) {
             const mapaReportesExactos = new Map();
@@ -100,6 +134,7 @@ export default function ConcejoTerritorialPage() {
               });
             }
 
+            // Opcional: Mostrar solo aquellos centros que tienen reporte activo o enlace directo con el SITUR
             const centrosConReportes = centros.map((c: any, index: number) => {
               const codCentroReal = c.COD_CENTRO || c.cod_centro;
               let rep = mapaReportesExactos.get(codCentroReal?.toString().trim()) || {};
@@ -235,8 +270,10 @@ export default function ConcejoTerritorialPage() {
   const eliminarEscuela = async (idTablaEscuela: string | number, nombreEscuela: string, uidEstricto: string | number) => {
     if (confirm(`⚠️ ALERTA: ¿Está seguro que desea ELIMINAR el centro "${nombreEscuela}"?`)) {
       try {
-        const { error } = await supabase.from('centros_votacion_2026').delete().eq('id', idTablaEscuela);
-        if (error) throw error;
+        if (idTablaEscuela) {
+          const { error } = await supabase.from('centros_votacion_2026').delete().eq('id', idTablaEscuela);
+          if (error) throw error;
+        }
         alert(`El centro ha sido eliminado con éxito.`);
         setEscuelas(prev => prev.filter(e => e.uid_estricto !== uidEstricto));
       } catch (err: any) {
@@ -255,7 +292,7 @@ export default function ConcejoTerritorialPage() {
       const comunaActual = jefe?.comuna_o_circuito_comunal || jefe?.circuito || '';
 
       if (centroExistenteSeleccionado) {
-        // SI SELECCIONÓ UN CENTRO EXISTENTE DE LA BÚSQUEDA -> Asignarlo al SITUR actual utilizando actualización segura
+        // SI SELECCIONÓ UN CENTRO EXISTENTE DE LA BÚSQUEDA -> Asignarlo al SITUR actual
         const { error } = await supabase
           .from('centros_votacion_2026')
           .update({
