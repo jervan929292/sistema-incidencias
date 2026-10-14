@@ -10,6 +10,7 @@ import * as XLSX from 'xlsx';
 export default function SalaSituacionalConcejoPage() {
   const [adminProfile, setAdminProfile] = useState<any>(null);
   const [centrosRegistrados, setCentrosRegistrados] = useState<any[]>([]);
+  const [catalogoTotal, setCatalogoTotal] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   
   const [filtroMunicipio, setFiltroMunicipio] = useState('');
@@ -57,6 +58,7 @@ export default function SalaSituacionalConcejoPage() {
 
         setAdminProfile(perfilEncontrado);
 
+        // 1. Cargar centros registrados por organismos
         let todosLosRegistros: any[] = [];
         let limite = 1000;
         let inicio = 0;
@@ -77,8 +79,27 @@ export default function SalaSituacionalConcejoPage() {
             hayMas = false;
           }
         }
-
         setCentrosRegistrados(todosLosRegistros);
+
+        // 2. Cargar catálogo oficial
+        let todoCatalogo: any[] = [];
+        let inicioCat = 0;
+        let hayMasCat = true;
+        while (hayMasCat) {
+          const { data: batchCat } = await supabase
+            .from('centros_votacion_2026')
+            .select('*')
+            .range(inicioCat, inicioCat + limite - 1);
+
+          if (batchCat && batchCat.length > 0) {
+            todoCatalogo = [...todoCatalogo, ...batchCat];
+            inicioCat += limite;
+            if (batchCat.length < limite) hayMasCat = false;
+          } else {
+            hayMasCat = false;
+          }
+        }
+        setCatalogoTotal(todoCatalogo);
 
       } catch (err) {
         console.error('Error al cargar Sala Situacional:', err);
@@ -98,7 +119,6 @@ export default function SalaSituacionalConcejoPage() {
                          orgUser.includes('VEN-911') ||
                          orgUser === 'VEN 911';
 
-  // Si no es VEN 911 / Superusuario, forzar que solo vea su organismo
   const organismoSeguro = isVen911OrSuper 
     ? filtroOrganismo 
     : (adminProfile?.organismo_responsable || adminProfile?.organismo || '');
@@ -116,22 +136,55 @@ export default function SalaSituacionalConcejoPage() {
     return Array.from(new Set(centrosRegistrados.map(c => c.organismo))).filter(Boolean).sort();
   }, [centrosRegistrados]);
 
-  const centrosProcesados = useMemo(() => {
-    return centrosRegistrados.map(c => {
+  // AGRUPAR Y SUMAR MESAS POR CENTRO ELECTORAL (Evita repetir colegios y suma sus mesas)
+  const centrosAgrupados = useMemo(() => {
+    const mapaCentros: { [key: string]: any } = {};
+
+    centrosRegistrados.forEach(c => {
       let muni = (c.municipio || 'MP. ACOSTA').toString().trim().toUpperCase();
       if (!muni.startsWith('MP.')) muni = `MP. ${muni}`;
 
+      // Extraer clave base del centro (ej: si cod_centro es 90303001-1 o 90303001, la base es 90303001 o el nombre limpio)
+      const codRaw = (c.cod_centro || '').toString().toUpperCase();
+      const codBase = codRaw.includes('-') ? codRaw.split('-')[0] : codRaw;
+      const nombreLimpio = (c.nombre_centro || '').replace(/\s*\(MESA\s*\d+\)/gi, '').trim();
+      const claveUnica = `${codBase}_${nombreLimpio}`;
+
+      if (!mapaCentros[claveUnica]) {
+        mapaCentros[claveUnica] = {
+          ...c,
+          municipio: muni,
+          parroquia: c.parroquia || 'SIN PARROQUIA',
+          organismo: c.organismo || 'SIN ORGANISMO',
+          nombre_centro: nombreLimpio,
+          cod_centro_base: codBase,
+          total_mesas: 0,
+          mesas_detalle: [],
+          responsables: [],
+          cotillones_si: 0,
+          cotillones_no: 0,
+          completados: 0,
+          registros_hijos: []
+        };
+      }
+
+      mapaCentros[claveUnica].total_mesas += 1;
+      mapaCentros[claveUnica].registros_hijos.push(c);
+      mapaCentros[claveUnica].mesas_detalle.push(codRaw);
+
+      if (c.entrega_cotillon === 'SI') mapaCentros[claveUnica].cotillones_si += 1;
+      if (c.entrega_cotillon === 'NO') mapaCentros[claveUnica].cotillones_no += 1;
+      if (c.estatus === 'CERRADO') mapaCentros[claveUnica].completados += 1;
+    });
+
+    return Object.values(mapaCentros).map(centro => {
+      const estadoGeneral = centro.completados === centro.total_mesas ? 'CERRADO' : 'PENDIENTE';
+      const cotillonGeneral = centro.cotillones_no > 0 ? 'NO' : (centro.cotillones_si > 0 ? 'SI' : 'PENDIENTE');
       return {
-        ...c,
-        municipio: muni,
-        parroquia: c.parroquia || 'SIN PARROQUIA',
-        organismo: c.organismo || 'SIN ORGANISMO',
-        responsable_cne: c.responsable_cne || 'NO REGISTRADO',
-        responsable_mesa: c.responsable_mesa || 'NO REGISTRADO',
-        entrega_cotillon: c.entrega_cotillon || 'PENDIENTE',
-        estatus: c.estatus || 'PENDIENTE',
-        organismos_presentes: c.organismos_presentes || [],
-        fecha_reporte: c.updated_at ? new Date(c.updated_at).toLocaleString('es-VE') : 'Sin reporte'
+        ...centro,
+        entrega_cotillon: cotillonGeneral,
+        estatus: estadoGeneral,
+        fecha_reporte: centro.updated_at ? new Date(centro.updated_at).toLocaleString('es-VE') : 'Sin reporte'
       };
     }).filter(c => {
       const matchMuni = !filtroMunicipio || c.municipio.toUpperCase() === filtroMunicipio.toUpperCase();
@@ -143,30 +196,32 @@ export default function SalaSituacionalConcejoPage() {
     });
   }, [centrosRegistrados, filtroMunicipio, organismoSeguro, filtroCotillon, filtroEstatus]);
 
-  // CÁLCULO DINÁMICO DE MÉTRICAS SEGÚN EL ROL/ORGANISMO
+  // CÁLCULO DE MÉTRICAS GLOBALES
   const stats = useMemo(() => {
-    const totalMesasRegistradas = centrosProcesados.length;
-    const reportados = centrosProcesados.filter(c => c.estatus === 'CERRADO').length;
-    const cotillonSi = centrosProcesados.filter(c => c.entrega_cotillon === 'SI').length;
-    const cotillonNo = centrosProcesados.filter(c => c.entrega_cotillon === 'NO').length;
-    const pendientes = Math.max(0, totalMesasRegistradas - reportados);
+    const totalMesasRegistradas = centrosRegistrados.length; // Suma de todas las mesas cargadas
+    const totalCentrosUnicos = centrosAgrupados.length;
+    const reportados = centrosAgrupados.filter(c => c.estatus === 'CERRADO').length;
+    const cotillonSi = centrosAgrupados.filter(c => c.entrega_cotillon === 'SI').length;
+    const cotillonNo = centrosAgrupados.filter(c => c.entrega_cotillon === 'NO').length;
+    const pendientes = Math.max(0, totalCentrosUnicos - reportados);
 
-    // Conteo de centros/escuelas físicas únicas dentro de los registros filtrados
-    const escuelasUnicas = new Set(centrosProcesados.map(c => {
-      // Extraer código base antes del guion si viene por mesa (ej: 90303001-1 -> 90303001)
-      const cod = (c.cod_centro || '').toString().toUpperCase();
-      return cod.includes('-') ? cod.split('-')[0] : cod;
-    })).size;
+    let centrosMeta = 625;
+    let mesasMeta = 672;
 
-    // Metas CNE
-    const centrosMeta = isVen911OrSuper ? 625 : escuelasUnicas;
-    const mesasMeta = isVen911OrSuper ? 672 : totalMesasRegistradas;
+    if (!isVen911OrSuper && organismoSeguro) {
+      const catalogoDelOrganismo = catalogoTotal.filter(item => {
+        const orgItem = (item.ORGANSIMOS || item.organismo || '').toString().toUpperCase();
+        return orgItem.includes(organismoSeguro.toUpperCase());
+      });
+      mesasMeta = catalogoDelOrganismo.length;
+      centrosMeta = new Set(catalogoDelOrganismo.map(item => item['COD CENTRO'] || item.cod_centro)).size;
+    }
 
-    return { totalMesasRegistradas, reportados, pendientes, cotillonSi, cotillonNo, centrosMeta, mesasMeta };
-  }, [centrosProcesados, isVen911OrSuper]);
+    return { totalMesasRegistradas, totalCentrosUnicos, reportados, pendientes, cotillonSi, cotillonNo, centrosMeta, mesasMeta };
+  }, [centrosRegistrados, centrosAgrupados, catalogoTotal, isVen911OrSuper, organismoSeguro]);
 
   const generarPDF = () => {
-    if (centrosProcesados.length === 0) {
+    if (centrosAgrupados.length === 0) {
       alert("No hay registros para exportar.");
       return;
     }
@@ -176,13 +231,12 @@ export default function SalaSituacionalConcejoPage() {
     doc.setFontSize(10);
     doc.text(`Organismo: ${organismoSeguro || 'TODOS'} | Municipio: ${filtroMunicipio || 'TODOS'}`, 14, 28);
 
-    const tableColumn = ["Municipio", "Plantel / Escuela", "Organismo", "Resp. CNE", "Resp. Mesa", "Cotillón", "Estatus"];
-    const tableRows = centrosProcesados.map(c => [
+    const tableColumn = ["Municipio", "Plantel / Escuela", "Total Mesas", "Organismo", "Cotillón", "Estatus"];
+    const tableRows = centrosAgrupados.map(c => [
       c.municipio, 
       c.nombre_centro, 
+      c.total_mesas,
       c.organismo,
-      c.responsable_cne, 
-      c.responsable_mesa, 
       c.entrega_cotillon,
       c.estatus === 'CERRADO' ? 'COMPLETADO' : 'PENDIENTE'
     ]);
@@ -198,25 +252,22 @@ export default function SalaSituacionalConcejoPage() {
   };
 
   const generarExcel = () => {
-    if (centrosProcesados.length === 0) {
+    if (centrosAgrupados.length === 0) {
       alert("No hay registros para exportar.");
       return;
     }
     const wsData = [
       ["REPORTE OFICIAL SALA SITUACIONAL - CONSULTA POPULAR 2026"],
       [],
-      ["Municipio", "Nombre del Plantel / Mesa", "Organismo", "Funcionario", "Responsable CNE", "Responsable Mesa", "Entrega Cotillón", "Motivo No Cotillón", "Organismos Presentes", "Minuta"],
-      ...centrosProcesados.map(c => [
+      ["Municipio", "Nombre del Plantel", "Total Mesas", "Organismo", "Funcionario", "Entrega Cotillón", "Estatus"],
+      ...centrosAgrupados.map(c => [
         c.municipio,
         c.nombre_centro,
+        c.total_mesas,
         c.organismo,
         c.funcionario_nombre,
-        c.responsable_cne,
-        c.responsable_mesa,
         c.entrega_cotillon,
-        c.motivo_no_cotillon || 'N/A',
-        (c.organismos_presentes || []).join(', '),
-        c.minuta || ''
+        c.estatus === 'CERRADO' ? 'COMPLETADO' : 'PENDIENTE'
       ])
     ];
 
@@ -268,7 +319,7 @@ export default function SalaSituacionalConcejoPage() {
         <p className="text-xs text-blue-100 font-medium mt-1">Sala Situacional de Centros Registrados por Organismos</p>
       </div>
 
-      {/* TARJETAS DE MÉTRICAS DINÁMICAS */}
+      {/* TARJETAS DE MÉTRICAS */}
       <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-7 gap-3 pt-2">
         <div className="bg-blue-50/80 border border-blue-200 rounded-2xl p-3.5 flex items-center justify-between shadow-sm">
           <div>
@@ -371,23 +422,23 @@ export default function SalaSituacionalConcejoPage() {
         </div>
       </div>
 
-      {/* TABLA PRINCIPAL */}
+      {/* TABLA PRINCIPAL AGRUPADA */}
       <div className="bg-white rounded-2xl border shadow-inner overflow-hidden">
         <div className="overflow-x-auto max-h-[55vh]">
           <table className="w-full text-left bg-white text-xs">
             <thead className="bg-gray-50 text-gray-500 uppercase tracking-wider text-[10px] border-b sticky top-0 z-10">
               <tr>
-                <th className="p-3">CNE / SITUR</th>
+                <th className="p-3">CNE Base / SITUR</th>
                 <th className="p-3">Plantel / Centro Electoral</th>
+                <th className="p-3 text-center">Mesas Totales</th>
                 <th className="p-3">Asignación</th>
-                <th className="p-3">Responsables (CNE / Mesa)</th>
                 <th className="p-3 text-center">Cotillón</th>
                 <th className="p-3 text-center">Estatus</th>
                 <th className="p-3 text-center">Detalle</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {centrosProcesados.length === 0 ? (
+              {centrosAgrupados.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="p-12 text-center text-gray-400 font-bold">
                     <p className="text-base">Sin Centros Registrados Por Organismos</p>
@@ -395,23 +446,24 @@ export default function SalaSituacionalConcejoPage() {
                   </td>
                 </tr>
               ) : (
-                centrosProcesados.map((c, i) => (
+                centrosAgrupados.map((c, i) => (
                   <tr key={i} className="hover:bg-gray-50 transition-colors">
                     <td className="p-3 font-mono font-bold text-gray-500">
-                      CNE: {c.cod_centro}<br/>
+                      CNE: {c.cod_centro_base}<br/>
                       STR: {c.codigo_situr}
                     </td>
                     <td className="p-3 font-black text-gray-800 uppercase">
                       {c.nombre_centro}<br/>
                       <span className="text-[10px] text-gray-400 font-medium">{c.municipio} ({c.parroquia})</span>
                     </td>
+                    <td className="p-3 text-center">
+                      <span className="bg-blue-100 text-[#00529b] px-3 py-1 rounded-full font-black text-xs">
+                        {c.total_mesas} {c.total_mesas === 1 ? 'Mesa' : 'Mesas'}
+                      </span>
+                    </td>
                     <td className="p-3">
                       <span className="font-bold text-[#00529b] block">{c.organismo}</span>
                       <span className="text-[10px] text-gray-500">{c.funcionario_nombre}</span>
-                    </td>
-                    <td className="p-3 text-gray-700 font-bold uppercase">
-                      CNE: {c.responsable_cne}<br/>
-                      Mesa: {c.responsable_mesa}
                     </td>
                     <td className="p-3 text-center">
                       <span className={`px-3 py-1 rounded-full text-[10px] font-black ${
@@ -428,7 +480,7 @@ export default function SalaSituacionalConcejoPage() {
                     </td>
                     <td className="p-3 text-center">
                       <button onClick={() => setCentroSeleccionado(c)} className="bg-gray-100 hover:bg-blue-50 text-gray-700 hover:text-[#00529b] p-2 rounded-xl border font-bold text-[10px] uppercase flex items-center gap-1 mx-auto">
-                        <Eye size={14} /> Ficha
+                        <Eye size={14} /> Ficha ({c.total_mesas})
                       </button>
                     </td>
                   </tr>
@@ -439,16 +491,16 @@ export default function SalaSituacionalConcejoPage() {
         </div>
       </div>
 
-      {/* MODAL DETALLE / EXPEDIENTE */}
+      {/* MODAL DETALLE / EXPEDIENTE CON TODAS SUS MESAS */}
       {centroSeleccionado && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 backdrop-blur-sm animate-fadeIn">
-          <div className="bg-white rounded-3xl p-6 max-w-3xl w-full max-h-[90vh] overflow-y-auto space-y-5 shadow-2xl relative border">
+          <div className="bg-white rounded-3xl p-6 max-w-4xl w-full max-h-[90vh] overflow-y-auto space-y-5 shadow-2xl relative border">
             <div className="flex justify-between items-start border-b pb-3">
               <div className="flex items-center gap-2 text-[#00529b]">
                 <Building size={22} />
                 <div>
-                  <h2 className="text-base font-black uppercase text-gray-900">Expediente de Consulta Popular 2026</h2>
-                  <p className="text-[11px] font-mono text-gray-500 font-bold">CNE: {centroSeleccionado.cod_centro} | Actualizado: {centroSeleccionado.fecha_reporte}</p>
+                  <h2 className="text-base font-black uppercase text-gray-900">Expediente Consolidado del Centro</h2>
+                  <p className="text-[11px] font-mono text-gray-500 font-bold">{centroSeleccionado.nombre_centro} | Total Mesas: {centroSeleccionado.total_mesas}</p>
                 </div>
               </div>
               <button onClick={() => setCentroSeleccionado(null)} className="text-gray-400 hover:text-red-600 bg-gray-100 p-1.5 rounded-full"><X size={18} /></button>
@@ -457,70 +509,40 @@ export default function SalaSituacionalConcejoPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-4">
                 <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
-                  <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-wider mb-2">Datos del Centro</h3>
+                  <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-wider mb-2">Datos del Plantel</h3>
                   <p className="text-sm font-black text-gray-800 uppercase leading-snug">{centroSeleccionado.nombre_centro}</p>
                   <p className="text-xs text-gray-500 mt-1">{centroSeleccionado.direccion || 'Sin dirección registrada'}</p>
                   <p className="text-[11px] font-bold text-gray-700 mt-2">{centroSeleccionado.municipio} - {centroSeleccionado.parroquia}</p>
                 </div>
 
                 <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100">
-                  <h3 className="text-[10px] font-black text-[#00529b] uppercase tracking-wider mb-2 flex items-center gap-1"><Shield size={12}/> Responsable de Cuadrante ({centroSeleccionado.organismo})</h3>
+                  <h3 className="text-[10px] font-black text-[#00529b] uppercase tracking-wider mb-2 flex items-center gap-1"><Shield size={12}/> Responsable ({centroSeleccionado.organismo})</h3>
                   <div className="text-xs font-medium text-gray-700 space-y-1">
                     <p><strong>Circuito Comunal:</strong> {centroSeleccionado.circuito_comunal}</p>
                     <p><strong>Funcionario:</strong> {centroSeleccionado.funcionario_nombre}</p>
                     <p><strong>Teléfono:</strong> {centroSeleccionado.funcionario_telefono}</p>
                   </div>
                 </div>
-
-                <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
-                  <h3 className="text-[10px] font-black text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1">
-                    <Building size={12} className="text-[#00529b]" /> Organismos Presentes en el Centro
-                  </h3>
-                  {centroSeleccionado.organismos_presentes && centroSeleccionado.organismos_presentes.length > 0 ? (
-                    <div className="flex flex-wrap gap-1.5">
-                      {centroSeleccionado.organismos_presentes.map((org: string, idx: number) => (
-                        <span key={idx} className="bg-[#00529b] text-white font-black text-[10px] px-2.5 py-1 rounded-lg uppercase shadow-sm">
-                          {org}
-                        </span>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-gray-400 font-medium italic">No se registraron organismos presentes.</p>
-                  )}
-                </div>
               </div>
 
               <div className="space-y-4">
                 <div className="bg-emerald-50/30 p-4 rounded-xl border border-emerald-100">
-                  <h3 className="text-[10px] font-black text-emerald-700 uppercase tracking-wider mb-2 flex items-center gap-1"><SearchCheck size={12}/> Datos de la Elección</h3>
-                  <div className="space-y-2 text-xs">
-                    <div className="flex justify-between items-center border-b pb-1">
-                      <span className="font-bold text-gray-500 uppercase">Resp. CNE:</span>
-                      <span className="font-bold text-gray-800 uppercase">{centroSeleccionado.responsable_cne}</span>
-                    </div>
-                    <div className="flex justify-between items-center border-b pb-1">
-                      <span className="font-bold text-gray-500 uppercase">Resp. Mesa:</span>
-                      <span className="font-bold text-gray-800 uppercase">{centroSeleccionado.responsable_mesa}</span>
-                    </div>
-                    <div className="flex justify-between items-center border-b pb-1">
-                      <span className="font-bold text-gray-500 uppercase">Entrega Cotillón:</span>
-                      <span className={`font-black px-2 py-0.5 rounded ${centroSeleccionado.entrega_cotillon === 'SI' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>{centroSeleccionado.entrega_cotillon}</span>
-                    </div>
-                    {centroSeleccionado.entrega_cotillon === 'NO' && (
-                      <div>
-                        <span className="font-bold text-red-600 uppercase block mb-1">Motivo de no entrega:</span>
-                        <p className="bg-white p-2 rounded border text-gray-800">{centroSeleccionado.motivo_no_cotillon}</p>
+                  <h3 className="text-[10px] font-black text-emerald-700 uppercase tracking-wider mb-2 flex items-center gap-1"><SearchCheck size={12}/> Desglose de Mesas y Minutas ({centroSeleccionado.total_mesas})</h3>
+                  <div className="space-y-3 max-h-60 overflow-y-auto">
+                    {centroSeleccionado.registros_hijos.map((mesa: any, idx: number) => (
+                      <div key={idx} className="bg-white p-3 rounded-xl border border-emerald-200 text-xs space-y-1 shadow-sm">
+                        <div className="flex justify-between items-center font-black text-[#00529b] border-b pb-1">
+                          <span>CNE: {mesa.cod_centro}</span>
+                          <span className={`px-2 py-0.5 rounded text-[9px] ${mesa.estatus === 'CERRADO' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                            {mesa.estatus === 'CERRADO' ? 'COMPLETADO' : 'PENDIENTE'}
+                          </span>
+                        </div>
+                        <p><strong>Resp. CNE:</strong> {mesa.responsable_cne || 'NO REGISTRADO'}</p>
+                        <p><strong>Resp. Mesa:</strong> {mesa.responsable_mesa || 'NO REGISTRADO'}</p>
+                        <p><strong>Cotillón:</strong> {mesa.entrega_cotillon}</p>
+                        {mesa.minuta && <p className="text-[11px] text-gray-600 bg-gray-50 p-2 rounded mt-1"><strong>Minuta:</strong> {mesa.minuta}</p>}
                       </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="bg-amber-50/30 p-4 rounded-xl border border-amber-100">
-                  <h3 className="text-[10px] font-black text-amber-700 uppercase tracking-wider mb-2 flex items-center gap-1"><FileText size={12}/> Minuta Informativa</h3>
-                  <div className="bg-white rounded-xl border p-3 min-h-[90px] max-h-40 overflow-y-auto space-y-2">
-                    <p className="text-[11px] text-gray-700 font-medium leading-relaxed whitespace-pre-line">
-                      {centroSeleccionado.minuta || 'Sin minuta registrada.'}
-                    </p>
+                    ))}
                   </div>
                 </div>
               </div>
