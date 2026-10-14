@@ -58,7 +58,6 @@ export default function ConcejoTerritorialPage() {
         const siturCodigo = (userData.codigo_situr || userData.situr || '').toString().trim();
 
         if (siturCodigo) {
-          // Consultar SÓLO los centros registrados en la nueva tabla para este SITUR
           const { data: misCentros } = await supabase
             .from('centros_registrados_organismos')
             .select('*')
@@ -125,7 +124,7 @@ export default function ConcejoTerritorialPage() {
       return;
     }
 
-    if (escuela.entrega_cotillon !== 'SI' && esc.entrega_cotillon !== 'NO') {
+    if (escuela.entrega_cotillon !== 'SI' && escuela.entrega_cotillon !== 'NO') {
       alert("⚠️ ALTO: Debe indicar si se hizo entrega de cotillón (Sí / No).");
       return;
     }
@@ -197,11 +196,10 @@ export default function ConcejoTerritorialPage() {
         codCentroFinal = `${siturActual || 'N/A'}-${siguienteNum}`;
       }
 
-      // TOMAR MUNICIPIO Y PARROQUIA ESTRICTAMENTE DEL FUNCIONARIO LOGUEADO
+      // Tomar municipio y parroquia estrictamente del funcionario logueado
       let municipioFinal = jefe?.municipio || 'SIN MUNICIPIO';
       let parroquiaFinal = jefe?.parroquia || 'SIN PARROQUIA';
 
-      // Normalizar municipio con prefijo MP.
       const muniUpper = municipioFinal.toString().trim().toUpperCase();
       const municipioConPrefijo = muniUpper.startsWith('MP.') ? muniUpper : `MP. ${muniUpper}`;
 
