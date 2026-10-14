@@ -70,7 +70,7 @@ export default function SalaSituacionalConcejoPage() {
 
         if (mounted) setCentrosRegistrados(dataRegistrados || []);
 
-        // 3. Cargar catálogo referencial oficial de la tabla
+        // 3. Cargar catálogo oficial de Supabase (centros_votacion_2026)
         const { data: dataCat } = await supabase
           .from('centros_votacion_2026')
           .select('*')
@@ -92,20 +92,19 @@ export default function SalaSituacionalConcejoPage() {
     };
   }, []);
 
-  // DETECCION DE ORGANISMO REAL DEL USUARIO
+  // DETECCION ESTRICTA DE ROL Y ORGANISMO LOGUEADO
   const { isVen911OrSuper, organismoObjetivo } = useMemo(() => {
     const rawPerfil = JSON.stringify(adminProfile || {}).toUpperCase();
     const org = (adminProfile?.organismo_responsable || adminProfile?.organismo || '').toUpperCase();
     const rol = (adminProfile?.rol || '').toUpperCase();
 
-    // Solo VEN 911 directo es superusuario global
+    // Solo VEN 911 / SUPERUSUARIO son globales
     const esGlobal = rol === 'SUPERUSUARIO' || org === 'VEN 911' || (org.includes('VEN') && org.includes('911'));
 
     if (esGlobal) {
       return { isVen911OrSuper: true, organismoObjetivo: filtroOrganismo };
     }
 
-    // Detección automática por palabras clave
     let orgDetectado = org;
     if (rawPerfil.includes('GUARDIA') || rawPerfil.includes('GNB') || rawPerfil.includes('ZODI')) {
       orgDetectado = 'GUARDIA NACIONAL BOLIVARIANA';
@@ -134,10 +133,10 @@ export default function SalaSituacionalConcejoPage() {
   }, [centrosRegistrados]);
 
   const organismosUnicos = useMemo(() => {
-    return Array.from(new Set(centrosRegistrados.map(c => c.organismo))).filter(Boolean).sort();
-  }, [centrosRegistrados]);
+    return Array.from(new Set(catalogoTotal.map(c => c.ORGANISMOS || c.organismo || c.ORGANSIMOS))).filter(Boolean).sort();
+  }, [catalogoTotal]);
 
-  // AGRUPACION POR CENTRO / PLANTEL FÍSICO
+  // AGRUPACION Y FILTRADO DE CENTROS REGISTRADOS
   const centrosAgrupados = useMemo(() => {
     const mapaCentros: { [key: string]: any } = {};
 
@@ -202,36 +201,31 @@ export default function SalaSituacionalConcejoPage() {
     });
   }, [centrosRegistrados, filtroMunicipio, organismoObjetivo, filtroCotillon, filtroEstatus]);
 
-  // CÁLCULO DE MÉTRICAS FIJAS Y DINÁMICAS
+  // CÁLCULO DE MÉTRICAS DIRECTAMENTE DESDE SUPABASE
   const stats = useMemo(() => {
-    // 1. Filtrar catálogo oficial
+    const targetOrg = (isVen911OrSuper && filtroOrganismo ? filtroOrganismo : organismoObjetivo).toUpperCase();
+    
+    // Filtrar el catálogo de Supabase según el organismo exacto
     const catalogoFiltrado = catalogoTotal.filter(item => {
       if (isVen911OrSuper && !filtroOrganismo) return true;
       
-      const orgColumna = (item.ORGANSIMOS || item.organismo || item.ORGANISMO || '').toString().toUpperCase();
-      const orgBuscado = (isVen911OrSuper ? filtroOrganismo : organismoObjetivo).toUpperCase();
-      
-      return orgColumna.includes(orgBuscado) || orgBuscado.includes(orgColumna);
+      const orgColumna = (item.ORGANISMOS || item.organismo || item.ORGANSIMOS || '').toString().toUpperCase();
+      return orgColumna.includes(targetOrg) || targetOrg.includes(orgColumna);
     });
 
-    // Mesas asignadas (Total filas) y Centros asignados (Códigos únicos)
-    let mesasMeta = catalogoFiltrado.length;
-    let centrosMeta = new Set(catalogoFiltrado.map(i => i['COD CENTRO'] || i.cod_centro || i.COD_CENTRO)).size;
+    // Mesas Asignadas (Total filas en el catálogo para este organismo)
+    const mesasMeta = catalogoFiltrado.length;
 
-    // Si por alguna razón el catálogo de la BD aún no terminó de cargar pero sabemos el organismo
-    if (!isVen911OrSuper && organismoObjetivo.includes('GUARDIA') && mesasMeta === 0) {
-      mesasMeta = 163;
-      centrosMeta = 162;
-    } else if (isVen911OrSuper && !filtroOrganismo && mesasMeta === 0) {
-      mesasMeta = 675;
-      centrosMeta = 628;
-    }
+    // Centros Únicos Asignados (Quitando escuelas repetidas)
+    const centrosMeta = new Set(
+      catalogoFiltrado.map(i => i.COD_CENTRO || i['COD CENTRO'] || i.cod_centro || i.COD_CENTRO)
+    ).size;
 
-    // Datos dinámicos del progreso
+    // Progreso dinámico en vivo
     const totalMesasRegistradas = centrosRegistrados.filter(c => {
-      if (!organismoObjetivo) return true;
+      if (isVen911OrSuper && !filtroOrganismo) return true;
       const orgFila = (c.organismo || '').toUpperCase();
-      return orgFila.includes(organismoObjetivo.toUpperCase()) || organismoObjetivo.toUpperCase().includes(orgFila);
+      return orgFila.includes(targetOrg) || targetOrg.includes(orgFila);
     }).length;
 
     const totalCentrosRegistrados = centrosAgrupados.length;
@@ -250,7 +244,7 @@ export default function SalaSituacionalConcejoPage() {
       centrosMeta, 
       mesasMeta 
     };
-  }, [centrosRegistrados, centrosAgrupados, catalogoTotal, isVen911OrSuper, organismoObjetivo, filtroOrganismo]);
+  }, [catalogoTotal, centrosRegistrados, centrosAgrupados, isVen911OrSuper, organismoObjetivo, filtroOrganismo]);
 
   const generarPDF = () => {
     if (centrosAgrupados.length === 0) {
@@ -361,7 +355,7 @@ export default function SalaSituacionalConcejoPage() {
       {/* TARJETAS DE MÉTRICAS */}
       <div className="grid grid-cols-1 sm:grid-cols-4 lg:grid-cols-8 gap-3 pt-2">
         
-        {/* MIS CENTROS (UNICOS) */}
+        {/* MIS CENTROS */}
         <div className="bg-blue-50/80 border border-blue-200 rounded-2xl p-3 flex items-center justify-between shadow-sm">
           <div>
             <p className="text-[9px] font-black text-blue-800 uppercase">
@@ -372,7 +366,7 @@ export default function SalaSituacionalConcejoPage() {
           <div className="bg-blue-100 text-[#00529b] p-2 rounded-full"><School size={18}/></div>
         </div>
 
-        {/* MIS MESAS (TOTALES) */}
+        {/* MIS MESAS */}
         <div className="bg-indigo-50/80 border border-indigo-200 rounded-2xl p-3 flex items-center justify-between shadow-sm">
           <div>
             <p className="text-[9px] font-black text-indigo-800 uppercase">
