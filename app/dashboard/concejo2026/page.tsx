@@ -22,18 +22,47 @@ export default function ConcejoTerritorialPage() {
   useEffect(() => {
     const cargarDatos = async () => {
       try {
+        let emailABuscar = '';
+        
+        // 1. Obtener email de Supabase Auth
         const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
+        if (user?.email) {
+          emailABuscar = user.email;
+        } else {
+          // 2. Respaldo por localStorage (como se usa en el Dashboard principal)
+          const sessionData = localStorage.getItem('user_session');
+          if (sessionData) {
+            try {
+              const parsed = JSON.parse(sessionData);
+              if (parsed?.email) emailABuscar = parsed.email;
+            } catch (e) {}
+          }
+        }
 
-        const { data: userData } = await supabase
+        if (!emailABuscar) {
+          console.warn("No se encontró sesión activa.");
+          setLoading(false);
+          return;
+        }
+
+        // Obtener el perfil del usuario desde directorio_operativo
+        const { data: userData, error: userErr } = await supabase
           .from('directorio_operativo')
           .select('*')
-          .eq('id', user.id)
-          .single();
+          .ilike('email', emailABuscar)
+          .maybeSingle();
 
-        if (userData) {
-          setJefe(userData);
-          
+        if (userErr || !userData) {
+          console.error("Error al obtener datos del directorio:", userErr);
+          setLoading(false);
+          return;
+        }
+
+        setJefe(userData);
+        const siturCodigo = userData.codigo_situr?.toString().trim();
+
+        if (siturCodigo) {
+          // Buscar centros de votación asignados a este código SITUR
           const fetchCentrosAsignados = async () => {
             let todosLosCentros: any[] = [];
             let limite = 1000;
@@ -42,7 +71,7 @@ export default function ConcejoTerritorialPage() {
             while (hayMas) {
               const { data: batch } = await supabase.from('centros_votacion_2026')
                 .select('*')
-                .eq('CODIGO_CIRCUITO_COMUNAL', userData.codigo_situr)
+                .eq('CODIGO_CIRCUITO_COMUNAL', siturCodigo)
                 .range(inicio, inicio + limite - 1);
                 
               if (batch && batch.length > 0) {
@@ -56,10 +85,11 @@ export default function ConcejoTerritorialPage() {
 
           const centros = await fetchCentrosAsignados();
 
+          // Buscar reportes guardados
           const { data: reportesExistentes } = await supabase
             .from('reportes_concejo_2026')
             .select('*')
-            .eq('codigo_situr', userData.codigo_situr)
+            .eq('codigo_situr', siturCodigo)
             .order('fecha_reporte', { ascending: false })
             .limit(5000);
 
@@ -99,7 +129,7 @@ export default function ConcejoTerritorialPage() {
           }
         }
       } catch (err) {
-        console.error(err);
+        console.error("Error al cargar datos:", err);
       } finally {
         setLoading(false);
       }
@@ -233,7 +263,7 @@ export default function ConcejoTerritorialPage() {
           </div>
           <div className="bg-blue-50 border border-blue-200 px-6 py-4 rounded-xl flex flex-col items-center shadow-inner">
             <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Llave SITUR</span>
-            <span className="text-2xl font-mono font-black text-[#00529b]">{jefe?.codigo_situr}</span>
+            <span className="text-2xl font-mono font-black text-[#00529b]">{jefe?.codigo_situr || 'SIN LLAVE'}</span>
           </div>
         </div>
 
