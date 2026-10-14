@@ -21,16 +21,14 @@ export default function ImportarEscuelasPage() {
     setProgreso('Leyendo archivo (Excel o CSV)...');
 
     const reader = new FileReader();
-    
-    // Usamos readAsArrayBuffer para soportar perfectamente tanto .xlsx, .xls como .csv sin errores de codificación
+
     reader.onload = async (evt) => {
       try {
         const data = evt.target?.result;
         const workbook = XLSX.read(data, { type: 'array' });
         const sheetName = workbook.SheetNames[0];
         const sheet = workbook.Sheets[sheetName];
-        
-        // Convertir la hoja de Excel/CSV a un arreglo de objetos JSON
+
         const rows: any[] = XLSX.utils.sheet_to_json(sheet);
 
         if (!rows || rows.length === 0) {
@@ -39,27 +37,28 @@ export default function ImportarEscuelasPage() {
 
         setProgreso(`Procesando ${rows.length} registros... Preparando inserción.`);
 
-        // Mapear los datos asegurándonos de que coincidan con las columnas de Supabase
+        // Mapear asegurando compatibilidad de columnas (ORGANSIMOS vs ORGANISMOS)
         const registrosParaSubir = rows.map((row) => ({
-          "ESTADO": row["ESTADO"] || "FALCÓN",
-          "MUNICIPIO": row["MUNICIPIO"] || "",
-          "PARROQUIA": row["PARROQUIA"] || "",
+          "ESTADO": String(row["ESTADO"] || "EDO. FALCÓN").trim(),
+          "MUNICIPIO": String(row["MUNICIPIO"] || "").trim(),
+          "PARROQUIA": String(row["PARROQUIA"] || "").trim(),
           "COD_CENTRO": String(row["COD CENTRO"] || row["COD_CENTRO"] || "").trim(),
-          "NOMBRE CENTRO": row["NOMBRE CENTRO"] || row["NOMBRE_CENTRO"] || "",
-          "DIRECCION": row["DIRECCION"] || "DIRECCIÓN EN EVALUACIÓN",
-          "CODIGO_COMUNA_CNE": row["CODIGO COMUNA CNE"] || row["CODIGO_COMUNA_CNE"] || "",
-          "CODIGO_CIRCUITO_COMUNAL": row["CODIGO CIRCUITO COMUNAL"] || row["CODIGO_CIRCUITO_COMUNAL"] || "",
-          "NOMBRE_CIRCUITO_COMUNAL": row["NOMBRE DE CIRCUITO COMUNAL"] || row["NOMBRE_CIRCUITO_COMUNAL"] || "",
-          "MESA": String(row["MESA"] || "1"),
-          "ORGANISMOS": row["ORGANISMOS"] || "",
-          "TELF_CUADRANTE": String(row["TELF CUADRANTE"] || row["TELF_CUADRANTE"] || ""),
-          "JERARQUIA": row["JERARQUIA"] || "",
-          "JEFE_CUADRANTE": row["JEFE DE CUADRANTE"] || "",
-          "CEDULA": String(row["CEDULA"] || "")
+          "NOMBRE CENTRO": String(row["NOMBRE CENTRO"] || row["NOMBRE_CENTRO"] || "").trim(),
+          "DIRECCION": String(row["DIRECCION"] || "DIRECCIÓN EN EVALUACIÓN").trim(),
+          "CODIGO_COMUNA_CNE": String(row["CODIGO COMUNA CNE"] || row["CODIGO_COMUNA_CNE"] || "").trim(),
+          "CODIGO_CIRCUITO_COMUNAL": String(row["CODIGO CIRCUITO COMUNAL"] || row["CODIGO_CIRCUITO_COMUNAL"] || "").trim(),
+          "NOMBRE_CIRCUITO_COMUNAL": String(row["NOMBRE DE CIRCUITO COMUNAL"] || row["NOMBRE_CIRCUITO_COMUNAL"] || "").trim(),
+          "MESA": String(row["MESA"] || "1").trim(),
+          // Se captura 'ORGANSIMOS' (con S de tu Excel) u 'ORGANISMOS'
+          "ORGANISMOS": String(row["ORGANSIMOS"] || row["ORGANISMOS"] || row["organismos"] || row["organismo"] || "").trim(),
+          "TELF_CUADRANTE": String(row["TELF CUADRANTE"] || row["TELF_CUADRANTE"] || "").trim(),
+          "JERARQUIA": String(row["JERARQUIA"] || "").trim(),
+          "JEFE_CUADRANTE": String(row["JEFE DE CUADRANTE"] || row["JEFE_CUADRANTE"] || "").trim(),
+          "CEDULA": String(row["CEDULA"] || "").trim()
         }));
 
-        // Insertar por lotes de 500 registros para evitar sobrecargar Supabase
-        const tamanoLote = 500;
+        // Inserción en lotes de 200 registros para evitar timeouts o limites de payload en Supabase
+        const tamanoLote = 200;
         let insertadosTotal = 0;
 
         for (let i = 0; i < registrosParaSubir.length; i += tamanoLote) {
@@ -72,7 +71,7 @@ export default function ImportarEscuelasPage() {
           insertadosTotal += lote.length;
         }
 
-        setSuccessMsg(`¡Importación completada con éxito! Se cargaron ${insertadosTotal} centros/escuelas en la base de datos.`);
+        setSuccessMsg(`¡Importación completada con éxito! Se cargaron ${insertadosTotal} registros/mesas con sus respectivos organismos.`);
       } catch (err: any) {
         setErrorMsg("Error al procesar el archivo: " + err.message);
       } finally {
@@ -94,7 +93,7 @@ export default function ImportarEscuelasPage() {
 
         <div className="bg-white rounded-3xl p-8 shadow-xl border border-gray-200 text-center space-y-6">
           <div className="mx-auto w-16 h-16 bg-blue-50 text-[#00529b] rounded-2xl flex items-center justify-center shadow-inner">
-            <FileSpreadsheet size= {32} />
+            <FileSpreadsheet size={32} />
           </div>
 
           <div>
@@ -103,13 +102,13 @@ export default function ImportarEscuelasPage() {
           </div>
 
           {errorMsg && (
-            <div className="bg-red-50 border border-red-200 text-red-600 p-4 rounded-xl text-xs font-bold flex items-center gap-2">
+            <div className="bg-red-50 border border-red-200 text-red-600 p-4 rounded-xl text-xs font-bold flex items-center gap-2 text-left">
               <AlertCircle size={18} className="shrink-0" /> <p>{errorMsg}</p>
             </div>
           )}
 
           {successMsg && (
-            <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 p-4 rounded-xl text-xs font-bold flex items-center gap-2">
+            <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 p-4 rounded-xl text-xs font-bold flex items-center gap-2 text-left">
               <CheckCircle2 size={18} className="shrink-0" /> <p>{successMsg}</p>
             </div>
           )}
