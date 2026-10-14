@@ -61,7 +61,7 @@ export default function SalaSituacionalConcejoPage() {
 
         const [resCentros, resUsuarios, resReportes] = await Promise.all([
           fetchTodosLosCentros(),
-          supabase.from('directorio_operativo').select('*').neq('rol', 'admin').neq('rol', 'superusuario').limit(5000),
+          supabase.from('directorio_operativo').select('*').limit(5000),
           fetchTodosLosReportes()
         ]);
         if (resCentros) setCentros(resCentros);
@@ -92,13 +92,19 @@ export default function SalaSituacionalConcejoPage() {
     return mapaExacto;
   }, [reportes]);
 
-  // Validación para identificar si es personal del VEN 911 o Superusuario global
-  const isSuperAdmin = adminProfile?.rol === 'superusuario' || 
-                       adminProfile?.organismo_responsable?.toUpperCase().includes('VEN') || 
-                       adminProfile?.organismo_responsable?.toUpperCase()?.includes('VEN 911');
+  // Validación robusta para VEN 911 / Superusuario / Admin General
+  const orgUser = adminProfile?.organismo_responsable?.toUpperCase() || '';
+  const rolUser = adminProfile?.rol?.toUpperCase() || '';
+  
+  const isVen911OrSuper = rolUser === 'SUPERUSUARIO' || 
+                          rolUser === 'ADMIN' || 
+                          orgUser.includes('VEN') || 
+                          orgUser.includes('911') ||
+                          orgUser.includes('VEN 911');
 
-  // Si es VEN 911, respeta el filtro seleccionado (o muestra todo si está vacío). Si no, fija estrictamente su propio organismo.
-  const organismoSeguro = isSuperAdmin ? filtroOrganismo : adminProfile?.organismo_responsable;
+  // Si es VEN 911 o Super, puede filtrar por el organismo que elija (o ver todos si está vacío). 
+  // Si es otro organismo, se fuerza estrictamente su propio organismo.
+  const organismoSeguro = isVen911OrSuper ? filtroOrganismo : adminProfile?.organismo_responsable;
 
   const municipiosUnicos = useMemo(() => Array.from(new Set(usuarios.map(u => u.municipio))).filter(Boolean).sort(), [usuarios]);
   const organismosUnicos = useMemo(() => Array.from(new Set(usuarios.map(u => u.organismo_responsable))).filter(Boolean).sort(), [usuarios]);
@@ -130,8 +136,7 @@ export default function SalaSituacionalConcejoPage() {
       };
     }).filter(c => {
       const matchMuni = !filtroMunicipio || c.municipio === filtroMunicipio;
-      // Si hay un organismo seguro definido (usuario regular), se filtra estrictamente por él. Si es superadmin y seleccionó uno en el select, se filtra también.
-      const matchOrganismo = !organismoSeguro || c.organismo === organismoSeguro;
+      const matchOrganismo = !organismoSeguro || c.organismo.toUpperCase().includes(organismoSeguro.toUpperCase());
       const matchCotillon = !filtroCotillon || c.entrega_cotillon === filtroCotillon;
       const matchEstatus = !filtroEstatus || c.cierre_mesas === filtroEstatus;
       return matchMuni && matchOrganismo && matchCotillon && matchEstatus;
@@ -271,9 +276,12 @@ export default function SalaSituacionalConcejoPage() {
 
       <div className="bg-white p-4 rounded-2xl border shadow-sm flex flex-wrap gap-4 items-end">
         <div className="flex flex-col"><label className="text-[10px] font-bold text-gray-400 mb-1 uppercase">Municipio</label><select value={filtroMunicipio} onChange={e => setFiltroMunicipio(e.target.value)} className="p-2 border rounded-lg bg-white text-xs outline-none font-bold text-gray-700"><option value="">Todos los Municipios</option>{municipiosUnicos.map((m, i) => <option key={i} value={m}>{m}</option>)}</select></div>
-        {isSuperAdmin && (
+        
+        {/* Selector de Organismo visible exclusivamente para VEN 911 / Superusuario / Admins */}
+        {isVen911OrSuper && (
           <div className="flex flex-col"><label className="text-[10px] font-bold text-gray-400 mb-1 uppercase">Organismo</label><select value={filtroOrganismo} onChange={e => setFiltroOrganismo(e.target.value)} className="p-2 border rounded-lg bg-white text-xs outline-none font-bold text-gray-700"><option value="">Todos los Organismos</option>{organismosUnicos.map((o, i) => <option key={i} value={o}>{o}</option>)}</select></div>
         )}
+
         <div className="flex flex-col"><label className="text-[10px] font-bold text-gray-400 mb-1 uppercase">Entrega Cotillón</label><select value={filtroCotillon} onChange={e => setFiltroCotillon(e.target.value)} className="p-2 border rounded-lg bg-white text-xs outline-none font-bold text-gray-700"><option value="">Todos</option><option value="SI">SÍ</option><option value="NO">NO</option><option value="PENDIENTE">PENDIENTE</option></select></div>
         <div className="flex flex-col"><label className="text-[10px] font-bold text-gray-400 mb-1 uppercase">Estatus General</label><select value={filtroEstatus} onChange={e => setFiltroEstatus(e.target.value)} className="p-2 border rounded-lg bg-white text-xs outline-none font-bold text-gray-700"><option value="">Todas</option><option value="CERRADO">COMPLETADA</option><option value="PENDIENTE">PENDIENTE</option></select></div>
       </div>
@@ -293,32 +301,38 @@ export default function SalaSituacionalConcejoPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {centrosProcesados.map((c, i) => (
-                <tr key={i} className="hover:bg-gray-50 transition-colors">
-                  <td className="p-3 font-mono font-bold text-gray-500">CNE: {c.COD_CENTRO}<br/>STR: {c.CODIGO_CIRCUITO_COMUNAL}</td>
-                  <td className="p-3 font-black text-gray-800 uppercase max-w-[200px] truncate" title={c['NOMBRE CENTRO']}>{c['NOMBRE CENTRO']}<br/><span className="text-[10px] text-gray-400 font-medium">{c.municipio} ({c.parroquia})</span></td>
-                  <td className="p-3"><span className="font-bold text-[#00529b] block">{c.organismo}</span><span className="text-[10px] text-gray-500">{c.jefe_jerarquia} {c.jefe_nombre}</span></td>
-                  <td className="p-3 text-gray-700 font-bold uppercase">CNE: {c.responsable_cne}<br/>Mesa: {c.responsable_mesa}</td>
-                  <td className="p-3 text-center">
-                    <span className={`px-3 py-1 rounded-full text-[10px] font-black ${
-                      c.entrega_cotillon === 'SI' ? 'text-emerald-700 bg-emerald-100 border border-emerald-200' : 
-                      c.entrega_cotillon === 'NO' ? 'text-red-700 bg-red-100 border border-red-200' : 'text-gray-500 bg-gray-100'
-                    }`}>
-                      {c.entrega_cotillon}
-                    </span>
-                  </td>
-                  <td className="p-3 text-center">
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-black ${c.cierre_mesas === 'CERRADO' ? 'text-indigo-600 bg-indigo-50' : 'text-amber-600 bg-amber-50'}`}>
-                      {c.cierre_mesas === 'CERRADO' ? 'COMPLETADA' : 'PENDIENTE'}
-                    </span>
-                  </td>
-                  <td className="p-3 text-center">
-                    <button onClick={() => setCentroSeleccionado(c)} className="bg-gray-100 hover:bg-blue-50 text-gray-700 hover:text-[#00529b] p-2 rounded-xl transition-all border border-gray-200 hover:border-blue-200 shadow-sm inline-flex items-center gap-1 font-bold text-[10px] uppercase">
-                      <Eye size={14} /> Ficha
-                    </button>
-                  </td>
+              {centrosProcesados.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="p-6 text-center text-gray-500 font-bold">No se encontraron centros registrados con los filtros seleccionados.</td>
                 </tr>
-              ))}
+              ) : (
+                centrosProcesados.map((c, i) => (
+                  <tr key={i} className="hover:bg-gray-50 transition-colors">
+                    <td className="p-3 font-mono font-bold text-gray-500">CNE: {c.COD_CENTRO}<br/>STR: {c.CODIGO_CIRCUITO_COMUNAL}</td>
+                    <td className="p-3 font-black text-gray-800 uppercase max-w-[200px] truncate" title={c['NOMBRE CENTRO']}>{c['NOMBRE CENTRO']}<br/><span className="text-[10px] text-gray-400 font-medium">{c.municipio} ({c.parroquia})</span></td>
+                    <td className="p-3"><span className="font-bold text-[#00529b] block">{c.organismo}</span><span className="text-[10px] text-gray-500">{c.jefe_jerarquia} {c.jefe_nombre}</span></td>
+                    <td className="p-3 text-gray-700 font-bold uppercase">CNE: {c.responsable_cne}<br/>Mesa: {c.responsable_mesa}</td>
+                    <td className="p-3 text-center">
+                      <span className={`px-3 py-1 rounded-full text-[10px] font-black ${
+                        c.entrega_cotillon === 'SI' ? 'text-emerald-700 bg-emerald-100 border border-emerald-200' : 
+                        c.entrega_cotillon === 'NO' ? 'text-red-700 bg-red-100 border border-red-200' : 'text-gray-500 bg-gray-100'
+                      }`}>
+                        {c.entrega_cotillon}
+                      </span>
+                    </td>
+                    <td className="p-3 text-center">
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-black ${c.cierre_mesas === 'CERRADO' ? 'text-indigo-600 bg-indigo-50' : 'text-amber-600 bg-amber-50'}`}>
+                        {c.cierre_mesas === 'CERRADO' ? 'COMPLETADA' : 'PENDIENTE'}
+                      </span>
+                    </td>
+                    <td className="p-3 text-center">
+                      <button onClick={() => setCentroSeleccionado(c)} className="bg-gray-100 hover:bg-blue-50 text-gray-700 hover:text-[#00529b] p-2 rounded-xl transition-all border border-gray-200 hover:border-blue-200 shadow-sm inline-flex items-center gap-1 font-bold text-[10px] uppercase">
+                        <Eye size={14} /> Ficha
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
