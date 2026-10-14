@@ -1,8 +1,10 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { School, UserCheck, Save, Shield, MapPin, MessageSquare, ArrowLeft, CheckCircle2, Plus, Clock, Edit, Trash2, X, Loader2, Info, Search } from 'lucide-react';
+import { School, UserCheck, Save, Shield, MapPin, MessageSquare, ArrowLeft, CheckCircle2, Plus, Clock, Edit, Trash2, X, Loader2, Info, Search, Building2 } from 'lucide-react';
 import Link from 'next/link';
+
+const LISTA_ORGANISMOS = ['BOMBEROS', 'GNB', 'CPNB', 'CPMM', 'CPMC', 'CPEF', 'PC', 'CICPC', 'OTROS'];
 
 export default function ConcejoTerritorialPage() {
   const [jefe, setJefe] = useState<any>(null);
@@ -114,8 +116,23 @@ export default function ConcejoTerritorialPage() {
     setSugerenciasCentros([]);
   };
 
-  const handleInputChange = (id: string | number, campo: string, valor: string) => {
+  const handleInputChange = (id: string | number, campo: string, valor: any) => {
     setEscuelas(prev => prev.map(esc => esc.id === id ? { ...esc, [campo]: valor } : esc));
+  };
+
+  // Función para manejar los botones multiselección de Organismos Presentes
+  const toggleOrganismoPresente = (escuelaId: string | number, organismo: string) => {
+    setEscuelas(prev => prev.map(esc => {
+      if (esc.id === escuelaId) {
+        const listaActual: string[] = esc.organismos_presentes || [];
+        const yaExiste = listaActual.includes(organismo);
+        const nuevaLista = yaExiste 
+          ? listaActual.filter(o => o !== organismo) 
+          : [...listaActual, organismo];
+        return { ...esc, organismos_presentes: nuevaLista };
+      }
+      return esc;
+    }));
   };
 
   const guardarCambiosCentro = async (escuela: any) => {
@@ -134,6 +151,11 @@ export default function ConcejoTerritorialPage() {
       return;
     }
 
+    if (!escuela.organismos_presentes || escuela.organismos_presentes.length === 0) {
+      alert("⚠️ ALTO: Seleccione al menos un organismo presente en el centro.");
+      return;
+    }
+
     if (!escuela.minuta || escuela.minuta.trim() === '') {
       alert("⚠️ ALTO: Debe redactar la minuta informativa.");
       return;
@@ -146,6 +168,7 @@ export default function ConcejoTerritorialPage() {
         responsable_mesa: escuela.responsable_mesa.trim().toUpperCase(),
         entrega_cotillon: escuela.entrega_cotillon,
         motivo_no_cotillon: escuela.entrega_cotillon === 'NO' ? escuela.motivo_no_cotillon.trim().toUpperCase() : null,
+        organismos_presentes: escuela.organismos_presentes,
         minuta: escuela.minuta.trim(),
         estatus: 'CERRADO',
         updated_at: new Date().toISOString()
@@ -196,7 +219,6 @@ export default function ConcejoTerritorialPage() {
         codCentroFinal = `${siturActual || 'N/A'}-${siguienteNum}`;
       }
 
-      // Tomar municipio y parroquia estrictamente del funcionario logueado
       let municipioFinal = jefe?.municipio || 'SIN MUNICIPIO';
       let parroquiaFinal = jefe?.parroquia || 'SIN PARROQUIA';
 
@@ -215,6 +237,7 @@ export default function ConcejoTerritorialPage() {
         funcionario_nombre: `${jefe?.grado_jerarquia || ''} ${jefe?.nombre_apellido_jefe || jefe?.jefe || ''}`.trim().toUpperCase(),
         funcionario_rango: jefe?.grado_jerarquia || jefe?.rango || 'Funcionario',
         funcionario_telefono: jefe?.telefono_cuadrante || jefe?.telefono || 'S/N',
+        organismos_presentes: [],
         estatus: 'PENDIENTE'
       };
 
@@ -288,6 +311,7 @@ export default function ConcejoTerritorialPage() {
               const estaSincronizado = esc.estatus === 'CERRADO';
               const estaEditando = editandoId === esc.id;
               const isLocked = estaSincronizado && !estaEditando;
+              const listaOrganismosSeleccionados: string[] = esc.organismos_presentes || [];
               
               return (
                 <div key={esc.id} className={`bg-white rounded-2xl border p-6 shadow-sm flex flex-col gap-6 relative overflow-hidden transition-all ${estaSincronizado ? 'border-emerald-200 bg-emerald-50/5' : 'border-gray-200'} ${estaEditando ? 'ring-2 ring-amber-300' : ''}`}>
@@ -388,6 +412,34 @@ export default function ConcejoTerritorialPage() {
                             />
                           </div>
                         )}
+
+                        {/* NUEVA SECCIÓN: ORGANISMOS PRESENTES (MULTISELECCIÓN) */}
+                        <div className="pt-2">
+                          <label className="block text-[10px] font-black text-gray-600 uppercase mb-2 flex items-center gap-1">
+                            <Building2 size={12} className="text-[#00529b]" /> Organismos Presentes en el Centro <span className="text-red-500">*</span>
+                          </label>
+                          <div className="flex flex-wrap gap-1.5">
+                            {LISTA_ORGANISMOS.map(org => {
+                              const seleccionado = listaOrganismosSeleccionados.includes(org);
+                              return (
+                                <button
+                                  key={org}
+                                  type="button"
+                                  disabled={isLocked}
+                                  onClick={() => toggleOrganismoPresente(esc.id, org)}
+                                  className={`px-3 py-1.5 rounded-lg text-[10px] font-black border transition-all ${
+                                    seleccionado 
+                                      ? 'bg-[#00529b] text-white border-[#00529b] shadow-sm' 
+                                      : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-100'
+                                  } ${isLocked ? 'opacity-60 cursor-not-allowed' : ''}`}
+                                >
+                                  {seleccionado ? `✓ ${org}` : `+ ${org}`}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
                       </div>
                     </div>
 
