@@ -98,6 +98,7 @@ export default function SalaSituacionalConcejoPage() {
                          orgUser.includes('VEN-911') ||
                          orgUser === 'VEN 911';
 
+  // Si no es VEN 911 / Superusuario, forzar que solo vea su organismo
   const organismoSeguro = isVen911OrSuper 
     ? filtroOrganismo 
     : (adminProfile?.organismo_responsable || adminProfile?.organismo || '');
@@ -142,15 +143,27 @@ export default function SalaSituacionalConcejoPage() {
     });
   }, [centrosRegistrados, filtroMunicipio, organismoSeguro, filtroCotillon, filtroEstatus]);
 
-  // MÉTRICAS OFICIALES CNE FALCÓN
+  // CÁLCULO DINÁMICO DE MÉTRICAS SEGÚN EL ROL/ORGANISMO
   const stats = useMemo(() => {
     const totalMesasRegistradas = centrosProcesados.length;
     const reportados = centrosProcesados.filter(c => c.estatus === 'CERRADO').length;
     const cotillonSi = centrosProcesados.filter(c => c.entrega_cotillon === 'SI').length;
     const cotillonNo = centrosProcesados.filter(c => c.entrega_cotillon === 'NO').length;
     const pendientes = Math.max(0, totalMesasRegistradas - reportados);
-    return { totalMesasRegistradas, reportados, pendientes, cotillonSi, cotillonNo };
-  }, [centrosProcesados]);
+
+    // Conteo de centros/escuelas físicas únicas dentro de los registros filtrados
+    const escuelasUnicas = new Set(centrosProcesados.map(c => {
+      // Extraer código base antes del guion si viene por mesa (ej: 90303001-1 -> 90303001)
+      const cod = (c.cod_centro || '').toString().toUpperCase();
+      return cod.includes('-') ? cod.split('-')[0] : cod;
+    })).size;
+
+    // Metas CNE
+    const centrosMeta = isVen911OrSuper ? 625 : escuelasUnicas;
+    const mesasMeta = isVen911OrSuper ? 672 : totalMesasRegistradas;
+
+    return { totalMesasRegistradas, reportados, pendientes, cotillonSi, cotillonNo, centrosMeta, mesasMeta };
+  }, [centrosProcesados, isVen911OrSuper]);
 
   const generarPDF = () => {
     if (centrosProcesados.length === 0) {
@@ -255,26 +268,28 @@ export default function SalaSituacionalConcejoPage() {
         <p className="text-xs text-blue-100 font-medium mt-1">Sala Situacional de Centros Registrados por Organismos</p>
       </div>
 
-      {/* TARJETAS DE MÉTRICAS OFICIALES CNE */}
+      {/* TARJETAS DE MÉTRICAS DINÁMICAS */}
       <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-7 gap-3 pt-2">
-        {/* METAS FIJAS CNE FALCÓN */}
         <div className="bg-blue-50/80 border border-blue-200 rounded-2xl p-3.5 flex items-center justify-between shadow-sm">
           <div>
-            <p className="text-[9px] font-black text-blue-800 uppercase">Centros CNE</p>
-            <p className="text-2xl font-black text-[#00529b] mt-0.5">625</p>
+            <p className="text-[9px] font-black text-blue-800 uppercase">
+              {isVen911OrSuper ? 'Centros CNE' : 'Mis Centros'}
+            </p>
+            <p className="text-2xl font-black text-[#00529b] mt-0.5">{stats.centrosMeta}</p>
           </div>
           <div className="bg-blue-100 text-[#00529b] p-2.5 rounded-full"><School size={20}/></div>
         </div>
 
         <div className="bg-indigo-50/80 border border-indigo-200 rounded-2xl p-3.5 flex items-center justify-between shadow-sm">
           <div>
-            <p className="text-[9px] font-black text-indigo-800 uppercase">Mesas CNE</p>
-            <p className="text-2xl font-black text-indigo-900 mt-0.5">672</p>
+            <p className="text-[9px] font-black text-indigo-800 uppercase">
+              {isVen911OrSuper ? 'Mesas CNE' : 'Mis Mesas'}
+            </p>
+            <p className="text-2xl font-black text-indigo-900 mt-0.5">{stats.mesasMeta}</p>
           </div>
           <div className="bg-indigo-100 text-indigo-700 p-2.5 rounded-full"><Layers size={20}/></div>
         </div>
 
-        {/* CONTEO EN TIEMPO REAL */}
         <div className="bg-white border rounded-2xl p-3.5 flex items-center justify-between shadow-sm">
           <div>
             <p className="text-[9px] font-bold text-gray-400 uppercase">Mesas Registradas</p>
