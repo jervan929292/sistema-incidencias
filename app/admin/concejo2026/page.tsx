@@ -20,10 +20,13 @@ export default function SalaSituacionalConcejoPage() {
   const [centroSeleccionado, setCentroSeleccionado] = useState<any | null>(null);
 
   useEffect(() => {
+    let mounted = true;
+
     const cargarDatos = async () => {
       try {
         setLoading(true);
 
+        // 1. Obtener datos del perfil logueado
         let correoLogueado = '';
         const sessionData = localStorage.getItem('user_session');
         if (sessionData) {
@@ -56,72 +59,53 @@ export default function SalaSituacionalConcejoPage() {
           }
         }
 
-        setAdminProfile(perfilEncontrado);
+        if (mounted) setAdminProfile(perfilEncontrado);
 
-        // 1. Cargar centros registrados por organismos
-        let todosLosRegistros: any[] = [];
-        let limite = 1000;
-        let inicio = 0;
-        let hayMas = true;
+        // 2. Cargar registros hechos por los funcionarios
+        const { data: dataRegistrados, error: errReg } = await supabase
+          .from('centros_registrados_organismos')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(3000);
 
-        while (hayMas) {
-          const { data: batch } = await supabase
-            .from('centros_registrados_organismos')
-            .select('*')
-            .order('created_at', { ascending: false })
-            .range(inicio, inicio + limite - 1);
+        if (errReg) console.error("Error cargando registrados:", errReg);
+        if (mounted) setCentrosRegistrados(dataRegistrados || []);
 
-          if (batch && batch.length > 0) {
-            todosLosRegistros = [...todosLosRegistros, ...batch];
-            inicio += limite;
-            if (batch.length < limite) hayMas = false;
-          } else {
-            hayMas = false;
-          }
-        }
-        setCentrosRegistrados(todosLosRegistros);
+        // 3. Cargar catálogo oficial para calcular metas de cada organismo
+        const { data: dataCat, error: errCat } = await supabase
+          .from('centros_votacion_2026')
+          .select('*')
+          .limit(3000);
 
-        // 2. Cargar catálogo oficial
-        let todoCatalogo: any[] = [];
-        let inicioCat = 0;
-        let hayMasCat = true;
-        while (hayMasCat) {
-          const { data: batchCat } = await supabase
-            .from('centros_votacion_2026')
-            .select('*')
-            .range(inicioCat, inicioCat + limite - 1);
-
-          if (batchCat && batchCat.length > 0) {
-            todoCatalogo = [...todoCatalogo, ...batchCat];
-            inicioCat += limite;
-            if (batchCat.length < limite) hayMasCat = false;
-          } else {
-            hayMasCat = false;
-          }
-        }
-        setCatalogoTotal(todoCatalogo);
+        if (errCat) console.error("Error cargando catálogo:", errCat);
+        if (mounted) setCatalogoTotal(dataCat || []);
 
       } catch (err) {
         console.error('Error al cargar Sala Situacional:', err);
       } finally {
-        setLoading(false);
+        if (mounted) setLoading(false);
       }
     };
 
     cargarDatos();
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
-  const orgUser = (adminProfile?.organismo_responsable || adminProfile?.organismo || '').toUpperCase();
+  const orgUser = (adminProfile?.organismo_responsable || adminProfile?.organismo || adminProfile?.nombre_apellido_jefe || '').toUpperCase();
   const rolUser = (adminProfile?.rol || '').toUpperCase();
   
   const isVen911OrSuper = rolUser === 'SUPERUSUARIO' || 
                          orgUser.includes('VEN 911') || 
                          orgUser.includes('VEN-911') ||
+                         orgUser.includes('ZODIFALCON') ||
                          orgUser === 'VEN 911';
 
   const organismoSeguro = isVen911OrSuper 
     ? filtroOrganismo 
-    : (adminProfile?.organismo_responsable || adminProfile?.organismo || '');
+    : orgUser;
 
   const municipiosUnicos = useMemo(() => {
     const listaRaw = centrosRegistrados.map(c => c.municipio).filter(Boolean);
@@ -136,7 +120,7 @@ export default function SalaSituacionalConcejoPage() {
     return Array.from(new Set(centrosRegistrados.map(c => c.organismo))).filter(Boolean).sort();
   }, [centrosRegistrados]);
 
-  // AGRUPAR Y SUMAR MESAS POR CENTRO ELECTORAL (Evita repetir colegios y suma sus mesas)
+  // AGRUPACIÓN DE CENTROS FÍSICOS Y SUS MESAS
   const centrosAgrupados = useMemo(() => {
     const mapaCentros: { [key: string]: any } = {};
 
@@ -144,7 +128,6 @@ export default function SalaSituacionalConcejoPage() {
       let muni = (c.municipio || 'MP. ACOSTA').toString().trim().toUpperCase();
       if (!muni.startsWith('MP.')) muni = `MP. ${muni}`;
 
-      // Extraer clave base del centro (ej: si cod_centro es 90303001-1 o 90303001, la base es 90303001 o el nombre limpio)
       const codRaw = (c.cod_centro || '').toString().toUpperCase();
       const codBase = codRaw.includes('-') ? codRaw.split('-')[0] : codRaw;
       const nombreLimpio = (c.nombre_centro || '').replace(/\s*\(MESA\s*\d+\)/gi, '').trim();
@@ -160,7 +143,6 @@ export default function SalaSituacionalConcejoPage() {
           cod_centro_base: codBase,
           total_mesas: 0,
           mesas_detalle: [],
-          responsables: [],
           cotillones_si: 0,
           cotillones_no: 0,
           completados: 0,
@@ -188,37 +170,72 @@ export default function SalaSituacionalConcejoPage() {
       };
     }).filter(c => {
       const matchMuni = !filtroMunicipio || c.municipio.toUpperCase() === filtroMunicipio.toUpperCase();
-      const matchOrganismo = !organismoSeguro || c.organismo.toUpperCase().includes(organismoSeguro.toUpperCase());
+      
+      // Búsqueda flexible de organismo
+      let matchOrganismo = true;
+      if (organismoSeguro && !isVen911OrSuper) {
+        const orgFila = (c.organismo || '').toUpperCase();
+        const orgPerfil = organismoSeguro.toUpperCase();
+        matchOrganismo = orgFila.includes(orgPerfil) || orgPerfil.includes(orgFila);
+      } else if (filtroOrganismo) {
+        matchOrganismo = (c.organismo || '').toUpperCase().includes(filtroOrganismo.toUpperCase());
+      }
+
       const matchCotillon = !filtroCotillon || c.entrega_cotillon === filtroCotillon;
       const matchEstatus = !filtroEstatus || c.estatus === filtroEstatus;
       
       return matchMuni && matchOrganismo && matchCotillon && matchEstatus;
     });
-  }, [centrosRegistrados, filtroMunicipio, organismoSeguro, filtroCotillon, filtroEstatus]);
+  }, [centrosRegistrados, filtroMunicipio, organismoSeguro, filtroOrganismo, isVen911OrSuper]);
 
-  // CÁLCULO DE MÉTRICAS GLOBALES
+  // MÉTRICAS Y CÁLCULO DE METAS (CENTROS / MESAS)
   const stats = useMemo(() => {
-    const totalMesasRegistradas = centrosRegistrados.length; // Suma de todas las mesas cargadas
-    const totalCentrosUnicos = centrosAgrupados.length;
+    const totalMesasRegistradas = centrosRegistrados.length;
+    const totalCentrosRegistrados = centrosAgrupados.length; // Centros / Escuelas físicas registradas paulatinamente
     const reportados = centrosAgrupados.filter(c => c.estatus === 'CERRADO').length;
     const cotillonSi = centrosAgrupados.filter(c => c.entrega_cotillon === 'SI').length;
     const cotillonNo = centrosAgrupados.filter(c => c.entrega_cotillon === 'NO').length;
-    const pendientes = Math.max(0, totalCentrosUnicos - reportados);
+    const pendientes = Math.max(0, totalCentrosRegistrados - reportados);
 
     let centrosMeta = 625;
     let mesasMeta = 672;
 
-    if (!isVen911OrSuper && organismoSeguro) {
+    // Si entra un organismo específico (GNB, CPNB, etc.), filtrar catálogo oficial
+    if (!isVen911OrSuper && orgUser) {
       const catalogoDelOrganismo = catalogoTotal.filter(item => {
         const orgItem = (item.ORGANSIMOS || item.organismo || '').toString().toUpperCase();
-        return orgItem.includes(organismoSeguro.toUpperCase());
+        
+        // Coincidencia inteligente por siglas o nombre
+        if (orgUser.includes('GNB') || orgUser.includes('GUARDIA')) return orgItem.includes('GUARDIA');
+        if (orgUser.includes('POLICIA DEL ESTADO') || orgUser.includes('CPEF')) return orgItem.includes('ESTADO');
+        if (orgUser.includes('CPNB') || orgUser.includes('NACIONAL')) return orgItem.includes('NACIONAL');
+        if (orgUser.includes('CARIRUBANA')) return orgItem.includes('CARIRUBANA');
+        if (orgUser.includes('MIRANDA')) return orgItem.includes('MIRANDA');
+        
+        return orgItem.includes(orgUser);
       });
-      mesasMeta = catalogoDelOrganismo.length;
-      centrosMeta = new Set(catalogoDelOrganismo.map(item => item['COD CENTRO'] || item.cod_centro)).size;
+
+      if (catalogoDelOrganismo.length > 0) {
+        mesasMeta = catalogoDelOrganismo.length;
+        centrosMeta = new Set(catalogoDelOrganismo.map(item => item['COD CENTRO'] || item.cod_centro)).size;
+      } else {
+        // Fallback dinámico si no hay coincidencia directa en el catálogo
+        mesasMeta = totalMesasRegistradas;
+        centrosMeta = totalCentrosRegistrados;
+      }
     }
 
-    return { totalMesasRegistradas, totalCentrosUnicos, reportados, pendientes, cotillonSi, cotillonNo, centrosMeta, mesasMeta };
-  }, [centrosRegistrados, centrosAgrupados, catalogoTotal, isVen911OrSuper, organismoSeguro]);
+    return { 
+      totalMesasRegistradas, 
+      totalCentrosRegistrados, 
+      reportados, 
+      pendientes, 
+      cotillonSi, 
+      cotillonNo, 
+      centrosMeta, 
+      mesasMeta 
+    };
+  }, [centrosRegistrados, centrosAgrupados, catalogoTotal, isVen911OrSuper, orgUser]);
 
   const generarPDF = () => {
     if (centrosAgrupados.length === 0) {
@@ -277,7 +294,12 @@ export default function SalaSituacionalConcejoPage() {
     XLSX.writeFile(wb, 'Consulta_Popular_Sala_Situacional.xlsx');
   };
 
-  if (loading) return <div className="p-8 text-center font-bold animate-pulse text-[#00529b]">Cargando Sala Situacional...</div>;
+  if (loading) return (
+    <div className="min-h-screen bg-gray-100 flex flex-col items-center justify-center gap-3">
+      <div className="w-10 h-10 border-4 border-[#00529b] border-t-transparent rounded-full animate-spin"></div>
+      <p className="font-bold text-[#00529b] text-sm uppercase">Cargando Sala Situacional...</p>
+    </div>
+  );
 
   return (
     <div className="min-h-screen bg-gray-100 p-6 space-y-4">
@@ -320,65 +342,82 @@ export default function SalaSituacionalConcejoPage() {
       </div>
 
       {/* TARJETAS DE MÉTRICAS */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-7 gap-3 pt-2">
-        <div className="bg-blue-50/80 border border-blue-200 rounded-2xl p-3.5 flex items-center justify-between shadow-sm">
+      <div className="grid grid-cols-1 sm:grid-cols-4 lg:grid-cols-8 gap-3 pt-2">
+        
+        {/* MIS CENTROS ASIGNADOS / CNE */}
+        <div className="bg-blue-50/80 border border-blue-200 rounded-2xl p-3 flex items-center justify-between shadow-sm">
           <div>
             <p className="text-[9px] font-black text-blue-800 uppercase">
               {isVen911OrSuper ? 'Centros CNE' : 'Mis Centros'}
             </p>
             <p className="text-2xl font-black text-[#00529b] mt-0.5">{stats.centrosMeta}</p>
           </div>
-          <div className="bg-blue-100 text-[#00529b] p-2.5 rounded-full"><School size={20}/></div>
+          <div className="bg-blue-100 text-[#00529b] p-2 rounded-full"><School size={18}/></div>
         </div>
 
-        <div className="bg-indigo-50/80 border border-indigo-200 rounded-2xl p-3.5 flex items-center justify-between shadow-sm">
+        {/* MIS MESAS ASIGNADAS / CNE */}
+        <div className="bg-indigo-50/80 border border-indigo-200 rounded-2xl p-3 flex items-center justify-between shadow-sm">
           <div>
             <p className="text-[9px] font-black text-indigo-800 uppercase">
               {isVen911OrSuper ? 'Mesas CNE' : 'Mis Mesas'}
             </p>
             <p className="text-2xl font-black text-indigo-900 mt-0.5">{stats.mesasMeta}</p>
           </div>
-          <div className="bg-indigo-100 text-indigo-700 p-2.5 rounded-full"><Layers size={20}/></div>
+          <div className="bg-indigo-100 text-indigo-700 p-2 rounded-full"><Layers size={18}/></div>
         </div>
 
-        <div className="bg-white border rounded-2xl p-3.5 flex items-center justify-between shadow-sm">
+        {/* TARJETA: CENTROS REGISTRADOS (ESCUELAS FÍSICAS CARGADAS) */}
+        <div className="bg-emerald-50/80 border border-emerald-200 rounded-2xl p-3 flex items-center justify-between shadow-sm">
           <div>
-            <p className="text-[9px] font-bold text-gray-400 uppercase">Mesas Registradas</p>
+            <p className="text-[9px] font-black text-emerald-800 uppercase">Centros Reg.</p>
+            <p className="text-2xl font-black text-emerald-700 mt-0.5">{stats.totalCentrosRegistrados}</p>
+          </div>
+          <div className="bg-emerald-100 text-emerald-700 p-2 rounded-full"><School size={18}/></div>
+        </div>
+
+        {/* MESAS REGISTRADAS */}
+        <div className="bg-white border rounded-2xl p-3 flex items-center justify-between shadow-sm">
+          <div>
+            <p className="text-[9px] font-bold text-gray-400 uppercase">Mesas Reg.</p>
             <p className="text-2xl font-black text-gray-800 mt-0.5">{stats.totalMesasRegistradas}</p>
           </div>
-          <div className="bg-gray-100 text-gray-700 p-2.5 rounded-full"><MapPin size={20}/></div>
+          <div className="bg-gray-100 text-gray-700 p-2 rounded-full"><MapPin size={18}/></div>
         </div>
 
-        <div className="bg-white border rounded-2xl p-3.5 flex items-center justify-between shadow-sm">
+        {/* COMPLETADAS */}
+        <div className="bg-white border rounded-2xl p-3 flex items-center justify-between shadow-sm">
           <div>
             <p className="text-[9px] font-bold text-gray-400 uppercase">Completadas</p>
             <p className="text-2xl font-black text-indigo-600 mt-0.5">{stats.reportados}</p>
           </div>
-          <div className="bg-indigo-50 text-indigo-600 p-2.5 rounded-full"><CheckCircle2 size={20}/></div>
+          <div className="bg-indigo-50 text-indigo-600 p-2 rounded-full"><CheckCircle2 size={18}/></div>
         </div>
 
-        <div className="bg-white border rounded-2xl p-3.5 flex items-center justify-between shadow-sm">
+        {/* COTILLÓN SÍ */}
+        <div className="bg-white border rounded-2xl p-3 flex items-center justify-between shadow-sm">
           <div>
             <p className="text-[9px] font-bold text-gray-400 uppercase">Cotillón SÍ</p>
             <p className="text-2xl font-black text-emerald-600 mt-0.5">{stats.cotillonSi}</p>
           </div>
-          <div className="bg-emerald-50 text-emerald-600 p-2.5 rounded-full"><CheckCircle2 size={20}/></div>
+          <div className="bg-emerald-50 text-emerald-600 p-2 rounded-full"><CheckCircle2 size={18}/></div>
         </div>
 
-        <div className="bg-white border rounded-2xl p-3.5 flex items-center justify-between shadow-sm">
+        {/* COTILLÓN NO */}
+        <div className="bg-white border rounded-2xl p-3 flex items-center justify-between shadow-sm">
           <div>
             <p className="text-[9px] font-bold text-gray-400 uppercase">Cotillón NO</p>
             <p className="text-2xl font-black text-red-600 mt-0.5">{stats.cotillonNo}</p>
           </div>
-          <div className="bg-red-50 text-red-600 p-2.5 rounded-full"><AlertTriangle size={20}/></div>
+          <div className="bg-red-50 text-red-600 p-2 rounded-full"><AlertTriangle size={18}/></div>
         </div>
 
-        <div className="bg-white border rounded-2xl p-3.5 flex items-center justify-between shadow-sm">
+        {/* PENDIENTES */}
+        <div className="bg-white border rounded-2xl p-3 flex items-center justify-between shadow-sm">
           <div>
             <p className="text-[9px] font-bold text-gray-400 uppercase">Pendientes</p>
             <p className="text-2xl font-black text-amber-500 mt-0.5">{stats.pendientes}</p>
           </div>
-          <div className="bg-amber-50 text-amber-500 p-2.5 rounded-full"><Shield size={20}/></div>
+          <div className="bg-amber-50 text-amber-500 p-2 rounded-full"><Shield size={18}/></div>
         </div>
       </div>
 
