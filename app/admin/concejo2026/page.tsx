@@ -92,9 +92,12 @@ export default function SalaSituacionalConcejoPage() {
     return mapaExacto;
   }, [reportes]);
 
+  // Validación para identificar si es personal del VEN 911 o Superusuario global
   const isSuperAdmin = adminProfile?.rol === 'superusuario' || 
-                       adminProfile?.organismo_responsable?.toUpperCase() === 'VEN 911' || 
-                       adminProfile?.organismo_responsable?.toUpperCase() === 'GUARDIA NACIONAL BOLIVARIANA';
+                       adminProfile?.organismo_responsable?.toUpperCase().includes('VEN') || 
+                       adminProfile?.organismo_responsable?.toUpperCase()?.includes('VEN 911');
+
+  // Si es VEN 911, respeta el filtro seleccionado (o muestra todo si está vacío). Si no, fija estrictamente su propio organismo.
   const organismoSeguro = isSuperAdmin ? filtroOrganismo : adminProfile?.organismo_responsable;
 
   const municipiosUnicos = useMemo(() => Array.from(new Set(usuarios.map(u => u.municipio))).filter(Boolean).sort(), [usuarios]);
@@ -127,6 +130,7 @@ export default function SalaSituacionalConcejoPage() {
       };
     }).filter(c => {
       const matchMuni = !filtroMunicipio || c.municipio === filtroMunicipio;
+      // Si hay un organismo seguro definido (usuario regular), se filtra estrictamente por él. Si es superadmin y seleccionó uno en el select, se filtra también.
       const matchOrganismo = !organismoSeguro || c.organismo === organismoSeguro;
       const matchCotillon = !filtroCotillon || c.entrega_cotillon === filtroCotillon;
       const matchEstatus = !filtroEstatus || c.cierre_mesas === filtroEstatus;
