@@ -9,10 +9,9 @@ export default function ConcejoTerritorialPage() {
   const [escuelas, setEscuelas] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [guardandoId, setGuardandoId] = useState<string | number | null>(null);
-  
   const [editandoId, setEditandoId] = useState<string | number | null>(null);
 
-  // Estados para el Modal de Añadir / Buscar Centro
+  // Estados del Modal
   const [mostrarModalNueva, setMostrarModalNueva] = useState(false);
   const [nombreBusqueda, setNombreBusqueda] = useState('');
   const [cneVirtualModal, setCneVirtualModal] = useState('AUTOMÁTICO');
@@ -26,7 +25,6 @@ export default function ConcejoTerritorialPage() {
     const cargarDatos = async () => {
       try {
         let emailABuscar = '';
-        
         const { data: { user } } = await supabase.auth.getUser();
         if (user?.email) {
           emailABuscar = user.email;
@@ -45,13 +43,13 @@ export default function ConcejoTerritorialPage() {
           return;
         }
 
-        const { data: userData, error: userErr } = await supabase
+        const { data: userData } = await supabase
           .from('directorio_operativo')
           .select('*')
           .ilike('email', emailABuscar)
           .maybeSingle();
 
-        if (userErr || !userData) {
+        if (!userData) {
           setLoading(false);
           return;
         }
@@ -60,105 +58,14 @@ export default function ConcejoTerritorialPage() {
         const siturCodigo = (userData.codigo_situr || userData.situr || '').toString().trim();
 
         if (siturCodigo) {
-          // 1. Cargar primero los reportes existentes de este SITUR para saber qué centros ha agregado el funcionario
-          const { data: reportesExistentes } = await supabase
-            .from('reportes_concejo_2026')
+          // Consultar SÓLO los centros registrados en la nueva tabla para este SITUR
+          const { data: misCentros } = await supabase
+            .from('centros_registrados_organismos')
             .select('*')
             .eq('codigo_situr', siturCodigo)
-            .order('fecha_reporte', { ascending: false })
-            .limit(5000);
+            .order('created_at', { ascending: false });
 
-          // 2. Extraer los códigos de centro reportados por el funcionario para mostrarlos exclusivamente aquí
-          const codigosReportados = Array.from(
-            new Set((reportesExistentes || []).map(r => (r.cod_centro || r.COD_CENTRO)?.toString().trim()).filter(Boolean))
-          );
-
-          // También buscar si hay centros en la tabla principal enlazados a este SITUR explícitamente
-          const fetchCentrosAsignados = async () => {
-            let todosLosCentros: any[] = [];
-            let limite = 1000;
-            let inicio = 0;
-            let hayMas = true;
-            while (hayMas) {
-              const { data: batch } = await supabase.from('centros_votacion_2026')
-                .select('*')
-                .or(`CODIGO_CIRCUITO_COMUNAL.eq.${siturCodigo},situr.eq.${siturCodigo}`)
-                .range(inicio, inicio + limite - 1);
-                
-              if (batch && batch.length > 0) {
-                todosLosCentros = [...todosLosCentros, ...batch];
-                inicio += limite;
-                if (batch.length < limite) hayMas = false; 
-              } else { hayMas = false; }
-            }
-            return todosLosCentros;
-          };
-
-          const centrosDirectos = await fetchCentrosAsignados();
-          
-          // Combinar centros directos del SITUR y centros que tengan reportes activos
-          const mapaCentrosUnicos = new Map();
-          centrosDirectos.forEach(c => {
-            const idC = (c.COD_CENTRO || c.cod_centro)?.toString().trim();
-            if (idC) mapaCentrosUnicos.set(idC, c);
-          });
-
-          // Si hay centros reportados que no estén en el lote directo, los buscamos por su CNE
-          if (codigosReportados.length > 0) {
-            const codigosFaltantes = codigosReportados.filter(cod => !mapaCentrosUnicos.has(cod));
-            if (codigosFaltantes.length > 0) {
-              const { data: centrosAdicionales } = await supabase
-                .from('centros_votacion_2026')
-                .select('*')
-                .in('COD_CENTRO', codigosFaltantes);
-              
-              if (centrosAdicionales) {
-                centrosAdicionales.forEach(c => {
-                  const idC = (c.COD_CENTRO || c.cod_centro)?.toString().trim();
-                  if (idC) mapaCentrosUnicos.set(idC, c);
-                });
-              }
-            }
-          }
-
-          const centros = Array.from(mapaCentrosUnicos.values());
-
-          if (centros) {
-            const mapaReportesExactos = new Map();
-            if (reportesExistentes) {
-              reportesExistentes.forEach(r => {
-                const key = (r.cod_centro || r.COD_CENTRO)?.toString().trim();
-                if (key && !mapaReportesExactos.has(key)) {
-                  mapaReportesExactos.set(key, r);
-                }
-              });
-            }
-
-            // Opcional: Mostrar solo aquellos centros que tienen reporte activo o enlace directo con el SITUR
-            const centrosConReportes = centros.map((c: any, index: number) => {
-              const codCentroReal = c.COD_CENTRO || c.cod_centro;
-              let rep = mapaReportesExactos.get(codCentroReal?.toString().trim()) || {};
-              const uniqueIdentifier = c.id || `temp-${codCentroReal}-${index}`;
-
-              return { 
-                ...c, 
-                ...rep,
-                uid_estricto: uniqueIdentifier, 
-                id_centro: c.id, 
-                cod_centro_real: codCentroReal, 
-                id_reporte_viejo: rep?.id || null, 
-                
-                responsable_cne: rep?.responsable_cne || '',
-                responsable_mesa: rep?.responsable_mesa || '',
-                entrega_cotillon: rep?.entrega_cotillon || 'PENDIENTE',
-                motivo_no_cotillon: rep?.motivo_no_cotillon || '',
-                minuta: rep?.minuta || '',
-                cierre_mesas: rep?.cierre_mesas || 'PENDIENTE'
-              };
-            });
-            
-            setEscuelas(centrosConReportes);
-          }
+          setEscuelas(misCentros || []);
         }
       } catch (err) {
         console.error("Error al cargar datos:", err);
@@ -169,7 +76,6 @@ export default function ConcejoTerritorialPage() {
     cargarDatos();
   }, []);
 
-  // AUTOCOMPLETADO ESTILO GOOGLE AL ESCRIBIR 3 O MÁS LETRAS
   const handleNombreChange = async (valor: string) => {
     const textoUpper = valor.toUpperCase();
     setNombreBusqueda(textoUpper);
@@ -209,8 +115,8 @@ export default function ConcejoTerritorialPage() {
     setSugerenciasCentros([]);
   };
 
-  const handleInputChange = (uidEstricto: string | number, campo: string, valor: string) => {
-    setEscuelas(prev => prev.map(esc => esc.uid_estricto === uidEstricto ? { ...esc, [campo]: valor } : esc));
+  const handleInputChange = (id: string | number, campo: string, valor: string) => {
+    setEscuelas(prev => prev.map(esc => esc.id === id ? { ...esc, [campo]: valor } : esc));
   };
 
   const guardarCambiosCentro = async (escuela: any) => {
@@ -225,41 +131,35 @@ export default function ConcejoTerritorialPage() {
     }
 
     if (escuela.entrega_cotillon === 'NO' && !escuela.motivo_no_cotillon?.trim()) {
-      alert("⚠️ ALTO: Como seleccionó 'NO' en entrega de cotillón, debe escribir obligatoriamente el motivo.");
+      alert("⚠️ ALTO: Debe escribir obligatoriamente el motivo por el cual no se entregó cotillón.");
       return;
     }
 
     if (!escuela.minuta || escuela.minuta.trim() === '') {
-      alert("⚠️ ALTO: Debe redactar la minuta informativa del centro.");
+      alert("⚠️ ALTO: Debe redactar la minuta informativa.");
       return;
     }
 
-    setGuardandoId(escuela.uid_estricto);
+    setGuardandoId(escuela.id);
     try {
-      const siturActual = jefe?.codigo_situr || jefe?.situr;
-      const payload: any = {
-        cod_centro: escuela.cod_centro_real, 
-        codigo_situr: siturActual,
+      const payload = {
         responsable_cne: escuela.responsable_cne.trim().toUpperCase(),
         responsable_mesa: escuela.responsable_mesa.trim().toUpperCase(),
         entrega_cotillon: escuela.entrega_cotillon,
         motivo_no_cotillon: escuela.entrega_cotillon === 'NO' ? escuela.motivo_no_cotillon.trim().toUpperCase() : null,
         minuta: escuela.minuta.trim(),
-        cierre_mesas: 'CERRADO', 
-        fecha_reporte: new Date().toISOString()
+        estatus: 'CERRADO',
+        updated_at: new Date().toISOString()
       };
 
-      if (escuela.id_reporte_viejo) {
-        payload.id = escuela.id_reporte_viejo;
-      }
-
       const { error } = await supabase
-        .from('reportes_concejo_2026')
-        .upsert(payload, { onConflict: escuela.id_reporte_viejo ? 'id' : 'cod_centro' });
+        .from('centros_registrados_organismos')
+        .update(payload)
+        .eq('id', escuela.id);
 
       if (error) throw error;
       
-      alert(`✅ ÉXITO: Reporte del centro guardado correctamente.`);
+      alert(`✅ ÉXITO: Reporte guardado correctamente.`);
       window.location.reload(); 
     } catch (err: any) {
       alert("Error al guardar: " + err.message);
@@ -267,15 +167,13 @@ export default function ConcejoTerritorialPage() {
     }
   };
 
-  const eliminarEscuela = async (idTablaEscuela: string | number, nombreEscuela: string, uidEstricto: string | number) => {
+  const eliminarEscuela = async (id: string | number, nombreEscuela: string) => {
     if (confirm(`⚠️ ALERTA: ¿Está seguro que desea ELIMINAR el centro "${nombreEscuela}"?`)) {
       try {
-        if (idTablaEscuela) {
-          const { error } = await supabase.from('centros_votacion_2026').delete().eq('id', idTablaEscuela);
-          if (error) throw error;
-        }
-        alert(`El centro ha sido eliminado con éxito.`);
-        setEscuelas(prev => prev.filter(e => e.uid_estricto !== uidEstricto));
+        const { error } = await supabase.from('centros_registrados_organismos').delete().eq('id', id);
+        if (error) throw error;
+        alert(`Centro eliminado con éxito.`);
+        setEscuelas(prev => prev.filter(e => e.id !== id));
       } catch (err: any) {
         alert("Error al eliminar: " + err.message);
       }
@@ -290,48 +188,54 @@ export default function ConcejoTerritorialPage() {
     try {
       const siturActual = jefe?.codigo_situr || jefe?.situr;
       const comunaActual = jefe?.comuna_o_circuito_comunal || jefe?.circuito || '';
+      
+      let codCentroFinal = cneVirtualModal;
+      let municipioFinal = jefe?.municipio || 'SIN MUNICIPIO';
+      let parroquiaFinal = jefe?.parroquia || 'SIN PARROQUIA';
 
       if (centroExistenteSeleccionado) {
-        // SI SELECCIONÓ UN CENTRO EXISTENTE DE LA BÚSQUEDA -> Asignarlo al SITUR actual
-        const { error } = await supabase
-          .from('centros_votacion_2026')
-          .update({
-            "CODIGO_CIRCUITO_COMUNAL": siturActual,
-            "CODIGO_COMUNA_CNE": comunaActual
-          })
-          .eq('id', centroExistenteSeleccionado.id);
-
-        if (error) throw error;
-        alert(`✅ Centro "${nombreBusqueda}" enlazado correctamente a la llave SITUR: ${siturActual}`);
+        codCentroFinal = centroExistenteSeleccionado.COD_CENTRO || centroExistenteSeleccionado.cod_centro;
+        municipioFinal = centroExistenteSeleccionado.MUNICIPIO || centroExistenteSeleccionado.municipio || municipioFinal;
+        parroquiaFinal = centroExistenteSeleccionado.PARROQUIA || centroExistenteSeleccionado.parroquia || parroquiaFinal;
       } else {
-        // SI ES UN CENTRO TOTALMENTE NUEVO -> Crearlo tomando el CNE generado automáticamente
-        const siguienteNumero = escuelas.length + 1;
-        const cneGenerado = `${siturActual || 'N/A'}-${siguienteNumero}`;
-        
-        const payload = {
-          "COD_CENTRO": cneGenerado,
-          "NOMBRE CENTRO": nombreBusqueda.trim().toUpperCase(),
-          "DIRECCION": direccionModal.trim().toUpperCase(),
-          "CODIGO_COMUNA_CNE": comunaActual,
-          "CODIGO_CIRCUITO_COMUNAL": siturActual
-        };
-
-        const { error } = await supabase.from('centros_votacion_2026').insert([payload]);
-        if (error) throw error;
-
-        alert(`✅ Centro "${payload['NOMBRE CENTRO']}" creado con éxito. CNE asignado: ${cneGenerado}`);
+        const siguienteNum = escuelas.length + 1;
+        codCentroFinal = `${siturActual || 'N/A'}-${siguienteNum}`;
       }
 
+      // Normalizar municipio con prefijo MP.
+      if (!municipioFinal.toUpperCase().startsWith('MP.')) {
+        municipioFinal = `MP. ${municipioFinal.toUpperCase()}`;
+      }
+
+      const payload = {
+        cod_centro: codCentroFinal,
+        codigo_situr: siturActual,
+        nombre_centro: nombreBusqueda.trim().toUpperCase(),
+        direccion: direccionModal.trim().toUpperCase(),
+        municipio: municipioFinal.toUpperCase(),
+        parroquia: parroquiaFinal.toUpperCase(),
+        circuito_comunal: comunaActual.toUpperCase(),
+        organismo: (jefe?.organismo_responsable || jefe?.organismo || 'S/O').toUpperCase(),
+        funcionario_nombre: `${jefe?.grado_jerarquia || ''} ${jefe?.nombre_apellido_jefe || jefe?.jefe || ''}`.trim().toUpperCase(),
+        funcionario_rango: jefe?.grado_jerarquia || jefe?.rango || 'Funcionario',
+        funcionario_telefono: jefe?.telefono_cuadrante || jefe?.telefono || 'S/N',
+        estatus: 'PENDIENTE'
+      };
+
+      const { error } = await supabase.from('centros_registrados_organismos').insert([payload]);
+      if (error) throw error;
+
+      alert(`✅ Centro registrado con éxito en tu circuito.`);
       setMostrarModalNueva(false);
       window.location.reload(); 
     } catch (err: any) {
-      alert("Error al procesar el centro: " + err.message);
+      alert("Error al registrar el centro: " + err.message);
     } finally {
       setGuardandoNueva(false);
     }
   };
 
-  if (loading) return <div className="p-8 text-center font-bold animate-pulse text-[#00529b]">Sincronizando centros asignados...</div>;
+  if (loading) return <div className="p-8 text-center font-bold animate-pulse text-[#00529b]">Cargando centros...</div>;
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
@@ -346,7 +250,7 @@ export default function ConcejoTerritorialPage() {
           <div className="space-y-3">
             <h1 className="text-xl font-black text-[#00529b] uppercase">Segunda Consulta Popular Nacional 2026</h1>
             <div className="flex flex-col gap-1.5 text-xs text-gray-700 font-bold uppercase">
-              <p className="flex items-center gap-2"><Shield size={16} className="text-amber-500" /> Organismo: <span className="text-gray-900">{jefe?.organismo_responsable || jefe?.organismo || 'NO REGISTRADO'}</span></p>
+              <p className="flex items-center gap-2"><Shield size={16} className="text-amber-500" /> Organismo: <span className="text-gray-900">{jefe?.organismo_responsable || jefe?.organismo}</span></p>
               <p className="flex items-center gap-2"><UserCheck size={16} className="text-blue-500" /> Funcionario: <span className="text-gray-900">{jefe?.grado_jerarquia || jefe?.rango} {jefe?.nombre_apellido_jefe || jefe?.jefe}</span></p>
               <p className="flex items-center gap-2"><MapPin size={16} className="text-emerald-500" /> Jurisdicción: <span className="text-gray-900">{jefe?.municipio} - {jefe?.parroquia}</span></p>
             </div>
@@ -381,16 +285,16 @@ export default function ConcejoTerritorialPage() {
             <div className="bg-white p-12 rounded-2xl border text-center flex flex-col items-center justify-center text-gray-400">
               <School size={48} className="mb-4 opacity-20" />
               <p className="font-bold text-lg">Sin Centros Asignados</p>
+              <p className="text-xs text-gray-400 mt-1">Presiona el botón superior para agregar los centros electorales de tu circuito.</p>
             </div>
           ) : (
             escuelas.map((esc, index) => {
-              const estaSincronizado = esc.cierre_mesas === 'CERRADO';
-              const estaEditando = editandoId === esc.uid_estricto;
+              const estaSincronizado = esc.estatus === 'CERRADO';
+              const estaEditando = editandoId === esc.id;
               const isLocked = estaSincronizado && !estaEditando;
-              const nombreCentroMostrar = esc['NOMBRE CENTRO'] || esc.nombre_centro || 'CENTRO ELECTORAL';
               
               return (
-                <div key={esc.uid_estricto} className={`bg-white rounded-2xl border p-6 shadow-sm flex flex-col gap-6 relative overflow-hidden transition-all ${estaSincronizado ? 'border-emerald-200 bg-emerald-50/5' : 'border-gray-200'} ${estaEditando ? 'ring-2 ring-amber-300' : ''}`}>
+                <div key={esc.id} className={`bg-white rounded-2xl border p-6 shadow-sm flex flex-col gap-6 relative overflow-hidden transition-all ${estaSincronizado ? 'border-emerald-200 bg-emerald-50/5' : 'border-gray-200'} ${estaEditando ? 'ring-2 ring-amber-300' : ''}`}>
                   
                   <div className={`absolute top-0 right-0 text-white text-[10px] font-black px-3 py-1 rounded-bl-xl flex items-center gap-2 ${estaSincronizado ? (estaEditando ? 'bg-amber-500' : 'bg-emerald-600') : 'bg-amber-500'}`}>
                     {estaSincronizado ? (estaEditando ? 'MODO EDICIÓN' : 'REGISTRADO') : `CENTRO ${index + 1} DE ${escuelas.length}`}
@@ -400,14 +304,14 @@ export default function ConcejoTerritorialPage() {
                     <div>
                       <div className="flex items-center gap-2 text-[#00529b] mb-1">
                         <School size={20} />
-                        <span className="text-xs font-black">CNE: {esc.cod_centro_real}</span>
+                        <span className="text-xs font-black">CNE: {esc.cod_centro}</span>
                       </div>
-                      <h3 className="text-base font-black text-gray-800 uppercase">{nombreCentroMostrar}</h3>
-                      <p className="text-xs text-gray-500 font-medium">{esc.DIRECCION || esc.direccion}</p>
+                      <h3 className="text-base font-black text-gray-800 uppercase">{esc.nombre_centro}</h3>
+                      <p className="text-xs text-gray-500 font-medium">{esc.direccion}</p>
                     </div>
                     
                     <button 
-                      onClick={() => eliminarEscuela(esc.id_centro, nombreCentroMostrar, esc.uid_estricto)}
+                      onClick={() => eliminarEscuela(esc.id, esc.nombre_centro)}
                       className="bg-red-50 text-red-600 hover:bg-red-600 hover:text-white border border-red-200 p-2 rounded-lg transition-colors flex items-center justify-center"
                     >
                       <Trash2 size={18} />
@@ -431,7 +335,7 @@ export default function ConcejoTerritorialPage() {
                             placeholder="Nombre del responsable del CNE..."
                             className="w-full p-2.5 border rounded-xl text-xs bg-white outline-none font-bold uppercase disabled:bg-gray-100" 
                             value={esc.responsable_cne || ''} 
-                            onChange={e => handleInputChange(esc.uid_estricto, 'responsable_cne', e.target.value)} 
+                            onChange={e => handleInputChange(esc.id, 'responsable_cne', e.target.value)} 
                           />
                         </div>
 
@@ -445,7 +349,7 @@ export default function ConcejoTerritorialPage() {
                             placeholder="Nombre del responsable de mesa..."
                             className="w-full p-2.5 border rounded-xl text-xs bg-white outline-none font-bold uppercase disabled:bg-gray-100" 
                             value={esc.responsable_mesa || ''} 
-                            onChange={e => handleInputChange(esc.uid_estricto, 'responsable_mesa', e.target.value)} 
+                            onChange={e => handleInputChange(esc.id, 'responsable_mesa', e.target.value)} 
                           />
                         </div>
 
@@ -457,7 +361,7 @@ export default function ConcejoTerritorialPage() {
                             <button 
                               type="button"
                               disabled={isLocked}
-                              onClick={() => handleInputChange(esc.uid_estricto, 'entrega_cotillon', 'SI')}
+                              onClick={() => handleInputChange(esc.id, 'entrega_cotillon', 'SI')}
                               className={`flex-1 p-2.5 rounded-xl text-xs font-black transition-all border ${esc.entrega_cotillon === 'SI' ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm' : 'bg-white text-gray-400 border-gray-200'} ${isLocked ? 'opacity-60 cursor-not-allowed' : ''}`}
                             >
                               SÍ
@@ -465,7 +369,7 @@ export default function ConcejoTerritorialPage() {
                             <button 
                               type="button"
                               disabled={isLocked}
-                              onClick={() => handleInputChange(esc.uid_estricto, 'entrega_cotillon', 'NO')}
+                              onClick={() => handleInputChange(esc.id, 'entrega_cotillon', 'NO')}
                               className={`flex-1 p-2.5 rounded-xl text-xs font-black transition-all border ${esc.entrega_cotillon === 'NO' ? 'bg-red-600 text-white border-red-600 shadow-sm' : 'bg-white text-gray-400 border-gray-200'} ${isLocked ? 'opacity-60 cursor-not-allowed' : ''}`}
                             >
                               NO
@@ -484,7 +388,7 @@ export default function ConcejoTerritorialPage() {
                               placeholder="Escriba detalladamente el motivo..."
                               className="w-full p-2.5 border border-red-300 bg-red-50/20 rounded-xl text-xs outline-none font-medium uppercase disabled:bg-gray-100"
                               value={esc.motivo_no_cotillon || ''}
-                              onChange={e => handleInputChange(esc.uid_estricto, 'motivo_no_cotillon', e.target.value)}
+                              onChange={e => handleInputChange(esc.id, 'motivo_no_cotillon', e.target.value)}
                             />
                           </div>
                         )}
@@ -504,7 +408,7 @@ export default function ConcejoTerritorialPage() {
                           disabled={isLocked}
                           placeholder="Redacte aquí la minuta general del centro de votación..." 
                           value={esc.minuta || ''} 
-                          onChange={e => handleInputChange(esc.uid_estricto, 'minuta', e.target.value)}
+                          onChange={e => handleInputChange(esc.id, 'minuta', e.target.value)}
                           rows={6}
                           className="w-full p-3 border rounded-xl text-xs bg-white outline-none focus:border-amber-500 font-medium resize-none grow disabled:bg-gray-100"
                         />
@@ -526,7 +430,7 @@ export default function ConcejoTerritorialPage() {
                       isLocked ? (
                         <button 
                           type="button"
-                          onClick={() => setEditandoId(esc.uid_estricto)}
+                          onClick={() => setEditandoId(esc.id)}
                           className="w-full sm:w-auto px-8 py-3.5 font-black rounded-xl text-xs uppercase transition-all shadow-md flex items-center justify-center gap-2 bg-amber-100 text-amber-800 hover:bg-amber-200"
                         >
                           <Edit size={16} /> Modificar Reporte
@@ -542,22 +446,22 @@ export default function ConcejoTerritorialPage() {
                           </button>
                           <button 
                             type="button"
-                            disabled={guardandoId === esc.uid_estricto}
+                            disabled={guardandoId === esc.id}
                             onClick={() => guardarCambiosCentro(esc)}
                             className="flex-1 sm:flex-none px-8 py-3.5 font-black rounded-xl text-xs uppercase transition-all shadow-md flex items-center justify-center gap-2 bg-emerald-600 text-white hover:bg-emerald-700"
                           >
-                            {guardandoId === esc.uid_estricto ? 'Guardando...' : <><Save size={16}/> Actualizar Cambios</>}
+                            {guardandoId === esc.id ? 'Guardando...' : <><Save size={16}/> Actualizar Cambios</>}
                           </button>
                         </div>
                       )
                     ) : (
                       <button 
                         type="button"
-                        disabled={guardandoId === esc.uid_estricto}
+                        disabled={guardandoId === esc.id}
                         onClick={() => guardarCambiosCentro(esc)}
                         className="w-full sm:w-auto px-8 py-3.5 font-black rounded-xl text-xs uppercase transition-all shadow-md flex items-center justify-center gap-2 bg-[#00529b] text-white hover:bg-[#003d73]"
                       >
-                        <Save size={16} /> {guardandoId === esc.uid_estricto ? 'Sincronizando...' : 'Guardar Reporte'}
+                        <Save size={16} /> {guardandoId === esc.id ? 'Sincronizando...' : 'Guardar Reporte'}
                       </button>
                     )}
                   </div>
@@ -568,7 +472,7 @@ export default function ConcejoTerritorialPage() {
         </div>
       </div>
 
-      {/* MODAL CON AUTOCOMPLETADO ESTILO GOOGLE */}
+      {/* MODAL CON AUTOCOMPLETADO */}
       {mostrarModalNueva && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
           <div className="bg-white rounded-[2rem] p-8 max-w-md w-full shadow-2xl border relative">
@@ -612,7 +516,6 @@ export default function ConcejoTerritorialPage() {
                   )}
                 </div>
 
-                {/* DESPLEGABLE DE SUGERENCIAS ESTILO GOOGLE */}
                 {sugerenciasCentros.length > 0 && (
                   <div className="absolute z-50 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-2xl overflow-hidden max-h-52 overflow-y-auto divide-y divide-gray-100">
                     {sugerenciasCentros.map((item, idx) => {
@@ -635,7 +538,7 @@ export default function ConcejoTerritorialPage() {
 
               {centroExistenteSeleccionado && (
                 <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 p-3 rounded-xl text-xs font-bold">
-                  ✓ Centro encontrado en la base de datos. Se enlazará con el CNE: <strong>{centroExistenteSeleccionado.COD_CENTRO || centroExistenteSeleccionado.cod_centro}</strong>
+                  ✓ Centro encontrado. Se registrará con CNE: <strong>{centroExistenteSeleccionado.COD_CENTRO || centroExistenteSeleccionado.cod_centro}</strong>
                 </div>
               )}
 
