@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
-import { BarChart3, Shield, MapPin, CheckCircle2, AlertTriangle, Eye, X, Download, FileSpreadsheet, UserCheck, ArrowLeft, Building, SearchCheck, FileText } from 'lucide-react';
+import { BarChart3, Shield, MapPin, CheckCircle2, AlertTriangle, Eye, X, Download, FileSpreadsheet, UserCheck, ArrowLeft, Building, SearchCheck, FileText, Layers, School } from 'lucide-react';
 import Link from 'next/link';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -142,13 +142,14 @@ export default function SalaSituacionalConcejoPage() {
     });
   }, [centrosRegistrados, filtroMunicipio, organismoSeguro, filtroCotillon, filtroEstatus]);
 
+  // MÉTRICAS OFICIALES CNE FALCÓN
   const stats = useMemo(() => {
-    const total = centrosProcesados.length;
+    const totalMesasRegistradas = centrosProcesados.length;
     const reportados = centrosProcesados.filter(c => c.estatus === 'CERRADO').length;
     const cotillonSi = centrosProcesados.filter(c => c.entrega_cotillon === 'SI').length;
     const cotillonNo = centrosProcesados.filter(c => c.entrega_cotillon === 'NO').length;
-    const pendientes = Math.max(0, total - reportados);
-    return { total, reportados, pendientes, cotillonSi, cotillonNo };
+    const pendientes = Math.max(0, totalMesasRegistradas - reportados);
+    return { totalMesasRegistradas, reportados, pendientes, cotillonSi, cotillonNo };
   }, [centrosProcesados]);
 
   const generarPDF = () => {
@@ -191,7 +192,7 @@ export default function SalaSituacionalConcejoPage() {
     const wsData = [
       ["REPORTE OFICIAL SALA SITUACIONAL - CONSULTA POPULAR 2026"],
       [],
-      ["Municipio", "Nombre del Plantel", "Organismo", "Funcionario", "Responsable CNE", "Responsable Mesa", "Entrega Cotillón", "Motivo No Cotillón", "Organismos Presentes", "Minuta"],
+      ["Municipio", "Nombre del Plantel / Mesa", "Organismo", "Funcionario", "Responsable CNE", "Responsable Mesa", "Entrega Cotillón", "Motivo No Cotillón", "Organismos Presentes", "Minuta"],
       ...centrosProcesados.map(c => [
         c.municipio,
         c.nombre_centro,
@@ -254,27 +255,64 @@ export default function SalaSituacionalConcejoPage() {
         <p className="text-xs text-blue-100 font-medium mt-1">Sala Situacional de Centros Registrados por Organismos</p>
       </div>
 
-      {/* TARJETAS DE MÉTRICAS */}
-      <div className="grid grid-cols-1 sm:grid-cols-5 gap-4 pt-2">
-        <div className="bg-white border rounded-2xl p-4 flex items-center justify-between shadow-sm">
-          <div><p className="text-[10px] font-bold text-gray-400 uppercase">Centros Registrados</p><p className="text-2xl font-black text-gray-800 mt-1">{stats.total}</p></div>
-          <div className="bg-blue-50 text-[#00529b] p-3 rounded-full"><MapPin size={24}/></div>
+      {/* TARJETAS DE MÉTRICAS OFICIALES CNE */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-7 gap-3 pt-2">
+        {/* METAS FIJAS CNE FALCÓN */}
+        <div className="bg-blue-50/80 border border-blue-200 rounded-2xl p-3.5 flex items-center justify-between shadow-sm">
+          <div>
+            <p className="text-[9px] font-black text-blue-800 uppercase">Centros CNE</p>
+            <p className="text-2xl font-black text-[#00529b] mt-0.5">625</p>
+          </div>
+          <div className="bg-blue-100 text-[#00529b] p-2.5 rounded-full"><School size={20}/></div>
         </div>
-        <div className="bg-white border rounded-2xl p-4 flex items-center justify-between shadow-sm">
-          <div><p className="text-[10px] font-bold text-gray-400 uppercase">Completados</p><p className="text-2xl font-black text-indigo-600 mt-1">{stats.reportados}</p></div>
-          <div className="bg-indigo-50 text-indigo-600 p-3 rounded-full"><CheckCircle2 size={24}/></div>
+
+        <div className="bg-indigo-50/80 border border-indigo-200 rounded-2xl p-3.5 flex items-center justify-between shadow-sm">
+          <div>
+            <p className="text-[9px] font-black text-indigo-800 uppercase">Mesas CNE</p>
+            <p className="text-2xl font-black text-indigo-900 mt-0.5">672</p>
+          </div>
+          <div className="bg-indigo-100 text-indigo-700 p-2.5 rounded-full"><Layers size={20}/></div>
         </div>
-        <div className="bg-white border rounded-2xl p-4 flex items-center justify-between shadow-sm">
-          <div><p className="text-[10px] font-bold text-gray-400 uppercase">Cotillón SÍ</p><p className="text-2xl font-black text-emerald-600 mt-1">{stats.cotillonSi}</p></div>
-          <div className="bg-emerald-50 text-emerald-600 p-3 rounded-full"><CheckCircle2 size={24}/></div>
+
+        {/* CONTEO EN TIEMPO REAL */}
+        <div className="bg-white border rounded-2xl p-3.5 flex items-center justify-between shadow-sm">
+          <div>
+            <p className="text-[9px] font-bold text-gray-400 uppercase">Mesas Registradas</p>
+            <p className="text-2xl font-black text-gray-800 mt-0.5">{stats.totalMesasRegistradas}</p>
+          </div>
+          <div className="bg-gray-100 text-gray-700 p-2.5 rounded-full"><MapPin size={20}/></div>
         </div>
-        <div className="bg-white border rounded-2xl p-4 flex items-center justify-between shadow-sm">
-          <div><p className="text-[10px] font-bold text-gray-400 uppercase">Cotillón NO</p><p className="text-2xl font-black text-red-600 mt-1">{stats.cotillonNo}</p></div>
-          <div className="bg-red-50 text-red-600 p-3 rounded-full"><AlertTriangle size={24}/></div>
+
+        <div className="bg-white border rounded-2xl p-3.5 flex items-center justify-between shadow-sm">
+          <div>
+            <p className="text-[9px] font-bold text-gray-400 uppercase">Completadas</p>
+            <p className="text-2xl font-black text-indigo-600 mt-0.5">{stats.reportados}</p>
+          </div>
+          <div className="bg-indigo-50 text-indigo-600 p-2.5 rounded-full"><CheckCircle2 size={20}/></div>
         </div>
-        <div className="bg-white border rounded-2xl p-4 flex items-center justify-between shadow-sm">
-          <div><p className="text-[10px] font-bold text-gray-400 uppercase">Pendientes</p><p className="text-2xl font-black text-amber-500 mt-1">{stats.pendientes}</p></div>
-          <div className="bg-amber-50 text-amber-500 p-3 rounded-full"><Shield size={24}/></div>
+
+        <div className="bg-white border rounded-2xl p-3.5 flex items-center justify-between shadow-sm">
+          <div>
+            <p className="text-[9px] font-bold text-gray-400 uppercase">Cotillón SÍ</p>
+            <p className="text-2xl font-black text-emerald-600 mt-0.5">{stats.cotillonSi}</p>
+          </div>
+          <div className="bg-emerald-50 text-emerald-600 p-2.5 rounded-full"><CheckCircle2 size={20}/></div>
+        </div>
+
+        <div className="bg-white border rounded-2xl p-3.5 flex items-center justify-between shadow-sm">
+          <div>
+            <p className="text-[9px] font-bold text-gray-400 uppercase">Cotillón NO</p>
+            <p className="text-2xl font-black text-red-600 mt-0.5">{stats.cotillonNo}</p>
+          </div>
+          <div className="bg-red-50 text-red-600 p-2.5 rounded-full"><AlertTriangle size={20}/></div>
+        </div>
+
+        <div className="bg-white border rounded-2xl p-3.5 flex items-center justify-between shadow-sm">
+          <div>
+            <p className="text-[9px] font-bold text-gray-400 uppercase">Pendientes</p>
+            <p className="text-2xl font-black text-amber-500 mt-0.5">{stats.pendientes}</p>
+          </div>
+          <div className="bg-amber-50 text-amber-500 p-2.5 rounded-full"><Shield size={20}/></div>
         </div>
       </div>
 
@@ -419,7 +457,6 @@ export default function SalaSituacionalConcejoPage() {
                   </div>
                 </div>
 
-                {/* NUEVA SECCIÓN DE ORGANISMOS PRESENTES EN EL EXPEDIENTE */}
                 <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
                   <h3 className="text-[10px] font-black text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1">
                     <Building size={12} className="text-[#00529b]" /> Organismos Presentes en el Centro
