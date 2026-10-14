@@ -23,19 +23,43 @@ export default function SalaSituacionalConcejoPage() {
     const descargarTodo = async () => {
       try {
         setLoading(true);
-        // 1. Obtener sesión activa de Supabase Auth
-        const { data: { user } } = await supabase.auth.getUser();
-        
+
+        // 1. Obtener el correo desde localStorage (idéntico al resto de tu sistema)
+        let correoLogueado = '';
+        const sessionData = localStorage.getItem('user_session');
+        if (sessionData) {
+          try {
+            const parsed = JSON.parse(sessionData);
+            if (parsed?.email) correoLogueado = parsed.email;
+          } catch (e) {
+            console.error("Error leyendo user_session:", e);
+          }
+        }
+
         let perfilEncontrado = null;
-        if (user) {
-          // A. Buscar por ID de auth
-          const { data: adminData } = await supabase.from('directorio_operativo').select('*').eq('id', user.id).maybeSingle();
-          if (adminData) {
-            perfilEncontrado = adminData;
-          } else if (user.email) {
-            // B. Buscar por correo registrado
-            const { data: adminByEmail } = await supabase.from('directorio_operativo').select('*').eq('correo', user.email).maybeSingle();
-            if (adminByEmail) perfilEncontrado = adminByEmail;
+        if (correoLogueado) {
+          // Buscar el perfil exacto en directorio_operativo usando el correo
+          const { data: adminByEmail } = await supabase
+            .from('directorio_operativo')
+            .select('*')
+            .ilike('email', correoLogueado)
+            .maybeSingle();
+
+          if (adminByEmail) {
+            perfilEncontrado = adminByEmail;
+          }
+        }
+
+        // Si no se encuentra por correo de localStorage, intentar respaldo con Supabase Auth
+        if (!perfilEncontrado) {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user?.email) {
+            const { data: authByEmail } = await supabase
+              .from('directorio_operativo')
+              .select('*')
+              .ilike('email', user.email)
+              .maybeSingle();
+            if (authByEmail) perfilEncontrado = authByEmail;
           }
         }
 
@@ -305,7 +329,7 @@ export default function SalaSituacionalConcejoPage() {
         </div>
       </div>
 
-      {/* METRICAS Y METRICAS */}
+      {/* METRICAS Y TARJETAS */}
       <div className="grid grid-cols-1 sm:grid-cols-5 gap-4 pt-2">
         <div className="bg-white border rounded-2xl p-4 flex items-center justify-between shadow-sm">
           <div><p className="text-[10px] font-bold text-gray-400 uppercase">Centros Asignados</p><p className="text-2xl font-black text-gray-800 mt-1">{stats.total}</p></div>
