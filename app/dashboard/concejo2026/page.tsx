@@ -13,11 +13,11 @@ export default function ConcejoTerritorialPage() {
   const [guardandoId, setGuardandoId] = useState<string | number | null>(null);
   const [editandoId, setEditandoId] = useState<string | number | null>(null);
 
-  // Estados del Modal
+  // Estados del Modal (Manual o Autocompletado)
   const [mostrarModalNueva, setMostrarModalNueva] = useState(false);
   const [nombreBusqueda, setNombreBusqueda] = useState('');
-  const [cneVirtualModal, setCneVirtualModal] = useState('AUTOMÁTICO');
-  const [direccionModal, setDireccionModal] = useState('DIRECCIÓN EN EVALUACIÓN');
+  const [cneVirtualModal, setCneVirtualModal] = useState('');
+  const [direccionModal, setDireccionModal] = useState('');
   const [sugerenciasCentros, setSugerenciasCentros] = useState<any[]>([]);
   const [buscandoSugerencias, setBuscandoSugerencias] = useState(false);
   const [centroExistenteSeleccionado, setCentroExistenteSeleccionado] = useState<any | null>(null);
@@ -99,8 +99,6 @@ export default function ConcejoTerritorialPage() {
       }
     } else {
       setSugerenciasCentros([]);
-      setCneVirtualModal('AUTOMÁTICO');
-      setDireccionModal('DIRECCIÓN EN EVALUACIÓN');
     }
   };
 
@@ -110,8 +108,8 @@ export default function ConcejoTerritorialPage() {
     const dirC = centro.DIRECCION || centro.direccion;
 
     setNombreBusqueda(nombreC);
-    setCneVirtualModal(codC || 'S/C');
-    setDireccionModal(dirC || 'DIRECCIÓN EN EVALUACIÓN');
+    setCneVirtualModal(codC || '');
+    setDireccionModal(dirC || '');
     setCentroExistenteSeleccionado(centro);
     setSugerenciasCentros([]);
   };
@@ -120,7 +118,6 @@ export default function ConcejoTerritorialPage() {
     setEscuelas(prev => prev.map(esc => esc.id === id ? { ...esc, [campo]: valor } : esc));
   };
 
-  // Función para manejar los botones multiselección de Organismos Presentes
   const toggleOrganismoPresente = (escuelaId: string | number, organismo: string) => {
     setEscuelas(prev => prev.map(esc => {
       if (esc.id === escuelaId) {
@@ -211,12 +208,14 @@ export default function ConcejoTerritorialPage() {
       const siturActual = jefe?.codigo_situr || jefe?.situr;
       const comunaActual = jefe?.comuna_o_circuito_comunal || jefe?.circuito || '';
       
-      let codCentroFinal = cneVirtualModal;
-      if (centroExistenteSeleccionado) {
-        codCentroFinal = centroExistenteSeleccionado.COD_CENTRO || centroExistenteSeleccionado.cod_centro;
-      } else {
-        const siguienteNum = escuelas.length + 1;
-        codCentroFinal = `${siturActual || 'N/A'}-${siguienteNum}`;
+      let codCentroFinal = cneVirtualModal.trim();
+      if (!codCentroFinal) {
+        codCentroFinal = `${siturActual || 'N/A'}-${escuelas.length + 1}`;
+      }
+
+      let direccionFinal = direccionModal.trim();
+      if (!direccionFinal) {
+        direccionFinal = 'DIRECCIÓN EN EVALUACIÓN';
       }
 
       let municipioFinal = jefe?.municipio || 'SIN MUNICIPIO';
@@ -226,10 +225,10 @@ export default function ConcejoTerritorialPage() {
       const municipioConPrefijo = muniUpper.startsWith('MP.') ? muniUpper : `MP. ${muniUpper}`;
 
       const payload = {
-        cod_centro: codCentroFinal,
+        cod_centro: codCentroFinal.toUpperCase(),
         codigo_situr: siturActual,
         nombre_centro: nombreBusqueda.trim().toUpperCase(),
-        direccion: direccionModal.trim().toUpperCase(),
+        direccion: direccionFinal.toUpperCase(),
         municipio: municipioConPrefijo,
         parroquia: parroquiaFinal.toString().trim().toUpperCase(),
         circuito_comunal: comunaActual.toString().trim().toUpperCase(),
@@ -287,7 +286,8 @@ export default function ConcejoTerritorialPage() {
           <button 
             onClick={() => {
               setNombreBusqueda('');
-              setCneVirtualModal('AUTOMÁTICO');
+              setCneVirtualModal(`${jefe?.codigo_situr || jefe?.situr || 'SITUR'}-${escuelas.length + 1}`);
+              setDireccionModal('');
               setSugerenciasCentros([]);
               setCentroExistenteSeleccionado(null);
               setMostrarModalNueva(true);
@@ -413,7 +413,6 @@ export default function ConcejoTerritorialPage() {
                           </div>
                         )}
 
-                        {/* NUEVA SECCIÓN: ORGANISMOS PRESENTES (MULTISELECCIÓN) */}
                         <div className="pt-2">
                           <label className="block text-[10px] font-black text-gray-600 uppercase mb-2 flex items-center gap-1">
                             <Building2 size={12} className="text-[#00529b]" /> Organismos Presentes en el Centro <span className="text-red-500">*</span>
@@ -520,7 +519,7 @@ export default function ConcejoTerritorialPage() {
         </div>
       </div>
 
-      {/* MODAL CON AUTOCOMPLETADO */}
+      {/* MODAL CON CAMPOS MANUALES DE CNE Y DIRECCIÓN */}
       {mostrarModalNueva && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
           <div className="bg-white rounded-[2rem] p-8 max-w-md w-full shadow-2xl border relative">
@@ -538,11 +537,18 @@ export default function ConcejoTerritorialPage() {
                   <label className="block text-[9px] font-bold text-gray-500 uppercase">CÓDIGO SITUR</label>
                   <p className="font-mono text-sm font-black text-gray-800">{jefe?.codigo_situr || jefe?.situr}</p>
                 </div>
-                <div className="bg-gray-100 p-3 rounded-xl border">
-                  <label className="block text-[9px] font-bold text-gray-500 uppercase">CNE VIRTUAL</label>
-                  <p className="font-mono text-xs font-black text-[#00529b] flex items-center gap-1">
-                    <Clock size={12}/> {cneVirtualModal}
-                  </p>
+                
+                {/* CÓDIGO CNE MANUAL / EDITABLE */}
+                <div className="bg-white p-2.5 rounded-xl border border-gray-300 focus-within:border-[#00529b]">
+                  <label className="block text-[9px] font-bold text-gray-500 uppercase">CÓDIGO CNE</label>
+                  <input 
+                    type="text"
+                    required
+                    placeholder="Ej. 11-01-0001"
+                    className="w-full font-mono text-xs font-black text-[#00529b] outline-none uppercase bg-transparent mt-0.5"
+                    value={cneVirtualModal}
+                    onChange={e => setCneVirtualModal(e.target.value)}
+                  />
                 </div>
               </div>
 
@@ -552,7 +558,7 @@ export default function ConcejoTerritorialPage() {
                   <input 
                     type="text" 
                     required
-                    placeholder="Escriba 3 letras para buscar..."
+                    placeholder="Escriba 3 letras para buscar o nombre manual..."
                     className="w-full p-3 pr-10 border rounded-xl text-sm font-black uppercase text-gray-800 outline-none focus:ring-2 focus:ring-[#00529b]"
                     value={nombreBusqueda}
                     onChange={e => handleNombreChange(e.target.value)}
@@ -584,9 +590,22 @@ export default function ConcejoTerritorialPage() {
                 )}
               </div>
 
+              {/* CAMPO DE DIRECCIÓN MANUAL / EDITABLE */}
+              <div>
+                <label className="block text-xs font-bold text-gray-600 mb-1 uppercase">DIRECCIÓN DEL CENTRO</label>
+                <textarea 
+                  required
+                  rows={2}
+                  placeholder="Escriba la dirección o ubicación detallada..."
+                  className="w-full p-3 border rounded-xl text-xs font-medium uppercase text-gray-800 outline-none focus:ring-2 focus:ring-[#00529b] resize-none"
+                  value={direccionModal}
+                  onChange={e => setDireccionModal(e.target.value)}
+                />
+              </div>
+
               {centroExistenteSeleccionado && (
                 <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 p-3 rounded-xl text-xs font-bold">
-                  ✓ Centro encontrado. Se registrará con CNE: <strong>{centroExistenteSeleccionado.COD_CENTRO || centroExistenteSeleccionado.cod_centro}</strong>
+                  ✓ Seleccionado del catálogo CNE.
                 </div>
               )}
 
