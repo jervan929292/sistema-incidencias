@@ -23,7 +23,6 @@ export default function SalaSituacionalConcejoPage() {
       try {
         setLoading(true);
 
-        // 1. Obtener datos del administrador logueado
         let correoLogueado = '';
         const sessionData = localStorage.getItem('user_session');
         if (sessionData) {
@@ -58,7 +57,6 @@ export default function SalaSituacionalConcejoPage() {
 
         setAdminProfile(perfilEncontrado);
 
-        // 2. Cargar EXCLUSIVAMENTE de la tabla centros_registrados_organismos
         let todosLosRegistros: any[] = [];
         let limite = 1000;
         let inicio = 0;
@@ -92,20 +90,18 @@ export default function SalaSituacionalConcejoPage() {
     cargarDatos();
   }, []);
 
-  // Control de permisos y organismos
   const orgUser = (adminProfile?.organismo_responsable || adminProfile?.organismo || '').toUpperCase();
   const rolUser = (adminProfile?.rol || '').toUpperCase();
   
   const isVen911OrSuper = rolUser === 'SUPERUSUARIO' || 
-                          orgUser.includes('VEN 911') || 
-                          orgUser.includes('VEN-911') ||
-                          orgUser === 'VEN 911';
+                         orgUser.includes('VEN 911') || 
+                         orgUser.includes('VEN-911') ||
+                         orgUser === 'VEN 911';
 
   const organismoSeguro = isVen911OrSuper 
     ? filtroOrganismo 
     : (adminProfile?.organismo_responsable || adminProfile?.organismo || '');
 
-  // MUNICIPIOS ÚNICOS LIMPIOS Y NORMALIZADOS CON PREFIJO "MP."
   const municipiosUnicos = useMemo(() => {
     const listaRaw = centrosRegistrados.map(c => c.municipio).filter(Boolean);
     const normalizados = listaRaw.map(m => {
@@ -119,7 +115,6 @@ export default function SalaSituacionalConcejoPage() {
     return Array.from(new Set(centrosRegistrados.map(c => c.organismo))).filter(Boolean).sort();
   }, [centrosRegistrados]);
 
-  // FILTRADO DE CENTROS REGISTRADOS
   const centrosProcesados = useMemo(() => {
     return centrosRegistrados.map(c => {
       let muni = (c.municipio || 'MP. ACOSTA').toString().trim().toUpperCase();
@@ -134,6 +129,7 @@ export default function SalaSituacionalConcejoPage() {
         responsable_mesa: c.responsable_mesa || 'NO REGISTRADO',
         entrega_cotillon: c.entrega_cotillon || 'PENDIENTE',
         estatus: c.estatus || 'PENDIENTE',
+        organismos_presentes: c.organismos_presentes || [],
         fecha_reporte: c.updated_at ? new Date(c.updated_at).toLocaleString('es-VE') : 'Sin reporte'
       };
     }).filter(c => {
@@ -146,7 +142,6 @@ export default function SalaSituacionalConcejoPage() {
     });
   }, [centrosRegistrados, filtroMunicipio, organismoSeguro, filtroCotillon, filtroEstatus]);
 
-  // MÉTRICAS EXACTAS
   const stats = useMemo(() => {
     const total = centrosProcesados.length;
     const reportados = centrosProcesados.filter(c => c.estatus === 'CERRADO').length;
@@ -196,7 +191,7 @@ export default function SalaSituacionalConcejoPage() {
     const wsData = [
       ["REPORTE OFICIAL SALA SITUACIONAL - CONSULTA POPULAR 2026"],
       [],
-      ["Municipio", "Nombre del Plantel", "Organismo", "Funcionario", "Responsable CNE", "Responsable Mesa", "Entrega Cotillón", "Motivo No Cotillón", "Minuta"],
+      ["Municipio", "Nombre del Plantel", "Organismo", "Funcionario", "Responsable CNE", "Responsable Mesa", "Entrega Cotillón", "Motivo No Cotillón", "Organismos Presentes", "Minuta"],
       ...centrosProcesados.map(c => [
         c.municipio,
         c.nombre_centro,
@@ -206,6 +201,7 @@ export default function SalaSituacionalConcejoPage() {
         c.responsable_mesa,
         c.entrega_cotillon,
         c.motivo_no_cotillon || 'N/A',
+        (c.organismos_presentes || []).join(', '),
         c.minuta || ''
       ])
     ];
@@ -421,6 +417,24 @@ export default function SalaSituacionalConcejoPage() {
                     <p><strong>Funcionario:</strong> {centroSeleccionado.funcionario_nombre}</p>
                     <p><strong>Teléfono:</strong> {centroSeleccionado.funcionario_telefono}</p>
                   </div>
+                </div>
+
+                {/* NUEVA SECCIÓN DE ORGANISMOS PRESENTES EN EL EXPEDIENTE */}
+                <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
+                  <h3 className="text-[10px] font-black text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1">
+                    <Building size={12} className="text-[#00529b]" /> Organismos Presentes en el Centro
+                  </h3>
+                  {centroSeleccionado.organismos_presentes && centroSeleccionado.organismos_presentes.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {centroSeleccionado.organismos_presentes.map((org: string, idx: number) => (
+                        <span key={idx} className="bg-[#00529b] text-white font-black text-[10px] px-2.5 py-1 rounded-lg uppercase shadow-sm">
+                          {org}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-gray-400 font-medium italic">No se registraron organismos presentes.</p>
+                  )}
                 </div>
               </div>
 
