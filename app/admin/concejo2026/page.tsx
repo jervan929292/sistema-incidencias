@@ -23,42 +23,32 @@ export default function SalaSituacionalConcejoPage() {
     const descargarTodo = async () => {
       try {
         setLoading(true);
-        // 1. Obtener usuario de autenticación
+        // 1. Obtener sesión activa de Supabase Auth
         const { data: { user } } = await supabase.auth.getUser();
         
         let perfilEncontrado = null;
         if (user) {
-          // Intentar obtener perfil por id
-          const { data: adminData } = await supabase.from('directorio_operativo').select('*').eq('id', user.id).single();
+          // A. Buscar por ID de auth
+          const { data: adminData } = await supabase.from('directorio_operativo').select('*').eq('id', user.id).maybeSingle();
           if (adminData) {
             perfilEncontrado = adminData;
           } else if (user.email) {
-            // Reintento por email en caso de que la ID varíe
-            const { data: adminByEmail } = await supabase.from('directorio_operativo').select('*').eq('correo', user.email).single();
+            // B. Buscar por correo registrado
+            const { data: adminByEmail } = await supabase.from('directorio_operativo').select('*').eq('correo', user.email).maybeSingle();
             if (adminByEmail) perfilEncontrado = adminByEmail;
           }
         }
 
-        // Respaldo de seguridad si no se obtiene de DB (para asegurar rol Superusuario VEN 911)
-        if (!perfilEncontrado) {
-          perfilEncontrado = {
-            nombre_apellido_jefe: 'JERINSON A VALLES SIRIT',
-            cargo: 'PROGRAMADOR',
-            rol: 'superusuario',
-            organismo_responsable: 'VEN 911',
-            grado_jerarquia: 'PROGRAMADOR'
-          };
-        }
         setAdminProfile(perfilEncontrado);
 
-        // 2. Cargar todos los centros electorales
+        // 2. Cargar centros de votación
         const fetchTodosLosCentros = async () => {
           let todosLosCentros: any[] = [];
           let limite = 1000;
           let inicio = 0;
           let hayMas = true;
           while (hayMas) {
-            const { data: batch, error } = await supabase.from('centros_votacion_2026').select('*').range(inicio, inicio + limite - 1);
+            const { data: batch } = await supabase.from('centros_votacion_2026').select('*').range(inicio, inicio + limite - 1);
             if (batch && batch.length > 0) {
               todosLosCentros = [...todosLosCentros, ...batch];
               inicio += limite;
@@ -70,7 +60,7 @@ export default function SalaSituacionalConcejoPage() {
           return todosLosCentros;
         };
 
-        // 3. Cargar todos los reportes de la consulta popular
+        // 3. Cargar reportes
         const fetchTodosLosReportes = async () => {
           let todosLosReportes: any[] = [];
           let limite = 1000;
@@ -97,7 +87,7 @@ export default function SalaSituacionalConcejoPage() {
         if (resUsuarios.data) setUsuarios(resUsuarios.data);
         if (resReportes) setReportes(resReportes);
       } catch (err) {
-        console.error('Error cargando datos de Sala Situacional:', err);
+        console.error('Error al cargar datos:', err);
       } finally {
         setLoading(false);
       }
@@ -122,7 +112,7 @@ export default function SalaSituacionalConcejoPage() {
     return mapaExacto;
   }, [reportes]);
 
-  // Validación flexible de súper usuario y/o VEN 911
+  // Identificación dinámica del usuario logueado
   const orgUser = (adminProfile?.organismo_responsable || adminProfile?.organismo || '').toUpperCase();
   const rolUser = (adminProfile?.rol || '').toUpperCase();
   
@@ -131,8 +121,9 @@ export default function SalaSituacionalConcejoPage() {
                           orgUser.includes('VEN') || 
                           orgUser.includes('911');
 
-  // Si es VEN 911 / Superusuario, permite ver todo si el filtro de organismo está en blanco
-  const organismoSeguro = isVen911OrSuper ? filtroOrganismo : (adminProfile?.organismo_responsable || adminProfile?.organismo);
+  // Si es VEN 911 / Superusuario, ve todo o según el selector.
+  // Si es un organismo específico (ej. POLIMIRANDA), solo ve centros asociados a su organismo.
+  const organismoSeguro = isVen911OrSuper ? filtroOrganismo : (adminProfile?.organismo_responsable || adminProfile?.organismo || '');
 
   const municipiosUnicos = useMemo(() => {
     const mCentros = centros.map(c => c.MUNICIPIO || c.municipio).filter(Boolean);
@@ -271,13 +262,12 @@ export default function SalaSituacionalConcejoPage() {
 
   return (
     <div className="min-h-screen bg-gray-100 p-6 space-y-4">
-      {/* CABECERA SUPERIOR DE USUARIO AUTENTICADO */}
+      {/* CABECERA CON DATOS REALES DEL USUARIO CONECTADO */}
       <div className="bg-white p-4 rounded-2xl border shadow-sm flex justify-between items-center flex-wrap gap-4">
         <Link href="/admin" className="inline-flex items-center gap-1.5 text-gray-500 hover:text-[#00529b] font-bold text-xs uppercase bg-gray-50 px-4 py-2.5 rounded-xl border border-gray-200 transition-colors">
           <ArrowLeft size={16} /> Volver a Inicio Admin
         </Link>
 
-        {/* Ficha Informativa del Administrador */}
         {adminProfile && (
           <div className="flex items-center gap-3 bg-gray-50 border border-gray-200 px-4 py-2 rounded-2xl">
             <div className="p-2 bg-blue-100 text-[#00529b] rounded-full">
@@ -285,13 +275,13 @@ export default function SalaSituacionalConcejoPage() {
             </div>
             <div>
               <p className="text-xs font-black text-gray-900 uppercase">
-                {adminProfile.nombre_apellido_jefe || adminProfile.nombre || 'JERINSON A VALLES SIRIT'} 
+                {adminProfile.nombre_apellido_jefe || adminProfile.nombre || 'USUARIO CONECTADO'} 
                 <span className="ml-2 text-[10px] bg-blue-100 text-[#00529b] px-2 py-0.5 rounded font-bold uppercase">
-                  {adminProfile.cargo || adminProfile.grado_jerarquia || 'PROGRAMADOR'}
+                  {adminProfile.grado_jerarquia || adminProfile.cargo || 'FUNCIONARIO'}
                 </span>
               </p>
               <p className="text-[10px] text-gray-500 font-bold uppercase">
-                {adminProfile.rol || 'SUPERUSUARIO'} - {adminProfile.organismo_responsable || adminProfile.organismo || 'VEN 911'}
+                {adminProfile.rol || 'USUARIO'} - {adminProfile.organismo_responsable || adminProfile.organismo || 'ORGANISMO'}
               </p>
             </div>
           </div>
@@ -307,7 +297,7 @@ export default function SalaSituacionalConcejoPage() {
         </div>
       </div>
 
-      {/* TITULO DE LA SALA SITUACIONAL */}
+      {/* TITULO SALA SITUACIONAL */}
       <div className="bg-gradient-to-r from-[#00529b] to-blue-900 p-6 rounded-3xl text-white flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shadow-md">
         <div>
           <h1 className="text-2xl font-black uppercase tracking-wide flex items-center gap-2"><BarChart3 /> Segunda Consulta Popular Nacional 2026</h1>
@@ -315,7 +305,7 @@ export default function SalaSituacionalConcejoPage() {
         </div>
       </div>
 
-      {/* METRICAS Y TARJETAS */}
+      {/* METRICAS Y METRICAS */}
       <div className="grid grid-cols-1 sm:grid-cols-5 gap-4 pt-2">
         <div className="bg-white border rounded-2xl p-4 flex items-center justify-between shadow-sm">
           <div><p className="text-[10px] font-bold text-gray-400 uppercase">Centros Asignados</p><p className="text-2xl font-black text-gray-800 mt-1">{stats.total}</p></div>
@@ -349,7 +339,7 @@ export default function SalaSituacionalConcejoPage() {
           </select>
         </div>
 
-        {/* Habilitado para VEN 911 / Superusuario / Admins */}
+        {/* Solo visible para VEN 911 / Superusuarios */}
         {isVen911OrSuper && (
           <div className="flex flex-col">
             <label className="text-[10px] font-bold text-gray-400 mb-1 uppercase">Organismo</label>
@@ -399,7 +389,7 @@ export default function SalaSituacionalConcejoPage() {
               {centrosProcesados.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="p-6 text-center text-gray-500 font-bold">
-                    No se encontraron centros registrados con los filtros seleccionados.
+                    No se encontraron centros registrados para este organismo o filtros seleccionados.
                   </td>
                 </tr>
               ) : (
