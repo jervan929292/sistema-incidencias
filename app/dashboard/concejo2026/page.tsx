@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { School, UserCheck, Save, Shield, MapPin, MessageSquare, ArrowLeft, CheckCircle2, Plus, Clock, Edit, Trash2, X, Loader2, Info } from 'lucide-react';
+import { School, UserCheck, Save, Shield, MapPin, MessageSquare, ArrowLeft, CheckCircle2, Plus, Clock, Edit, Trash2, X, Loader2, Info, Search } from 'lucide-react';
 import Link from 'next/link';
 
 export default function ConcejoTerritorialPage() {
@@ -12,11 +12,14 @@ export default function ConcejoTerritorialPage() {
   
   const [editandoId, setEditandoId] = useState<string | number | null>(null);
 
+  // Estados para el Modal de Añadir / Buscar Centro
   const [mostrarModalNueva, setMostrarModalNueva] = useState(false);
-  const [nuevaEscuela, setNuevaEscuela] = useState({
-    nombreCentro: '',
-    direccion: 'DIRECCIÓN EN EVALUACIÓN'
-  });
+  const [nombreBusqueda, setNombreBusqueda] = useState('');
+  const [cneVirtualModal, setCneVirtualModal] = useState('AUTOMÁTICO');
+  const [direccionModal, setDireccionModal] = useState('DIRECCIÓN EN EVALUACIÓN');
+  const [sugerenciasCentros, setSugerenciasCentros] = useState<any[]>([]);
+  const [buscandoSugerencias, setBuscandoSugerencias] = useState(false);
+  const [centroExistenteSeleccionado, setCentroExistenteSeleccionado] = useState<any | null>(null);
   const [guardandoNueva, setGuardandoNueva] = useState(false);
 
   useEffect(() => {
@@ -24,12 +27,10 @@ export default function ConcejoTerritorialPage() {
       try {
         let emailABuscar = '';
         
-        // 1. Obtener email de Supabase Auth
         const { data: { user } } = await supabase.auth.getUser();
         if (user?.email) {
           emailABuscar = user.email;
         } else {
-          // 2. Respaldo por localStorage (como se usa en el Dashboard principal)
           const sessionData = localStorage.getItem('user_session');
           if (sessionData) {
             try {
@@ -40,12 +41,10 @@ export default function ConcejoTerritorialPage() {
         }
 
         if (!emailABuscar) {
-          console.warn("No se encontró sesión activa.");
           setLoading(false);
           return;
         }
 
-        // Obtener el perfil del usuario desde directorio_operativo
         const { data: userData, error: userErr } = await supabase
           .from('directorio_operativo')
           .select('*')
@@ -53,7 +52,6 @@ export default function ConcejoTerritorialPage() {
           .maybeSingle();
 
         if (userErr || !userData) {
-          console.error("Error al obtener datos del directorio:", userErr);
           setLoading(false);
           return;
         }
@@ -62,7 +60,6 @@ export default function ConcejoTerritorialPage() {
         const siturCodigo = userData.codigo_situr?.toString().trim();
 
         if (siturCodigo) {
-          // Buscar centros de votación asignados a este código SITUR
           const fetchCentrosAsignados = async () => {
             let todosLosCentros: any[] = [];
             let limite = 1000;
@@ -85,7 +82,6 @@ export default function ConcejoTerritorialPage() {
 
           const centros = await fetchCentrosAsignados();
 
-          // Buscar reportes guardados
           const { data: reportesExistentes } = await supabase
             .from('reportes_concejo_2026')
             .select('*')
@@ -136,6 +132,42 @@ export default function ConcejoTerritorialPage() {
     };
     cargarDatos();
   }, []);
+
+  // AUTOCOMPLETADO ESTILO GOOGLE AL ESCRIBIR 3 O MÁS LETRAS
+  const handleNombreChange = async (valor: string) => {
+    const textoUpper = valor.toUpperCase();
+    setNombreBusqueda(textoUpper);
+    setCentroExistenteSeleccionado(null);
+
+    if (textoUpper.trim().length >= 3) {
+      setBuscandoSugerencias(true);
+      try {
+        const { data } = await supabase
+          .from('centros_votacion_2026')
+          .select('*')
+          .ilike('NOMBRE CENTRO', `%${textoUpper}%`)
+          .limit(6);
+
+        setSugerenciasCentros(data || []);
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setBuscandoSugerencias(false);
+      }
+    } else {
+      setSugerenciasCentros([]);
+      setCneVirtualModal('AUTOMÁTICO');
+      setDireccionModal('DIRECCIÓN EN EVALUACIÓN');
+    }
+  };
+
+  const seleccionarSugerencia = (centro: any) => {
+    setNombreBusqueda(centro['NOMBRE CENTRO']);
+    setCneVirtualModal(centro.COD_CENTRO || 'S/C');
+    setDireccionModal(centro.DIRECCION || 'DIRECCIÓN EN EVALUACIÓN');
+    setCentroExistenteSeleccionado(centro);
+    setSugerenciasCentros([]);
+  };
 
   const handleInputChange = (uidEstricto: string | number, campo: string, valor: string) => {
     setEscuelas(prev => prev.map(esc => esc.uid_estricto === uidEstricto ? { ...esc, [campo]: valor } : esc));
@@ -209,30 +241,46 @@ export default function ConcejoTerritorialPage() {
 
   const procesarNuevaEscuela = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!nuevaEscuela.nombreCentro.trim()) return;
+    if (!nombreBusqueda.trim()) return;
     
     setGuardandoNueva(true);
     try {
-      const escuelasDelSitur = escuelas.filter(esc => esc.CODIGO_CIRCUITO_COMUNAL === jefe?.codigo_situr);
-      const siguienteNumero = escuelasDelSitur.length + 1;
-      const cneGenerado = `${jefe?.codigo_situr || 'N/A'}-${siguienteNumero}`;
-      
-      const payload = {
-        "COD_CENTRO": cneGenerado,
-        "NOMBRE CENTRO": nuevaEscuela.nombreCentro.trim().toUpperCase(),
-        "DIRECCION": nuevaEscuela.direccion.trim().toUpperCase(),
-        "CODIGO_COMUNA_CNE": jefe?.comuna_o_circuito_comunal || '',
-        "CODIGO_CIRCUITO_COMUNAL": jefe?.codigo_situr || ''
-      };
+      if (centroExistenteSeleccionado) {
+        // SI SELECCIONÓ UN CENTRO EXISTENTE DE LA BÚSQUEDA -> Asignarlo al SITUR actual
+        const { error } = await supabase
+          .from('centros_votacion_2026')
+          .update({
+            "CODIGO_CIRCUITO_COMUNAL": jefe?.codigo_situr,
+            "CODIGO_COMUNA_CNE": jefe?.comuna_o_circuito_comunal || ''
+          })
+          .eq('id', centroExistenteSeleccionado.id);
 
-      const { error } = await supabase.from('centros_votacion_2026').insert([payload]);
-      if (error) throw error;
+        if (error) throw error;
+        alert(`✅ Centro "${centroExistenteSeleccionado['NOMBRE CENTRO']}" enlazado correctamente a la llave SITUR: ${jefe?.codigo_situr}`);
+      } else {
+        // SI ES UN CENTRO TOTALMENTE NUEVO -> Crearlo con CNE automático
+        const escuelasDelSitur = escuelas.filter(esc => esc.CODIGO_CIRCUITO_COMUNAL === jefe?.codigo_situr);
+        const siguienteNumero = escuelasDelSitur.length + 1;
+        const cneGenerado = `${jefe?.codigo_situr || 'N/A'}-${siguienteNumero}`;
+        
+        const payload = {
+          "COD_CENTRO": cneGenerado,
+          "NOMBRE CENTRO": nombreBusqueda.trim().toUpperCase(),
+          "DIRECCION": direccionModal.trim().toUpperCase(),
+          "CODIGO_COMUNA_CNE": jefe?.comuna_o_circuito_comunal || '',
+          "CODIGO_CIRCUITO_COMUNAL": jefe?.codigo_situr || ''
+        };
 
-      alert(`✅ Centro "${payload['NOMBRE CENTRO']}" añadido con éxito.`);
+        const { error } = await supabase.from('centros_votacion_2026').insert([payload]);
+        if (error) throw error;
+
+        alert(`✅ Centro "${payload['NOMBRE CENTRO']}" creado con éxito. CNE asignado: ${cneGenerado}`);
+      }
+
       setMostrarModalNueva(false);
       window.location.reload(); 
     } catch (err: any) {
-      alert("Error al añadir: " + err.message);
+      alert("Error al procesar el centro: " + err.message);
     } finally {
       setGuardandoNueva(false);
     }
@@ -269,7 +317,13 @@ export default function ConcejoTerritorialPage() {
 
         <div className="flex flex-col items-end gap-1">
           <button 
-            onClick={() => setMostrarModalNueva(true)}
+            onClick={() => {
+              setNombreBusqueda('');
+              setCneVirtualModal('AUTOMÁTICO');
+              setSugerenciasCentros([]);
+              setCentroExistenteSeleccionado(null);
+              setMostrarModalNueva(true);
+            }}
             className="px-6 py-3 rounded-xl flex items-center gap-2 text-xs uppercase shadow-md transition-all font-black hover:opacity-90 bg-[#00529b] text-white"
           >
             <Plus size={18} /> Añadir Centro que no está registrado
@@ -468,9 +522,10 @@ export default function ConcejoTerritorialPage() {
         </div>
       </div>
 
+      {/* MODAL CON AUTOCOMPLETADO ESTILO GOOGLE */}
       {mostrarModalNueva && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
-          <div className="bg-white rounded-[2rem] p-8 max-w-md w-full shadow-2xl border">
+          <div className="bg-white rounded-[2rem] p-8 max-w-md w-full shadow-2xl border relative">
             
             <div className="flex justify-between items-start border-b pb-3 mb-6">
               <h3 className="text-xl font-black text-[#00529b] flex items-center gap-2 uppercase">
@@ -487,23 +542,52 @@ export default function ConcejoTerritorialPage() {
                 </div>
                 <div className="bg-gray-100 p-3 rounded-xl border">
                   <label className="block text-[9px] font-bold text-gray-500 uppercase">CNE VIRTUAL</label>
-                  <p className="font-mono text-xs font-black text-gray-800 flex items-center gap-1">
-                    <Clock size={12}/> AUTOMÁTICO
+                  <p className="font-mono text-xs font-black text-[#00529b] flex items-center gap-1">
+                    <Clock size={12}/> {cneVirtualModal}
                   </p>
                 </div>
               </div>
 
-              <div>
+              <div className="relative">
                 <label className="block text-xs font-bold text-gray-600 mb-1 uppercase">NOMBRE DEL CENTRO</label>
-                <input 
-                  type="text" 
-                  required
-                  placeholder="Nombre exacto..."
-                  className="w-full p-3 border rounded-xl text-sm font-black uppercase text-gray-800 outline-none"
-                  value={nuevaEscuela.nombreCentro}
-                  onChange={e => setNuevaEscuela({...nuevaEscuela, nombreCentro: e.target.value.toUpperCase()})}
-                />
+                <div className="relative">
+                  <input 
+                    type="text" 
+                    required
+                    placeholder="Escriba 3 letras para buscar..."
+                    className="w-full p-3 pr-10 border rounded-xl text-sm font-black uppercase text-gray-800 outline-none focus:ring-2 focus:ring-[#00529b]"
+                    value={nombreBusqueda}
+                    onChange={e => handleNombreChange(e.target.value)}
+                  />
+                  {buscandoSugerencias ? (
+                    <Loader2 size={18} className="animate-spin text-gray-400 absolute right-3 top-3.5" />
+                  ) : (
+                    <Search size={18} className="text-gray-400 absolute right-3 top-3.5" />
+                  )}
+                </div>
+
+                {/* DESPLEGABLE DE SUGERENCIAS ESTILO GOOGLE */}
+                {sugerenciasCentros.length > 0 && (
+                  <div className="absolute z-50 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-2xl overflow-hidden max-h-52 overflow-y-auto divide-y divide-gray-100">
+                    {sugerenciasCentros.map((item, idx) => (
+                      <div 
+                        key={idx}
+                        onClick={() => seleccionarSugerencia(item)}
+                        className="p-3 hover:bg-blue-50 cursor-pointer transition-colors flex flex-col"
+                      >
+                        <span className="font-black text-xs text-gray-800 uppercase">{item['NOMBRE CENTRO']}</span>
+                        <span className="text-[10px] text-blue-600 font-bold">CNE: {item.COD_CENTRO} — {item.MUNICIPIO || 'FALCÓN'}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
+
+              {centroExistenteSeleccionado && (
+                <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 p-3 rounded-xl text-xs font-bold">
+                  ✓ Centro encontrado en la base de datos. Se enlazará con el CNE: <strong>{centroExistenteSeleccionado.COD_CENTRO}</strong>
+                </div>
+              )}
 
               <div className="pt-4 flex gap-3">
                 <button 
