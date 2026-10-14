@@ -26,7 +26,7 @@ export default function SalaSituacionalConcejoPage() {
       try {
         setLoading(true);
 
-        // 1. Obtener perfil logueado
+        // 1. Perfil del Usuario
         let correoLogueado = '';
         const sessionData = localStorage.getItem('user_session');
         if (sessionData) {
@@ -61,7 +61,7 @@ export default function SalaSituacionalConcejoPage() {
 
         if (mounted) setAdminProfile(perfilEncontrado);
 
-        // 2. Cargar centros registrados progresivamente
+        // 2. Cargar Centros Registrados por Funcionarios
         const { data: dataRegistrados } = await supabase
           .from('centros_registrados_organismos')
           .select('*')
@@ -70,7 +70,7 @@ export default function SalaSituacionalConcejoPage() {
 
         if (mounted) setCentrosRegistrados(dataRegistrados || []);
 
-        // 3. Cargar catálogo referencial
+        // 3. Cargar Catálogo Oficial (centros_votacion_2026)
         const { data: dataCat } = await supabase
           .from('centros_votacion_2026')
           .select('*')
@@ -92,31 +92,32 @@ export default function SalaSituacionalConcejoPage() {
     };
   }, []);
 
-  // DETECCION DE ROL Y ORGANISMO EXACTO
+  // DETECCION RIGUROSA DE ROL Y ORGANISMO LOGUEADO
   const orgUser = (adminProfile?.organismo_responsable || adminProfile?.organismo || adminProfile?.nombre_apellido_jefe || '').toUpperCase();
   const rolUser = (adminProfile?.rol || '').toUpperCase();
   
-  // VEN 911 O SUPERUSUARIO VEN TODO EL ESTADO FALCÓN
+  // SOLAMENTE VEN 911 / SUPERUSUARIO VE EL TOTAL GENERAL
   const isVen911OrSuper = rolUser === 'SUPERUSUARIO' || 
                          (orgUser.includes('VEN') && orgUser.includes('911')) ||
                          orgUser === 'VEN 911';
 
-  // Detección especial de organismo (ej. ZODIFALCON -> GUARDIA NACIONAL BOLIVARIANA)
+  // ASIGNACIÓN DEL NOMBRE EXACTO DEL ORGANISMO SEGÚN EL PERFIL
   const organismoObjetivo = useMemo(() => {
     if (isVen911OrSuper) return filtroOrganismo;
-    if (orgUser.includes('GNB') || orgUser.includes('ZODI') || orgUser.includes('GUARDIA')) {
+
+    if (orgUser.includes('GNB') || orgUser.includes('GUARDIA') || orgUser.includes('ZODI')) {
       return 'GUARDIA NACIONAL BOLIVARIANA';
     }
-    if (orgUser.includes('CPNB') || orgUser.includes('POLICIA NACIONAL')) {
+    if (orgUser.includes('CPNB') || orgUser.includes('NACIONAL')) {
       return 'CUERPO DE POLICIA NACIONAL BOLIVARIANA';
     }
-    if (orgUser.includes('ESTADO') || orgUser.includes('CPEF')) {
+    if (orgUser.includes('ESTADO') || orgUser.includes('CPEF') || orgUser.includes('FALCON')) {
       return 'POLICIA DEL ESTADO FALCON';
     }
     if (orgUser.includes('CARIRUBANA')) return 'POLICIA MUNICIPAL DE CARIRUBANA';
     if (orgUser.includes('MIRANDA')) return 'POLICIA MUNICIPAL DE MIRANDA';
     if (orgUser.includes('CICPC')) return 'CICPC';
-    
+
     return orgUser;
   }, [orgUser, isVen911OrSuper, filtroOrganismo]);
 
@@ -133,7 +134,7 @@ export default function SalaSituacionalConcejoPage() {
     return Array.from(new Set(centrosRegistrados.map(c => c.organismo))).filter(Boolean).sort();
   }, [centrosRegistrados]);
 
-  // AGRUPACION POR CENTRO / PLANTEL FÍSICO Y SUMA DE MESAS
+  // AGRUPACIÓN Y FILTRADO DE CENTROS REGISTRADOS
   const centrosAgrupados = useMemo(() => {
     const mapaCentros: { [key: string]: any } = {};
 
@@ -198,8 +199,27 @@ export default function SalaSituacionalConcejoPage() {
     });
   }, [centrosRegistrados, filtroMunicipio, organismoObjetivo, filtroCotillon, filtroEstatus]);
 
-  // CÁLCULO DE MÉTRICAS Y METAS CNE POR ORGANISMO
+  // CÁLCULO DE METAS EXACTAS DESDE LA TABLA DE CATÁLOGO (centros_votacion_2026)
   const stats = useMemo(() => {
+    // 1. Filtrar catálogo según el organismo
+    const catalogoFiltrado = catalogoTotal.filter(item => {
+      if (isVen911OrSuper && !filtroOrganismo) return true;
+      
+      const orgItem = (item.ORGANSIMOS || item.organismo || item.ORGANISMO || '').toString().toUpperCase();
+      const target = (isVen911OrSuper ? filtroOrganismo : organismoObjetivo).toUpperCase();
+      
+      return orgItem.includes(target) || target.includes(orgItem);
+    });
+
+    // 2. Mesas Meta = Filas asignadas en el Excel
+    const mesasMeta = catalogoFiltrado.length;
+
+    // 3. Centros Meta = Centros Únicos en el Excel (restando escuelas repetidas)
+    const centrosMeta = new Set(
+      catalogoFiltrado.map(item => item['COD CENTRO'] || item.cod_centro || item.COD_CENTRO)
+    ).size;
+
+    // Métricas del trabajo en vivo de los funcionarios
     const totalMesasRegistradas = centrosRegistrados.filter(c => {
       if (!organismoObjetivo) return true;
       const orgFila = (c.organismo || '').toUpperCase();
@@ -212,25 +232,6 @@ export default function SalaSituacionalConcejoPage() {
     const cotillonNo = centrosAgrupados.filter(c => c.entrega_cotillon === 'NO').length;
     const pendientes = Math.max(0, totalCentrosRegistrados - reportados);
 
-    let centrosMeta = 625;
-    let mesasMeta = 672;
-
-    if (!isVen911OrSuper && organismoObjetivo) {
-      const catalogoDelOrganismo = catalogoTotal.filter(item => {
-        const orgItem = (item.ORGANSIMOS || item.organismo || item.ORGANISMO || '').toString().toUpperCase();
-        const target = organismoObjetivo.toUpperCase();
-        return orgItem.includes(target) || target.includes(orgItem);
-      });
-
-      if (catalogoDelOrganismo.length > 0) {
-        mesasMeta = catalogoDelOrganismo.length;
-        centrosMeta = new Set(catalogoDelOrganismo.map(item => item['COD CENTRO'] || item.cod_centro || item.COD_CENTRO)).size;
-      } else {
-        mesasMeta = totalMesasRegistradas;
-        centrosMeta = totalCentrosRegistrados;
-      }
-    }
-
     return { 
       totalMesasRegistradas, 
       totalCentrosRegistrados, 
@@ -238,10 +239,10 @@ export default function SalaSituacionalConcejoPage() {
       pendientes, 
       cotillonSi, 
       cotillonNo, 
-      centrosMeta, 
-      mesasMeta 
+      centrosMeta: centrosMeta || (isVen911OrSuper ? 628 : 0), 
+      mesasMeta: mesasMeta || (isVen911OrSuper ? 675 : 0) 
     };
-  }, [centrosRegistrados, centrosAgrupados, catalogoTotal, isVen911OrSuper, organismoObjetivo]);
+  }, [centrosRegistrados, centrosAgrupados, catalogoTotal, isVen911OrSuper, organismoObjetivo, filtroOrganismo]);
 
   const generarPDF = () => {
     if (centrosAgrupados.length === 0) {
@@ -325,7 +326,7 @@ export default function SalaSituacionalConcejoPage() {
                 {adminProfile.nombre_apellido_jefe || adminProfile.nombre || 'ADMINISTRADOR'} 
               </p>
               <p className="text-[10px] text-gray-500 font-bold uppercase">
-                {adminProfile.rol || 'USUARIO'} - {organismoObjetivo || adminProfile.organismo_responsable || 'ORGANISMO'}
+                {adminProfile.rol || 'USUARIO'} - {isVen911OrSuper ? 'VEN 911 (GLOBAL)' : organismoObjetivo}
               </p>
             </div>
           </div>
@@ -344,13 +345,15 @@ export default function SalaSituacionalConcejoPage() {
       {/* TÍTULO */}
       <div className="bg-gradient-to-r from-[#00529b] to-blue-900 p-6 rounded-3xl text-white shadow-md">
         <h1 className="text-2xl font-black uppercase tracking-wide flex items-center gap-2"><BarChart3 /> Segunda Consulta Popular Nacional 2026</h1>
-        <p className="text-xs text-blue-100 font-medium mt-1">Sala Situacional de Centros Registrados por Organismos</p>
+        <p className="text-xs text-blue-100 font-medium mt-1">
+          {isVen911OrSuper ? 'Sala Situacional Global de Centros Registrados por Organismos' : `Sala Situacional - ${organismoObjetivo}`}
+        </p>
       </div>
 
       {/* TARJETAS DE MÉTRICAS */}
       <div className="grid grid-cols-1 sm:grid-cols-4 lg:grid-cols-8 gap-3 pt-2">
         
-        {/* MIS CENTROS CNE ASIGNADOS */}
+        {/* MIS CENTROS / CENTROS CNE (UNICOS) */}
         <div className="bg-blue-50/80 border border-blue-200 rounded-2xl p-3 flex items-center justify-between shadow-sm">
           <div>
             <p className="text-[9px] font-black text-blue-800 uppercase">
@@ -361,7 +364,7 @@ export default function SalaSituacionalConcejoPage() {
           <div className="bg-blue-100 text-[#00529b] p-2 rounded-full"><School size={18}/></div>
         </div>
 
-        {/* MIS MESAS CNE ASIGNADAS */}
+        {/* MIS MESAS / MESAS CNE (TOTAL FILAS EXCEL) */}
         <div className="bg-indigo-50/80 border border-indigo-200 rounded-2xl p-3 flex items-center justify-between shadow-sm">
           <div>
             <p className="text-[9px] font-black text-indigo-800 uppercase">
@@ -372,7 +375,7 @@ export default function SalaSituacionalConcejoPage() {
           <div className="bg-indigo-100 text-indigo-700 p-2 rounded-full"><Layers size={18}/></div>
         </div>
 
-        {/* ESCUELAS/CENTROS FÍSICOS REGISTRADOS */}
+        {/* CENTROS REGISTRADOS POR FUNCIONARIOS */}
         <div className="bg-emerald-50/80 border border-emerald-200 rounded-2xl p-3 flex items-center justify-between shadow-sm">
           <div>
             <p className="text-[9px] font-black text-emerald-800 uppercase">Centros Reg.</p>
@@ -381,7 +384,7 @@ export default function SalaSituacionalConcejoPage() {
           <div className="bg-emerald-100 text-emerald-700 p-2 rounded-full"><School size={18}/></div>
         </div>
 
-        {/* MESAS REGISTRADAS */}
+        {/* MESAS REGISTRADAS POR FUNCIONARIOS */}
         <div className="bg-white border rounded-2xl p-3 flex items-center justify-between shadow-sm">
           <div>
             <p className="text-[9px] font-bold text-gray-400 uppercase">Mesas Reg.</p>
@@ -487,7 +490,9 @@ export default function SalaSituacionalConcejoPage() {
                 <tr>
                   <td colSpan={7} className="p-12 text-center text-gray-400 font-bold">
                     <p className="text-base">Sin Centros Registrados Por Organismos</p>
-                    <p className="text-xs font-normal text-gray-400 mt-1">Los centros aparecerán aquí dinámicamente a medida que los funcionarios los vayan registrando desde sus circuitos.</p>
+                    <p className="text-xs font-normal text-gray-400 mt-1">
+                      Los centros aparecerán aquí dinámicamente a medida que los funcionarios los vayan registrando desde sus circuitos.
+                    </p>
                   </td>
                 </tr>
               ) : (
