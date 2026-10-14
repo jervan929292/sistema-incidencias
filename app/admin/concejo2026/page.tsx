@@ -63,8 +63,33 @@ export default function SalaSituacionalConcejoPage() {
 
         setAdminProfile(perfilEncontrado);
 
-        // 2. Cargar centros de votación
-        const fetchTodosLosCentros = async () => {
+        // 2. Cargar reportes activos primero (para mostrar lo que realmente está reportado)
+        const fetchTodosLosReportes = async () => {
+          let todosLosReportes: any[] = [];
+          let limite = 1000;
+          let inicio = 0;
+          let hayMas = true;
+          while (hayMas) {
+            const { data: batch } = await supabase.from('reportes_concejo_2026').select('*').order('fecha_reporte', { ascending: false }).range(inicio, inicio + limite - 1);
+            if (batch && batch.length > 0) {
+              todosLosReportes = [...todosLosReportes, ...batch];
+              inicio += limite;
+              if (batch.length < limite) hayMas = false; 
+            } else { hayMas = false; }
+          }
+          return todosLosReportes;
+        };
+
+        const resReportes = await fetchTodosLosReportes();
+        if (resReportes) setReportes(resReportes);
+
+        // 3. Extraer códigos de centros reportados o cargar el directorio
+        const codigosReportados = Array.from(
+          new Set((resReportes || []).map(r => (r.cod_centro || r.COD_CENTRO)?.toString().trim()).filter(Boolean))
+        );
+
+        // Cargar centros de votación relacionados o necesarios
+        const fetchCentrosRelevantes = async () => {
           let todosLosCentros: any[] = [];
           let limite = 1000;
           let inicio = 0;
@@ -82,32 +107,14 @@ export default function SalaSituacionalConcejoPage() {
           return todosLosCentros;
         };
 
-        // 3. Cargar reportes
-        const fetchTodosLosReportes = async () => {
-          let todosLosReportes: any[] = [];
-          let limite = 1000;
-          let inicio = 0;
-          let hayMas = true;
-          while (hayMas) {
-            const { data: batch } = await supabase.from('reportes_concejo_2026').select('*').order('fecha_reporte', { ascending: false }).range(inicio, inicio + limite - 1);
-            if (batch && batch.length > 0) {
-              todosLosReportes = [...todosLosReportes, ...batch];
-              inicio += limite;
-              if (batch.length < limite) hayMas = false; 
-            } else { hayMas = false; }
-          }
-          return todosLosReportes;
-        };
-
-        const [resCentros, resUsuarios, resReportes] = await Promise.all([
-          fetchTodosLosCentros(),
-          supabase.from('directorio_operativo').select('*').limit(5000),
-          fetchTodosLosReportes()
+        const [resCentros, resUsuarios] = await Promise.all([
+          fetchCentrosRelevantes(),
+          supabase.from('directorio_operativo').select('*').limit(5000)
         ]);
 
         if (resCentros) setCentros(resCentros);
         if (resUsuarios.data) setUsuarios(resUsuarios.data);
-        if (resReportes) setReportes(resReportes);
+
       } catch (err) {
         console.error('Error al cargar datos:', err);
       } finally {
@@ -134,7 +141,7 @@ export default function SalaSituacionalConcejoPage() {
     return mapaExacto;
   }, [reportes]);
 
-  // Únicamente VEN 911 o SUPERUSUARIO pueden ver todo los organismos
+  // Únicamente VEN 911 o SUPERUSUARIO pueden ver todos los organismos
   const orgUser = (adminProfile?.organismo_responsable || adminProfile?.organismo || '').toUpperCase();
   const rolUser = (adminProfile?.rol || '').toUpperCase();
   
@@ -148,10 +155,17 @@ export default function SalaSituacionalConcejoPage() {
     ? filtroOrganismo 
     : (adminProfile?.organismo_responsable || adminProfile?.organismo || '');
 
+  // MUNICIPIOS ÚNICOS LIMPIOS Y SIN DUPLICADOS (Normalizados con MP.)
   const municipiosUnicos = useMemo(() => {
     const mCentros = centros.map(c => c.MUNICIPIO || c.municipio).filter(Boolean);
     const mUsers = usuarios.map(u => u.municipio).filter(Boolean);
-    return Array.from(new Set([...mCentros, ...mUsers])).sort();
+    
+    const listaCruda = [...mCentros, ...mUsers].map(m => m.toString().trim().toUpperCase());
+    
+    // Normalizar formato para evitar duplicados por variaciones de texto
+    const listaNormalizada = listaCruda.map(m => m.startsWith('MP.') ? m : `MP. ${m}`);
+    
+    return Array.from(new Set(listaNormalizada)).sort();
   }, [centros, usuarios]);
 
   const organismosUnicos = useMemo(() => {
@@ -159,13 +173,18 @@ export default function SalaSituacionalConcejoPage() {
   }, [usuarios]);
 
   const centrosProcesados = useMemo(() => {
+    // Si prefieres mostrar únicamente los centros que tienen un reporte activo, puedes filtrar aquí.
+    // Si quieres listar todos pero que los reportados aparezcan correctamente enlazados:
     return centros.map(c => {
       const codigoSiturLimpio = (c.CODIGO_CIRCUITO_COMUNAL || c.SITUR || c.situr || '')?.toString().trim();
       const jefe = mapaJefes.get(codigoSiturLimpio);
       const codigoCentroLimpio = (c.COD_CENTRO || c.cod_centro || '')?.toString().trim();
       let reporte = mapaReportesExactos.get(codigoCentroLimpio);
       
-      const municipioCentro = c.MUNICIPIO || c.municipio || jefe?.municipio || 'SIN MUNICIPIO';
+      let municipioCentro = c.MUNICIPIO || c.municipio || jefe?.municipio || 'MP. ACOSTA';
+      municipioCentro = municipioCentro.toString().trim().toUpperCase();
+      if (!municipioCentro.startsWith('MP.')) municipioCentro = `MP. ${municipioCentro}`;
+
       const parroquiaCentro = c.PARROQUIA || c.parroquia || jefe?.parroquia || 'SIN PARROQUIA';
       const organismoCentro = jefe?.organismo_responsable || jefe?.organismo || c.organismo || 'SIN ORGANISMO';
 
