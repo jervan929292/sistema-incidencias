@@ -57,7 +57,7 @@ export default function ConcejoTerritorialPage() {
         }
 
         setJefe(userData);
-        const siturCodigo = userData.codigo_situr?.toString().trim();
+        const siturCodigo = (userData.codigo_situr || userData.situr || '').toString().trim();
 
         if (siturCodigo) {
           const fetchCentrosAsignados = async () => {
@@ -68,7 +68,7 @@ export default function ConcejoTerritorialPage() {
             while (hayMas) {
               const { data: batch } = await supabase.from('centros_votacion_2026')
                 .select('*')
-                .eq('CODIGO_CIRCUITO_COMUNAL', siturCodigo)
+                .or(`CODIGO_CIRCUITO_COMUNAL.eq.${siturCodigo},situr.eq.${siturCodigo}`)
                 .range(inicio, inicio + limite - 1);
                 
               if (batch && batch.length > 0) {
@@ -93,7 +93,7 @@ export default function ConcejoTerritorialPage() {
             const mapaReportesExactos = new Map();
             if (reportesExistentes) {
               reportesExistentes.forEach(r => {
-                const key = r.cod_centro?.toString().trim();
+                const key = (r.cod_centro || r.COD_CENTRO)?.toString().trim();
                 if (key && !mapaReportesExactos.has(key)) {
                   mapaReportesExactos.set(key, r);
                 }
@@ -101,15 +101,16 @@ export default function ConcejoTerritorialPage() {
             }
 
             const centrosConReportes = centros.map((c: any, index: number) => {
-              let rep = mapaReportesExactos.get(c.COD_CENTRO?.toString().trim()) || {};
-              const uniqueIdentifier = c.id || `temp-${c.COD_CENTRO}-${index}`;
+              const codCentroReal = c.COD_CENTRO || c.cod_centro;
+              let rep = mapaReportesExactos.get(codCentroReal?.toString().trim()) || {};
+              const uniqueIdentifier = c.id || `temp-${codCentroReal}-${index}`;
 
               return { 
                 ...c, 
                 ...rep,
                 uid_estricto: uniqueIdentifier, 
                 id_centro: c.id, 
-                cod_centro_real: c.COD_CENTRO, 
+                cod_centro_real: codCentroReal, 
                 id_reporte_viejo: rep?.id || null, 
                 
                 responsable_cne: rep?.responsable_cne || '',
@@ -162,9 +163,13 @@ export default function ConcejoTerritorialPage() {
   };
 
   const seleccionarSugerencia = (centro: any) => {
-    setNombreBusqueda(centro['NOMBRE CENTRO']);
-    setCneVirtualModal(centro.COD_CENTRO || 'S/C');
-    setDireccionModal(centro.DIRECCION || 'DIRECCIÓN EN EVALUACIÓN');
+    const nombreC = centro['NOMBRE CENTRO'] || centro.nombre_centro;
+    const codC = centro.COD_CENTRO || centro.cod_centro;
+    const dirC = centro.DIRECCION || centro.direccion;
+
+    setNombreBusqueda(nombreC);
+    setCneVirtualModal(codC || 'S/C');
+    setDireccionModal(dirC || 'DIRECCIÓN EN EVALUACIÓN');
     setCentroExistenteSeleccionado(centro);
     setSugerenciasCentros([]);
   };
@@ -196,9 +201,10 @@ export default function ConcejoTerritorialPage() {
 
     setGuardandoId(escuela.uid_estricto);
     try {
+      const siturActual = jefe?.codigo_situr || jefe?.situr;
       const payload: any = {
         cod_centro: escuela.cod_centro_real, 
-        codigo_situr: jefe?.codigo_situr,
+        codigo_situr: siturActual,
         responsable_cne: escuela.responsable_cne.trim().toUpperCase(),
         responsable_mesa: escuela.responsable_mesa.trim().toUpperCase(),
         entrega_cotillon: escuela.entrega_cotillon,
@@ -218,7 +224,7 @@ export default function ConcejoTerritorialPage() {
 
       if (error) throw error;
       
-      alert(`✅ ÉXITO: Reporte del centro "${escuela['NOMBRE CENTRO']}" guardado correctamente.`);
+      alert(`✅ ÉXITO: Reporte del centro guardado correctamente.`);
       window.location.reload(); 
     } catch (err: any) {
       alert("Error al guardar: " + err.message);
@@ -245,30 +251,32 @@ export default function ConcejoTerritorialPage() {
     
     setGuardandoNueva(true);
     try {
+      const siturActual = jefe?.codigo_situr || jefe?.situr;
+      const comunaActual = jefe?.comuna_o_circuito_comunal || jefe?.circuito || '';
+
       if (centroExistenteSeleccionado) {
-        // SI SELECCIONÓ UN CENTRO EXISTENTE DE LA BÚSQUEDA -> Asignarlo al SITUR actual
+        // SI SELECCIONÓ UN CENTRO EXISTENTE DE LA BÚSQUEDA -> Asignarlo al SITUR actual utilizando actualización segura
         const { error } = await supabase
           .from('centros_votacion_2026')
           .update({
-            "CODIGO_CIRCUITO_COMUNAL": jefe?.codigo_situr,
-            "CODIGO_COMUNA_CNE": jefe?.comuna_o_circuito_comunal || ''
+            "CODIGO_CIRCUITO_COMUNAL": siturActual,
+            "CODIGO_COMUNA_CNE": comunaActual
           })
           .eq('id', centroExistenteSeleccionado.id);
 
         if (error) throw error;
-        alert(`✅ Centro "${centroExistenteSeleccionado['NOMBRE CENTRO']}" enlazado correctamente a la llave SITUR: ${jefe?.codigo_situr}`);
+        alert(`✅ Centro "${nombreBusqueda}" enlazado correctamente a la llave SITUR: ${siturActual}`);
       } else {
-        // SI ES UN CENTRO TOTALMENTE NUEVO -> Crearlo con CNE automático
-        const escuelasDelSitur = escuelas.filter(esc => esc.CODIGO_CIRCUITO_COMUNAL === jefe?.codigo_situr);
-        const siguienteNumero = escuelasDelSitur.length + 1;
-        const cneGenerado = `${jefe?.codigo_situr || 'N/A'}-${siguienteNumero}`;
+        // SI ES UN CENTRO TOTALMENTE NUEVO -> Crearlo tomando el CNE generado automáticamente
+        const siguienteNumero = escuelas.length + 1;
+        const cneGenerado = `${siturActual || 'N/A'}-${siguienteNumero}`;
         
         const payload = {
           "COD_CENTRO": cneGenerado,
           "NOMBRE CENTRO": nombreBusqueda.trim().toUpperCase(),
           "DIRECCION": direccionModal.trim().toUpperCase(),
-          "CODIGO_COMUNA_CNE": jefe?.comuna_o_circuito_comunal || '',
-          "CODIGO_CIRCUITO_COMUNAL": jefe?.codigo_situr || ''
+          "CODIGO_COMUNA_CNE": comunaActual,
+          "CODIGO_CIRCUITO_COMUNAL": siturActual
         };
 
         const { error } = await supabase.from('centros_votacion_2026').insert([payload]);
@@ -301,17 +309,17 @@ export default function ConcejoTerritorialPage() {
           <div className="space-y-3">
             <h1 className="text-xl font-black text-[#00529b] uppercase">Segunda Consulta Popular Nacional 2026</h1>
             <div className="flex flex-col gap-1.5 text-xs text-gray-700 font-bold uppercase">
-              <p className="flex items-center gap-2"><Shield size={16} className="text-amber-500" /> Organismo: <span className="text-gray-900">{jefe?.organismo_responsable || 'NO REGISTRADO'}</span></p>
-              <p className="flex items-center gap-2"><UserCheck size={16} className="text-blue-500" /> Funcionario: <span className="text-gray-900">{jefe?.grado_jerarquia} {jefe?.nombre_apellido_jefe}</span></p>
+              <p className="flex items-center gap-2"><Shield size={16} className="text-amber-500" /> Organismo: <span className="text-gray-900">{jefe?.organismo_responsable || jefe?.organismo || 'NO REGISTRADO'}</span></p>
+              <p className="flex items-center gap-2"><UserCheck size={16} className="text-blue-500" /> Funcionario: <span className="text-gray-900">{jefe?.grado_jerarquia || jefe?.rango} {jefe?.nombre_apellido_jefe || jefe?.jefe}</span></p>
               <p className="flex items-center gap-2"><MapPin size={16} className="text-emerald-500" /> Jurisdicción: <span className="text-gray-900">{jefe?.municipio} - {jefe?.parroquia}</span></p>
             </div>
             <div className="inline-block bg-gray-100 text-gray-800 text-xs px-3 py-1 rounded-md font-black border uppercase mt-1">
-              Circuito Comunal: {jefe?.comuna_o_circuito_comunal || 'N/A'}
+              Circuito Comunal: {jefe?.comuna_o_circuito_comunal || jefe?.circuito || 'N/A'}
             </div>
           </div>
           <div className="bg-blue-50 border border-blue-200 px-6 py-4 rounded-xl flex flex-col items-center shadow-inner">
             <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Llave SITUR</span>
-            <span className="text-2xl font-mono font-black text-[#00529b]">{jefe?.codigo_situr || 'SIN LLAVE'}</span>
+            <span className="text-2xl font-mono font-black text-[#00529b]">{jefe?.codigo_situr || jefe?.situr || 'SIN LLAVE'}</span>
           </div>
         </div>
 
@@ -342,6 +350,7 @@ export default function ConcejoTerritorialPage() {
               const estaSincronizado = esc.cierre_mesas === 'CERRADO';
               const estaEditando = editandoId === esc.uid_estricto;
               const isLocked = estaSincronizado && !estaEditando;
+              const nombreCentroMostrar = esc['NOMBRE CENTRO'] || esc.nombre_centro || 'CENTRO ELECTORAL';
               
               return (
                 <div key={esc.uid_estricto} className={`bg-white rounded-2xl border p-6 shadow-sm flex flex-col gap-6 relative overflow-hidden transition-all ${estaSincronizado ? 'border-emerald-200 bg-emerald-50/5' : 'border-gray-200'} ${estaEditando ? 'ring-2 ring-amber-300' : ''}`}>
@@ -356,12 +365,12 @@ export default function ConcejoTerritorialPage() {
                         <School size={20} />
                         <span className="text-xs font-black">CNE: {esc.cod_centro_real}</span>
                       </div>
-                      <h3 className="text-base font-black text-gray-800 uppercase">{esc['NOMBRE CENTRO']}</h3>
-                      <p className="text-xs text-gray-500 font-medium">{esc.DIRECCION}</p>
+                      <h3 className="text-base font-black text-gray-800 uppercase">{nombreCentroMostrar}</h3>
+                      <p className="text-xs text-gray-500 font-medium">{esc.DIRECCION || esc.direccion}</p>
                     </div>
                     
                     <button 
-                      onClick={() => eliminarEscuela(esc.id_centro, esc['NOMBRE CENTRO'], esc.uid_estricto)}
+                      onClick={() => eliminarEscuela(esc.id_centro, nombreCentroMostrar, esc.uid_estricto)}
                       className="bg-red-50 text-red-600 hover:bg-red-600 hover:text-white border border-red-200 p-2 rounded-lg transition-colors flex items-center justify-center"
                     >
                       <Trash2 size={18} />
@@ -538,7 +547,7 @@ export default function ConcejoTerritorialPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="bg-gray-100 p-3 rounded-xl border">
                   <label className="block text-[9px] font-bold text-gray-500 uppercase">CÓDIGO SITUR</label>
-                  <p className="font-mono text-sm font-black text-gray-800">{jefe?.codigo_situr}</p>
+                  <p className="font-mono text-sm font-black text-gray-800">{jefe?.codigo_situr || jefe?.situr}</p>
                 </div>
                 <div className="bg-gray-100 p-3 rounded-xl border">
                   <label className="block text-[9px] font-bold text-gray-500 uppercase">CNE VIRTUAL</label>
@@ -569,23 +578,27 @@ export default function ConcejoTerritorialPage() {
                 {/* DESPLEGABLE DE SUGERENCIAS ESTILO GOOGLE */}
                 {sugerenciasCentros.length > 0 && (
                   <div className="absolute z-50 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-2xl overflow-hidden max-h-52 overflow-y-auto divide-y divide-gray-100">
-                    {sugerenciasCentros.map((item, idx) => (
-                      <div 
-                        key={idx}
-                        onClick={() => seleccionarSugerencia(item)}
-                        className="p-3 hover:bg-blue-50 cursor-pointer transition-colors flex flex-col"
-                      >
-                        <span className="font-black text-xs text-gray-800 uppercase">{item['NOMBRE CENTRO']}</span>
-                        <span className="text-[10px] text-blue-600 font-bold">CNE: {item.COD_CENTRO} — {item.MUNICIPIO || 'FALCÓN'}</span>
-                      </div>
-                    ))}
+                    {sugerenciasCentros.map((item, idx) => {
+                      const nombreC = item['NOMBRE CENTRO'] || item.nombre_centro;
+                      const codC = item.COD_CENTRO || item.cod_centro;
+                      return (
+                        <div 
+                          key={idx}
+                          onClick={() => seleccionarSugerencia(item)}
+                          className="p-3 hover:bg-blue-50 cursor-pointer transition-colors flex flex-col"
+                        >
+                          <span className="font-black text-xs text-gray-800 uppercase">{nombreC}</span>
+                          <span className="text-[10px] text-blue-600 font-bold">CNE: {codC} — {item.MUNICIPIO || item.municipio || 'FALCÓN'}</span>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
 
               {centroExistenteSeleccionado && (
                 <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 p-3 rounded-xl text-xs font-bold">
-                  ✓ Centro encontrado en la base de datos. Se enlazará con el CNE: <strong>{centroExistenteSeleccionado.COD_CENTRO}</strong>
+                  ✓ Centro encontrado en la base de datos. Se enlazará con el CNE: <strong>{centroExistenteSeleccionado.COD_CENTRO || centroExistenteSeleccionado.cod_centro}</strong>
                 </div>
               )}
 
