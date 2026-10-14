@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { School, UserCheck, Save, Shield, MapPin, MessageSquare, ArrowLeft, CheckCircle2, Plus, Clock, Edit, Trash2, X, Loader2, Info, Search, Building2 } from 'lucide-react';
+import { School, UserCheck, Save, Shield, MapPin, MessageSquare, ArrowLeft, CheckCircle2, Plus, Clock, Edit, Trash2, X, Loader2, Info, Search, Building2, Layers } from 'lucide-react';
 import Link from 'next/link';
 
 const LISTA_ORGANISMOS = ['BOMBEROS', 'GNB', 'CPNB', 'CPMM', 'CPMC', 'CPEF', 'PC', 'CICPC', 'OTROS'];
@@ -13,11 +13,12 @@ export default function ConcejoTerritorialPage() {
   const [guardandoId, setGuardandoId] = useState<string | number | null>(null);
   const [editandoId, setEditandoId] = useState<string | number | null>(null);
 
-  // Estados del Modal (Manual o Autocompletado)
+  // Estados del Modal
   const [mostrarModalNueva, setMostrarModalNueva] = useState(false);
   const [nombreBusqueda, setNombreBusqueda] = useState('');
   const [cneVirtualModal, setCneVirtualModal] = useState('');
   const [direccionModal, setDireccionModal] = useState('');
+  const [cantidadMesasModal, setCantidadMesasModal] = useState<number>(1); // Selector de 1 a 5 mesas
   const [sugerenciasCentros, setSugerenciasCentros] = useState<any[]>([]);
   const [buscandoSugerencias, setBuscandoSugerencias] = useState(false);
   const [centroExistenteSeleccionado, setCentroExistenteSeleccionado] = useState<any | null>(null);
@@ -199,6 +200,7 @@ export default function ConcejoTerritorialPage() {
     }
   };
 
+  // PROCESAR NUEVA ESCUELA CON MULTIPLES MESAS SEGÚN SELECCIÓN (1 a 5)
   const procesarNuevaEscuela = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!nombreBusqueda.trim()) return;
@@ -208,9 +210,9 @@ export default function ConcejoTerritorialPage() {
       const siturActual = jefe?.codigo_situr || jefe?.situr;
       const comunaActual = jefe?.comuna_o_circuito_comunal || jefe?.circuito || '';
       
-      let codCentroFinal = cneVirtualModal.trim();
-      if (!codCentroFinal) {
-        codCentroFinal = `${siturActual || 'N/A'}-${escuelas.length + 1}`;
+      let codCentroBase = cneVirtualModal.trim();
+      if (!codCentroBase) {
+        codCentroBase = `${siturActual || 'SITUR'}-${escuelas.length + 1}`;
       }
 
       let direccionFinal = direccionModal.trim();
@@ -224,30 +226,54 @@ export default function ConcejoTerritorialPage() {
       const muniUpper = municipioFinal.toString().trim().toUpperCase();
       const municipioConPrefijo = muniUpper.startsWith('MP.') ? muniUpper : `MP. ${muniUpper}`;
 
-      const payload = {
-        cod_centro: codCentroFinal.toUpperCase(),
-        codigo_situr: siturActual,
-        nombre_centro: nombreBusqueda.trim().toUpperCase(),
-        direccion: direccionFinal.toUpperCase(),
-        municipio: municipioConPrefijo,
-        parroquia: parroquiaFinal.toString().trim().toUpperCase(),
-        circuito_comunal: comunaActual.toString().trim().toUpperCase(),
-        organismo: (jefe?.organismo_responsable || jefe?.organismo || 'S/O').toUpperCase(),
-        funcionario_nombre: `${jefe?.grado_jerarquia || ''} ${jefe?.nombre_apellido_jefe || jefe?.jefe || ''}`.trim().toUpperCase(),
-        funcionario_rango: jefe?.grado_jerarquia || jefe?.rango || 'Funcionario',
-        funcionario_telefono: jefe?.telefono_cuadrante || jefe?.telefono || 'S/N',
-        organismos_presentes: [],
-        estatus: 'PENDIENTE'
-      };
+      const payloads = [];
 
-      const { error } = await supabase.from('centros_registrados_organismos').insert([payload]);
+      // Si se selecciona 1 sola mesa
+      if (cantidadMesasModal === 1) {
+        payloads.push({
+          cod_centro: codCentroBase.toUpperCase(),
+          codigo_situr: siturActual,
+          nombre_centro: nombreBusqueda.trim().toUpperCase(),
+          direccion: direccionFinal.toUpperCase(),
+          municipio: municipioConPrefijo,
+          parroquia: parroquiaFinal.toString().trim().toUpperCase(),
+          circuito_comunal: comunaActual.toString().trim().toUpperCase(),
+          organismo: (jefe?.organismo_responsable || jefe?.organismo || 'S/O').toUpperCase(),
+          funcionario_nombre: `${jefe?.grado_jerarquia || ''} ${jefe?.nombre_apellido_jefe || jefe?.jefe || ''}`.trim().toUpperCase(),
+          funcionario_rango: jefe?.grado_jerarquia || jefe?.rango || 'Funcionario',
+          funcionario_telefono: jefe?.telefono_cuadrante || jefe?.telefono || 'S/N',
+          organismos_presentes: [],
+          estatus: 'PENDIENTE'
+        });
+      } else {
+        // Si se seleccionan múltiples mesas (2 a 5)
+        for (let m = 1; m <= cantidadMesasModal; m++) {
+          payloads.push({
+            cod_centro: `${codCentroBase.toUpperCase()}-${m}`,
+            codigo_situr: siturActual,
+            nombre_centro: `${nombreBusqueda.trim().toUpperCase()} (MESA ${m})`,
+            direccion: direccionFinal.toUpperCase(),
+            municipio: municipioConPrefijo,
+            parroquia: parroquiaFinal.toString().trim().toUpperCase(),
+            circuito_comunal: comunaActual.toString().trim().toUpperCase(),
+            organismo: (jefe?.organismo_responsable || jefe?.organismo || 'S/O').toUpperCase(),
+            funcionario_nombre: `${jefe?.grado_jerarquia || ''} ${jefe?.nombre_apellido_jefe || jefe?.jefe || ''}`.trim().toUpperCase(),
+            funcionario_rango: jefe?.grado_jerarquia || jefe?.rango || 'Funcionario',
+            funcionario_telefono: jefe?.telefono_cuadrante || jefe?.telefono || 'S/N',
+            organismos_presentes: [],
+            estatus: 'PENDIENTE'
+          });
+        }
+      }
+
+      const { error } = await supabase.from('centros_registrados_organismos').insert(payloads);
       if (error) throw error;
 
-      alert(`✅ Centro registrado con éxito bajo tu jurisdicción (${municipioConPrefijo}).`);
+      alert(`✅ ${cantidadMesasModal} ${cantidadMesasModal === 1 ? 'centro registrado' : 'mesas registradas'} con éxito bajo tu jurisdicción.`);
       setMostrarModalNueva(false);
       window.location.reload(); 
     } catch (err: any) {
-      alert("Error al registrar el centro: " + err.message);
+      alert("Error al registrar: " + err.message);
     } finally {
       setGuardandoNueva(false);
     }
@@ -288,6 +314,7 @@ export default function ConcejoTerritorialPage() {
               setNombreBusqueda('');
               setCneVirtualModal(`${jefe?.codigo_situr || jefe?.situr || 'SITUR'}-${escuelas.length + 1}`);
               setDireccionModal('');
+              setCantidadMesasModal(1);
               setSugerenciasCentros([]);
               setCentroExistenteSeleccionado(null);
               setMostrarModalNueva(true);
@@ -519,7 +546,7 @@ export default function ConcejoTerritorialPage() {
         </div>
       </div>
 
-      {/* MODAL CON CAMPOS MANUALES DE CNE Y DIRECCIÓN */}
+      {/* MODAL CON PREGUNTA DE CANTIDAD DE MESAS (1 AL 5) */}
       {mostrarModalNueva && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
           <div className="bg-white rounded-[2rem] p-8 max-w-md w-full shadow-2xl border relative">
@@ -544,7 +571,7 @@ export default function ConcejoTerritorialPage() {
                   <input 
                     type="text"
                     required
-                    placeholder="Ej. 11-01-0001"
+                    placeholder="Ej. 90303001"
                     className="w-full font-mono text-xs font-black text-[#00529b] outline-none uppercase bg-transparent mt-0.5"
                     value={cneVirtualModal}
                     onChange={e => setCneVirtualModal(e.target.value)}
@@ -558,7 +585,7 @@ export default function ConcejoTerritorialPage() {
                   <input 
                     type="text" 
                     required
-                    placeholder="Escriba 3 letras para buscar o nombre manual..."
+                    placeholder="Escriba 3 letras para buscar..."
                     className="w-full p-3 pr-10 border rounded-xl text-sm font-black uppercase text-gray-800 outline-none focus:ring-2 focus:ring-[#00529b]"
                     value={nombreBusqueda}
                     onChange={e => handleNombreChange(e.target.value)}
@@ -590,26 +617,54 @@ export default function ConcejoTerritorialPage() {
                 )}
               </div>
 
-              {/* CAMPO DE DIRECCIÓN MANUAL / EDITABLE */}
+              {/* DIRECCIÓN */}
               <div>
                 <label className="block text-xs font-bold text-gray-600 mb-1 uppercase">DIRECCIÓN DEL CENTRO</label>
                 <textarea 
                   required
                   rows={2}
-                  placeholder="Escriba la dirección o ubicación detallada..."
+                  placeholder="Escriba la dirección..."
                   className="w-full p-3 border rounded-xl text-xs font-medium uppercase text-gray-800 outline-none focus:ring-2 focus:ring-[#00529b] resize-none"
                   value={direccionModal}
                   onChange={e => setDireccionModal(e.target.value)}
                 />
               </div>
 
+              {/* NUEVO SELECTOR: CANTIDAD DE MESAS (1 AL 5) */}
+              <div className="bg-blue-50/80 border border-blue-200 p-3.5 rounded-xl space-y-2">
+                <label className="block text-xs font-black text-[#00529b] uppercase flex items-center gap-1.5">
+                  <Layers size={16} /> ¿Cuántas Mesas Electorales tiene este Centro?
+                </label>
+                <div className="grid grid-cols-5 gap-2">
+                  {[1, 2, 3, 4, 5].map(num => (
+                    <button
+                      key={num}
+                      type="button"
+                      onClick={() => setCantidadMesasModal(num)}
+                      className={`py-2 rounded-lg font-black text-xs transition-all border ${
+                        cantidadMesasModal === num 
+                          ? 'bg-[#00529b] text-white border-[#00529b] shadow-md scale-105' 
+                          : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'
+                      }`}
+                    >
+                      {num} {num === 1 ? 'Mesa' : 'Mesas'}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[10px] text-gray-500 font-bold text-center mt-1">
+                  {cantidadMesasModal === 1 
+                    ? 'Se creará 1 registro para este centro.' 
+                    : `Se crearán ${cantidadMesasModal} registros individuales (Mesa 1 a Mesa ${cantidadMesasModal}).`}
+                </p>
+              </div>
+
               {centroExistenteSeleccionado && (
-                <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 p-3 rounded-xl text-xs font-bold">
+                <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 p-2.5 rounded-xl text-xs font-bold">
                   ✓ Seleccionado del catálogo CNE.
                 </div>
               )}
 
-              <div className="pt-4 flex gap-3">
+              <div className="pt-2 flex gap-3">
                 <button 
                   type="button"
                   onClick={() => setMostrarModalNueva(false)}
