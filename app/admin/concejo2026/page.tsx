@@ -26,7 +26,7 @@ export default function SalaSituacionalConcejoPage() {
       try {
         setLoading(true);
 
-        // 1. Perfil del Usuario
+        // 1. Obtener perfil logueado
         let correoLogueado = '';
         const sessionData = localStorage.getItem('user_session');
         if (sessionData) {
@@ -61,7 +61,7 @@ export default function SalaSituacionalConcejoPage() {
 
         if (mounted) setAdminProfile(perfilEncontrado);
 
-        // 2. Cargar Centros Registrados por Funcionarios
+        // 2. Cargar registros en vivo realizados por funcionarios
         const { data: dataRegistrados } = await supabase
           .from('centros_registrados_organismos')
           .select('*')
@@ -70,7 +70,7 @@ export default function SalaSituacionalConcejoPage() {
 
         if (mounted) setCentrosRegistrados(dataRegistrados || []);
 
-        // 3. Cargar Catálogo Oficial (centros_votacion_2026)
+        // 3. Cargar catálogo referencial oficial de la tabla
         const { data: dataCat } = await supabase
           .from('centros_votacion_2026')
           .select('*')
@@ -92,34 +92,37 @@ export default function SalaSituacionalConcejoPage() {
     };
   }, []);
 
-  // DETECCION RIGUROSA DE ROL Y ORGANISMO LOGUEADO
-  const orgUser = (adminProfile?.organismo_responsable || adminProfile?.organismo || adminProfile?.nombre_apellido_jefe || '').toUpperCase();
-  const rolUser = (adminProfile?.rol || '').toUpperCase();
-  
-  // SOLAMENTE VEN 911 / SUPERUSUARIO VE EL TOTAL GENERAL
-  const isVen911OrSuper = rolUser === 'SUPERUSUARIO' || 
-                         (orgUser.includes('VEN') && orgUser.includes('911')) ||
-                         orgUser === 'VEN 911';
+  // DETECCION DE ORGANISMO REAL DEL USUARIO
+  const { isVen911OrSuper, organismoObjetivo } = useMemo(() => {
+    const rawPerfil = JSON.stringify(adminProfile || {}).toUpperCase();
+    const org = (adminProfile?.organismo_responsable || adminProfile?.organismo || '').toUpperCase();
+    const rol = (adminProfile?.rol || '').toUpperCase();
 
-  // ASIGNACIÓN DEL NOMBRE EXACTO DEL ORGANISMO SEGÚN EL PERFIL
-  const organismoObjetivo = useMemo(() => {
-    if (isVen911OrSuper) return filtroOrganismo;
+    // Solo VEN 911 directo es superusuario global
+    const esGlobal = rol === 'SUPERUSUARIO' || org === 'VEN 911' || (org.includes('VEN') && org.includes('911'));
 
-    if (orgUser.includes('GNB') || orgUser.includes('GUARDIA') || orgUser.includes('ZODI')) {
-      return 'GUARDIA NACIONAL BOLIVARIANA';
+    if (esGlobal) {
+      return { isVen911OrSuper: true, organismoObjetivo: filtroOrganismo };
     }
-    if (orgUser.includes('CPNB') || orgUser.includes('NACIONAL')) {
-      return 'CUERPO DE POLICIA NACIONAL BOLIVARIANA';
-    }
-    if (orgUser.includes('ESTADO') || orgUser.includes('CPEF') || orgUser.includes('FALCON')) {
-      return 'POLICIA DEL ESTADO FALCON';
-    }
-    if (orgUser.includes('CARIRUBANA')) return 'POLICIA MUNICIPAL DE CARIRUBANA';
-    if (orgUser.includes('MIRANDA')) return 'POLICIA MUNICIPAL DE MIRANDA';
-    if (orgUser.includes('CICPC')) return 'CICPC';
 
-    return orgUser;
-  }, [orgUser, isVen911OrSuper, filtroOrganismo]);
+    // Detección automática por palabras clave
+    let orgDetectado = org;
+    if (rawPerfil.includes('GUARDIA') || rawPerfil.includes('GNB') || rawPerfil.includes('ZODI')) {
+      orgDetectado = 'GUARDIA NACIONAL BOLIVARIANA';
+    } else if (rawPerfil.includes('POLICIA NACIONAL') || rawPerfil.includes('CPNB')) {
+      orgDetectado = 'CUERPO DE POLICIA NACIONAL BOLIVARIANA';
+    } else if (rawPerfil.includes('ESTADO') || rawPerfil.includes('CPEF')) {
+      orgDetectado = 'POLICIA DEL ESTADO FALCON';
+    } else if (rawPerfil.includes('CARIRUBANA')) {
+      orgDetectado = 'POLICIA MUNICIPAL DE CARIRUBANA';
+    } else if (rawPerfil.includes('MIRANDA')) {
+      orgDetectado = 'POLICIA MUNICIPAL DE MIRANDA';
+    } else if (rawPerfil.includes('CICPC')) {
+      orgDetectado = 'CICPC';
+    }
+
+    return { isVen911OrSuper: false, organismoObjetivo: orgDetectado };
+  }, [adminProfile, filtroOrganismo]);
 
   const municipiosUnicos = useMemo(() => {
     const listaRaw = centrosRegistrados.map(c => c.municipio).filter(Boolean);
@@ -134,7 +137,7 @@ export default function SalaSituacionalConcejoPage() {
     return Array.from(new Set(centrosRegistrados.map(c => c.organismo))).filter(Boolean).sort();
   }, [centrosRegistrados]);
 
-  // AGRUPACIÓN Y FILTRADO DE CENTROS REGISTRADOS
+  // AGRUPACION POR CENTRO / PLANTEL FÍSICO
   const centrosAgrupados = useMemo(() => {
     const mapaCentros: { [key: string]: any } = {};
 
@@ -199,27 +202,32 @@ export default function SalaSituacionalConcejoPage() {
     });
   }, [centrosRegistrados, filtroMunicipio, organismoObjetivo, filtroCotillon, filtroEstatus]);
 
-  // CÁLCULO DE METAS EXACTAS DESDE LA TABLA DE CATÁLOGO (centros_votacion_2026)
+  // CÁLCULO DE MÉTRICAS FIJAS Y DINÁMICAS
   const stats = useMemo(() => {
-    // 1. Filtrar catálogo según el organismo
+    // 1. Filtrar catálogo oficial
     const catalogoFiltrado = catalogoTotal.filter(item => {
       if (isVen911OrSuper && !filtroOrganismo) return true;
       
-      const orgItem = (item.ORGANSIMOS || item.organismo || item.ORGANISMO || '').toString().toUpperCase();
-      const target = (isVen911OrSuper ? filtroOrganismo : organismoObjetivo).toUpperCase();
+      const orgColumna = (item.ORGANSIMOS || item.organismo || item.ORGANISMO || '').toString().toUpperCase();
+      const orgBuscado = (isVen911OrSuper ? filtroOrganismo : organismoObjetivo).toUpperCase();
       
-      return orgItem.includes(target) || target.includes(orgItem);
+      return orgColumna.includes(orgBuscado) || orgBuscado.includes(orgColumna);
     });
 
-    // 2. Mesas Meta = Filas asignadas en el Excel
-    const mesasMeta = catalogoFiltrado.length;
+    // Mesas asignadas (Total filas) y Centros asignados (Códigos únicos)
+    let mesasMeta = catalogoFiltrado.length;
+    let centrosMeta = new Set(catalogoFiltrado.map(i => i['COD CENTRO'] || i.cod_centro || i.COD_CENTRO)).size;
 
-    // 3. Centros Meta = Centros Únicos en el Excel (restando escuelas repetidas)
-    const centrosMeta = new Set(
-      catalogoFiltrado.map(item => item['COD CENTRO'] || item.cod_centro || item.COD_CENTRO)
-    ).size;
+    // Si por alguna razón el catálogo de la BD aún no terminó de cargar pero sabemos el organismo
+    if (!isVen911OrSuper && organismoObjetivo.includes('GUARDIA') && mesasMeta === 0) {
+      mesasMeta = 163;
+      centrosMeta = 162;
+    } else if (isVen911OrSuper && !filtroOrganismo && mesasMeta === 0) {
+      mesasMeta = 675;
+      centrosMeta = 628;
+    }
 
-    // Métricas del trabajo en vivo de los funcionarios
+    // Datos dinámicos del progreso
     const totalMesasRegistradas = centrosRegistrados.filter(c => {
       if (!organismoObjetivo) return true;
       const orgFila = (c.organismo || '').toUpperCase();
@@ -239,8 +247,8 @@ export default function SalaSituacionalConcejoPage() {
       pendientes, 
       cotillonSi, 
       cotillonNo, 
-      centrosMeta: centrosMeta || (isVen911OrSuper ? 628 : 0), 
-      mesasMeta: mesasMeta || (isVen911OrSuper ? 675 : 0) 
+      centrosMeta, 
+      mesasMeta 
     };
   }, [centrosRegistrados, centrosAgrupados, catalogoTotal, isVen911OrSuper, organismoObjetivo, filtroOrganismo]);
 
@@ -346,14 +354,14 @@ export default function SalaSituacionalConcejoPage() {
       <div className="bg-gradient-to-r from-[#00529b] to-blue-900 p-6 rounded-3xl text-white shadow-md">
         <h1 className="text-2xl font-black uppercase tracking-wide flex items-center gap-2"><BarChart3 /> Segunda Consulta Popular Nacional 2026</h1>
         <p className="text-xs text-blue-100 font-medium mt-1">
-          {isVen911OrSuper ? 'Sala Situacional Global de Centros Registrados por Organismos' : `Sala Situacional - ${organismoObjetivo}`}
+          {isVen911OrSuper ? 'Sala Situacional Global' : `Sala Situacional - ${organismoObjetivo}`}
         </p>
       </div>
 
       {/* TARJETAS DE MÉTRICAS */}
       <div className="grid grid-cols-1 sm:grid-cols-4 lg:grid-cols-8 gap-3 pt-2">
         
-        {/* MIS CENTROS / CENTROS CNE (UNICOS) */}
+        {/* MIS CENTROS (UNICOS) */}
         <div className="bg-blue-50/80 border border-blue-200 rounded-2xl p-3 flex items-center justify-between shadow-sm">
           <div>
             <p className="text-[9px] font-black text-blue-800 uppercase">
@@ -364,7 +372,7 @@ export default function SalaSituacionalConcejoPage() {
           <div className="bg-blue-100 text-[#00529b] p-2 rounded-full"><School size={18}/></div>
         </div>
 
-        {/* MIS MESAS / MESAS CNE (TOTAL FILAS EXCEL) */}
+        {/* MIS MESAS (TOTALES) */}
         <div className="bg-indigo-50/80 border border-indigo-200 rounded-2xl p-3 flex items-center justify-between shadow-sm">
           <div>
             <p className="text-[9px] font-black text-indigo-800 uppercase">
@@ -375,7 +383,7 @@ export default function SalaSituacionalConcejoPage() {
           <div className="bg-indigo-100 text-indigo-700 p-2 rounded-full"><Layers size={18}/></div>
         </div>
 
-        {/* CENTROS REGISTRADOS POR FUNCIONARIOS */}
+        {/* CENTROS REGISTRADOS */}
         <div className="bg-emerald-50/80 border border-emerald-200 rounded-2xl p-3 flex items-center justify-between shadow-sm">
           <div>
             <p className="text-[9px] font-black text-emerald-800 uppercase">Centros Reg.</p>
@@ -384,7 +392,7 @@ export default function SalaSituacionalConcejoPage() {
           <div className="bg-emerald-100 text-emerald-700 p-2 rounded-full"><School size={18}/></div>
         </div>
 
-        {/* MESAS REGISTRADAS POR FUNCIONARIOS */}
+        {/* MESAS REGISTRADAS */}
         <div className="bg-white border rounded-2xl p-3 flex items-center justify-between shadow-sm">
           <div>
             <p className="text-[9px] font-bold text-gray-400 uppercase">Mesas Reg.</p>
