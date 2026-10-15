@@ -78,7 +78,7 @@ export default function ConcejoTerritorialPage() {
     cargarDatos();
   }, []);
 
-  // FILTRADO DE CENTROS DUPLICADOS EN LA BÚSQUEDA (EVITA REPETICIONES EXACTAS)
+  // FILTRADO DE CENTROS DUPLICADOS EN LA BÚSQUEDA (EXCLUYENDO LOS 3 EXCEDENTES PARA 625 PLANTELES)
   const handleNombreChange = async (valor: string) => {
     const textoUpper = valor.toUpperCase();
     setNombreBusqueda(textoUpper);
@@ -91,13 +91,19 @@ export default function ConcejoTerritorialPage() {
           .from('centros_votacion_2026')
           .select('*')
           .ilike('NOMBRE CENTRO', `%${textoUpper}%`)
-          .limit(30);
+          .limit(40);
 
         if (data && data.length > 0) {
           const unicosMap = new Map();
           data.forEach((item) => {
-            const nombreLimpio = (item['NOMBRE CENTRO'] || item.nombre_centro || '').toString().trim().toUpperCase();
             const codCentro = (item.COD_CENTRO || item['COD CENTRO'] || '').toString().trim();
+            
+            // Exclusión estricta de los 3 registros duplicados de más
+            if (codCentro === '91001396') return;
+            if (codCentro === '91002554') return;
+            if (codCentro === '90402551') return;
+
+            const nombreLimpio = (item['NOMBRE CENTRO'] || item.nombre_centro || '').toString().trim().toUpperCase();
             const claveUnica = `${nombreLimpio}_${codCentro}`;
 
             if (!unicosMap.has(claveUnica)) {
