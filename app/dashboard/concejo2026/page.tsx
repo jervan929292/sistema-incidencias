@@ -18,7 +18,7 @@ export default function ConcejoTerritorialPage() {
   const [nombreBusqueda, setNombreBusqueda] = useState('');
   const [cneVirtualModal, setCneVirtualModal] = useState('');
   const [direccionModal, setDireccionModal] = useState('');
-  const [cantidadMesasModal, setCantidadMesasModal] = useState<number>(1); // Selector de 1 a 5 mesas
+  const [cantidadMesasModal, setCantidadMesasModal] = useState<number>(1);
   const [sugerenciasCentros, setSugerenciasCentros] = useState<any[]>([]);
   const [buscandoSugerencias, setBuscandoSugerencias] = useState(false);
   const [centroExistenteSeleccionado, setCentroExistenteSeleccionado] = useState<any | null>(null);
@@ -78,6 +78,7 @@ export default function ConcejoTerritorialPage() {
     cargarDatos();
   }, []);
 
+  // FILTRADO DE CENTROS DUPLICADOS EN LA BÚSQUEDA (EVITA REPETICIONES EXACTAS)
   const handleNombreChange = async (valor: string) => {
     const textoUpper = valor.toUpperCase();
     setNombreBusqueda(textoUpper);
@@ -90,9 +91,24 @@ export default function ConcejoTerritorialPage() {
           .from('centros_votacion_2026')
           .select('*')
           .ilike('NOMBRE CENTRO', `%${textoUpper}%`)
-          .limit(6);
+          .limit(30);
 
-        setSugerenciasCentros(data || []);
+        if (data && data.length > 0) {
+          const unicosMap = new Map();
+          data.forEach((item) => {
+            const nombreLimpio = (item['NOMBRE CENTRO'] || item.nombre_centro || '').toString().trim().toUpperCase();
+            const codCentro = (item.COD_CENTRO || item['COD CENTRO'] || '').toString().trim();
+            const claveUnica = `${nombreLimpio}_${codCentro}`;
+
+            if (!unicosMap.has(claveUnica)) {
+              unicosMap.set(claveUnica, item);
+            }
+          });
+
+          setSugerenciasCentros(Array.from(unicosMap.values()).slice(0, 6));
+        } else {
+          setSugerenciasCentros([]);
+        }
       } catch (e) {
         console.error(e);
       } finally {
@@ -105,7 +121,7 @@ export default function ConcejoTerritorialPage() {
 
   const seleccionarSugerencia = (centro: any) => {
     const nombreC = centro['NOMBRE CENTRO'] || centro.nombre_centro;
-    const codC = centro.COD_CENTRO || centro.cod_centro;
+    const codC = centro.COD_CENTRO || centro['COD CENTRO'] || centro.cod_centro;
     const dirC = centro.DIRECCION || centro.direccion;
 
     setNombreBusqueda(nombreC);
@@ -200,7 +216,6 @@ export default function ConcejoTerritorialPage() {
     }
   };
 
-  // PROCESAR NUEVA ESCUELA CON MULTIPLES MESAS SEGÚN SELECCIÓN (1 a 5)
   const procesarNuevaEscuela = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!nombreBusqueda.trim()) return;
@@ -228,7 +243,6 @@ export default function ConcejoTerritorialPage() {
 
       const payloads = [];
 
-      // Si se selecciona 1 sola mesa
       if (cantidadMesasModal === 1) {
         payloads.push({
           cod_centro: codCentroBase.toUpperCase(),
@@ -246,7 +260,6 @@ export default function ConcejoTerritorialPage() {
           estatus: 'PENDIENTE'
         });
       } else {
-        // Si se seleccionan múltiples mesas (2 a 5)
         for (let m = 1; m <= cantidadMesasModal; m++) {
           payloads.push({
             cod_centro: `${codCentroBase.toUpperCase()}-${m}`,
@@ -546,7 +559,7 @@ export default function ConcejoTerritorialPage() {
         </div>
       </div>
 
-      {/* MODAL CON PREGUNTA DE CANTIDAD DE MESAS (1 AL 5) */}
+      {/* MODAL BÚSQUEDA Y AÑADIR CENTRO */}
       {mostrarModalNueva && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
           <div className="bg-white rounded-[2rem] p-8 max-w-md w-full shadow-2xl border relative">
@@ -565,7 +578,6 @@ export default function ConcejoTerritorialPage() {
                   <p className="font-mono text-sm font-black text-gray-800">{jefe?.codigo_situr || jefe?.situr}</p>
                 </div>
                 
-                {/* CÓDIGO CNE MANUAL / EDITABLE */}
                 <div className="bg-white p-2.5 rounded-xl border border-gray-300 focus-within:border-[#00529b]">
                   <label className="block text-[9px] font-bold text-gray-500 uppercase">CÓDIGO CNE</label>
                   <input 
@@ -601,7 +613,7 @@ export default function ConcejoTerritorialPage() {
                   <div className="absolute z-50 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-2xl overflow-hidden max-h-52 overflow-y-auto divide-y divide-gray-100">
                     {sugerenciasCentros.map((item, idx) => {
                       const nombreC = item['NOMBRE CENTRO'] || item.nombre_centro;
-                      const codC = item.COD_CENTRO || item.cod_centro;
+                      const codC = item.COD_CENTRO || item['COD CENTRO'] || item.cod_centro;
                       return (
                         <div 
                           key={idx}
@@ -630,7 +642,7 @@ export default function ConcejoTerritorialPage() {
                 />
               </div>
 
-              {/* NUEVO SELECTOR: CANTIDAD DE MESAS (1 AL 5) */}
+              {/* SELECTOR: CANTIDAD DE MESAS */}
               <div className="bg-blue-50/80 border border-blue-200 p-3.5 rounded-xl space-y-2">
                 <label className="block text-xs font-black text-[#00529b] uppercase flex items-center gap-1.5">
                   <Layers size={16} /> ¿Cuántas Mesas Electorales tiene este Centro?
