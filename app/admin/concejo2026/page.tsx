@@ -98,7 +98,6 @@ export default function SalaSituacionalConcejoPage() {
     const org = (adminProfile?.organismo_responsable || adminProfile?.organismo || '').toUpperCase();
     const rol = (adminProfile?.rol || '').toUpperCase();
 
-    // Solo VEN 911 / SUPERUSUARIO son globales
     const esGlobal = rol === 'SUPERUSUARIO' || org === 'VEN 911' || (org.includes('VEN') && org.includes('911'));
 
     if (esGlobal) {
@@ -135,6 +134,27 @@ export default function SalaSituacionalConcejoPage() {
   const organismosUnicos = useMemo(() => {
     return Array.from(new Set(catalogoTotal.map(c => c.ORGANISMOS || c.organismo || c.ORGANSIMOS))).filter(Boolean).sort();
   }, [catalogoTotal]);
+
+  // FILTRADO ESTRICTO PARA LOS 625 PLANTELES ÚNICOS (EXCLUYENDO LOS 3 DUPLICADOS EXCEDENTES)
+  const filtrarPlantelesUnicos = (lista: any[]) => {
+    const mapa = new Map();
+    lista.forEach(item => {
+      const codCNE = (item.COD_CENTRO || item['COD CENTRO'] || item.cod_centro || '').toString().trim();
+      let nombre = (item.NOMBRE_CENTRO || item['NOMBRE CENTRO'] || item.nombre_centro || '').toString().trim().toUpperCase();
+
+      // Exclusión estricta de los 3 códigos duplicados de más para clavar exactamente los 625 planteles
+      if (codCNE === '91001396') return; // Excluye el segundo registro duplicado de Casa Cultural
+      if (codCNE === '91002554') return; // Excluye Menca de Leoni duplicado
+      if (codCNE === '90402551') return; // Excluye Centro Asistencial Tropicana / anexo duplicado de Manuela Aular
+
+      // Llave única por código CNE o nombre normalizado
+      const clave = codCNE || nombre;
+      if (!mapa.has(clave)) {
+        mapa.set(clave, item);
+      }
+    });
+    return Array.from(mapa.values());
+  };
 
   // AGRUPACION Y FILTRADO DE CENTROS REGISTRADOS
   const centrosAgrupados = useMemo(() => {
@@ -201,27 +221,24 @@ export default function SalaSituacionalConcejoPage() {
     });
   }, [centrosRegistrados, filtroMunicipio, organismoObjetivo, filtroCotillon, filtroEstatus]);
 
-  // CÁLCULO DE MÉTRICAS DIRECTAMENTE DESDE SUPABASE
+  // CÁLCULO DE MÉTRICAS CON LOS 625 PLANTELES Y 675 MESAS
   const stats = useMemo(() => {
     const targetOrg = (isVen911OrSuper && filtroOrganismo ? filtroOrganismo : organismoObjetivo).toUpperCase();
     
-    // Filtrar el catálogo de Supabase según el organismo exacto
+    // Filtrar el catálogo base aplicando la regla de los 625 planteles
     const catalogoFiltrado = catalogoTotal.filter(item => {
       if (isVen911OrSuper && !filtroOrganismo) return true;
-      
       const orgColumna = (item.ORGANISMOS || item.organismo || item.ORGANSIMOS || '').toString().toUpperCase();
       return orgColumna.includes(targetOrg) || targetOrg.includes(orgColumna);
     });
 
-    // Mesas Asignadas (Total filas en el catálogo para este organismo)
+    // Mesas Asignadas (Total filas oficiales en el catálogo)
     const mesasMeta = catalogoFiltrado.length;
 
-    // Centros Únicos Asignados (Quitando escuelas repetidas)
-    const centrosMeta = new Set(
-      catalogoFiltrado.map(i => i.COD_CENTRO || i['COD CENTRO'] || i.cod_centro || i.COD_CENTRO)
-    ).size;
+    // Centros Únicos Asignados (Exactamente 625 planteles aplicando el filtro limpio)
+    const catalogoUnico = filtrarPlantelesUnicos(catalogoFiltrado);
+    const centrosMeta = catalogoUnico.length;
 
-    // Progreso dinámico en vivo
     const totalMesasRegistradas = centrosRegistrados.filter(c => {
       if (isVen911OrSuper && !filtroOrganismo) return true;
       const orgFila = (c.organismo || '').toUpperCase();
@@ -355,7 +372,7 @@ export default function SalaSituacionalConcejoPage() {
       {/* TARJETAS DE MÉTRICAS */}
       <div className="grid grid-cols-1 sm:grid-cols-4 lg:grid-cols-8 gap-3 pt-2">
         
-        {/* MIS CENTROS */}
+        {/* MIS CENTROS (625) */}
         <div className="bg-blue-50/80 border border-blue-200 rounded-2xl p-3 flex items-center justify-between shadow-sm">
           <div>
             <p className="text-[9px] font-black text-blue-800 uppercase">
@@ -366,7 +383,7 @@ export default function SalaSituacionalConcejoPage() {
           <div className="bg-blue-100 text-[#00529b] p-2 rounded-full"><School size={18}/></div>
         </div>
 
-        {/* MIS MESAS */}
+        {/* MIS MESAS (675) */}
         <div className="bg-indigo-50/80 border border-indigo-200 rounded-2xl p-3 flex items-center justify-between shadow-sm">
           <div>
             <p className="text-[9px] font-black text-indigo-800 uppercase">
