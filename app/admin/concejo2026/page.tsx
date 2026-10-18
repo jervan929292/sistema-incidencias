@@ -211,25 +211,27 @@ export default function SalaSituacionalConcejoPage() {
     });
   }, [centrosRegistrados, filtroMunicipio, organismoObjetivo, filtroCotillon, filtroEstatus]);
 
+  // CÁLCULO TOTALMENTE DINÁMICO Y FILTRADO DE MÉTRICAS
   const stats = useMemo(() => {
     const targetOrg = (isVen911OrSuper && filtroOrganismo ? filtroOrganismo : organismoObjetivo).toUpperCase();
     
+    // Filtrar catálogo oficial CNE por organismo Y por municipio
     const catalogoFiltrado = catalogoTotal.filter(item => {
-      if (isVen911OrSuper && !filtroOrganismo) return true;
-      const orgColumna = (item.ORGANISMOS || item.organismo || item.ORGANSIMOS || '').toString().toUpperCase();
-      return orgColumna.includes(targetOrg) || targetOrg.includes(orgColumna);
+      const matchOrg = (!targetOrg) || (item.ORGANISMOS || item.organismo || item.ORGANSIMOS || '').toString().toUpperCase().includes(targetOrg);
+      
+      let itemMuni = (item.MUNICIPIO || item.municipio || '').toString().trim().toUpperCase();
+      if (itemMuni && !itemMuni.startsWith('MP.')) itemMuni = `MP. ${itemMuni}`;
+      
+      const matchMuni = !filtroMunicipio || itemMuni === filtroMunicipio.toUpperCase();
+      return matchOrg && matchMuni;
     });
 
     const mesasMeta = catalogoFiltrado.length;
     const catalogoUnico = filtrarPlantelesUnicos(catalogoFiltrado);
     const centrosMeta = catalogoUnico.length;
 
-    const totalMesasRegistradas = centrosRegistrados.filter(c => {
-      if (isVen911OrSuper && !filtroOrganismo) return true;
-      const orgFila = (c.organismo || '').toUpperCase();
-      return orgFila.includes(targetOrg) || targetOrg.includes(orgFila);
-    }).length;
-
+    // Sumar el número real de mesas registradas respetando los filtros seleccionados
+    const totalMesasRegistradas = centrosAgrupados.reduce((acc, c) => acc + c.total_mesas, 0);
     const totalCentrosRegistrados = centrosAgrupados.length;
     const reportados = centrosAgrupados.filter(c => c.estatus === 'CERRADO').length;
     const cotillonSi = centrosAgrupados.filter(c => c.entrega_cotillon === 'SI').length;
@@ -246,9 +248,9 @@ export default function SalaSituacionalConcejoPage() {
       centrosMeta, 
       mesasMeta 
     };
-  }, [catalogoTotal, centrosRegistrados, centrosAgrupados, isVen911OrSuper, organismoObjetivo, filtroOrganismo]);
+  }, [catalogoTotal, centrosAgrupados, isVen911OrSuper, organismoObjetivo, filtroOrganismo, filtroMunicipio]);
 
-  // GENERAR PDF CON TARJETAS ESTADÍSTICAS SUPERIORES
+  // GENERAR PDF CON TARJETAS ESTADÍSTICAS DINÁMICAS
   const generarPDF = () => {
     if (centrosAgrupados.length === 0) {
       alert("No hay registros para exportar.");
@@ -266,7 +268,6 @@ export default function SalaSituacionalConcejoPage() {
     doc.setFont("helvetica", "normal");
     doc.text(`Organismo: ${organismoObjetivo || 'TODOS'} | Municipio: ${filtroMunicipio || 'TODOS'} | Generado: ${new Date().toLocaleString('es-VE')}`, 14, 21);
 
-    // TARJETAS SUPERIORES EN PDF
     const tarjetas = [
       { label: "CENTROS CNE", val: stats.centrosMeta, bg: [235, 245, 255], text: [0, 82, 155] },
       { label: "MESAS CNE", val: stats.mesasMeta, bg: [240, 240, 255], text: [79, 70, 229] },
