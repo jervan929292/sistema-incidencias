@@ -183,12 +183,17 @@ export default function ConcejoTerritorialPage() {
 
     setGuardandoId(escuela.id);
     try {
+      const horaAperturaFinal = escuela.nunca_apertura ? 'NUNCA' : (escuela.hora_apertura || 'NUNCA');
+      const horaCierreFinal = escuela.nunca_apertura ? 'NUNCA' : (escuela.hora_cierre || '');
+
       const payload = {
         responsable_cne: escuela.responsable_cne.trim().toUpperCase(),
         responsable_mesa: escuela.responsable_mesa.trim().toUpperCase(),
         entrega_cotillon: escuela.entrega_cotillon,
         motivo_no_cotillon: escuela.entrega_cotillon === 'NO' ? escuela.motivo_no_cotillon.trim().toUpperCase() : null,
         organismos_presentes: escuela.organismos_presentes,
+        hora_apertura: horaAperturaFinal,
+        hora_cierre: horaCierreFinal,
         minuta: escuela.minuta.trim(),
         estatus: 'CERRADO',
         updated_at: new Date().toISOString()
@@ -358,6 +363,7 @@ export default function ConcejoTerritorialPage() {
               const estaEditando = editandoId === esc.id;
               const isLocked = estaSincronizado && !estaEditando;
               const listaOrganismosSeleccionados: string[] = esc.organismos_presentes || [];
+              const nuncaAbrio = esc.nunca_apertura || esc.hora_apertura === 'NUNCA';
               
               return (
                 <div key={esc.id} className={`bg-white rounded-2xl border p-6 shadow-sm flex flex-col gap-6 relative overflow-hidden transition-all ${estaSincronizado ? 'border-emerald-200 bg-emerald-50/5' : 'border-gray-200'} ${estaEditando ? 'ring-2 ring-amber-300' : ''}`}>
@@ -417,6 +423,60 @@ export default function ConcejoTerritorialPage() {
                             value={esc.responsable_mesa || ''} 
                             onChange={e => handleInputChange(esc.id, 'responsable_mesa', e.target.value)} 
                           />
+                        </div>
+
+                        {/* SELECTORES DE HORA DE APERTURA Y CIERRE */}
+                        <div className="bg-blue-50/50 p-3.5 rounded-xl border border-blue-100 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <label className="text-[11px] font-black text-[#00529b] uppercase flex items-center gap-1">
+                              <Clock size={14} /> Control de Horarios (Apertura y Cierre)
+                            </label>
+                            <label className="flex items-center gap-1.5 cursor-pointer text-xs font-black text-red-600">
+                              <input 
+                                type="checkbox"
+                                disabled={isLocked}
+                                checked={!!nuncaAbrio}
+                                onChange={e => {
+                                  const checked = e.target.checked;
+                                  handleInputChange(esc.id, 'nunca_apertura', checked);
+                                  if (checked) {
+                                    handleInputChange(esc.id, 'hora_apertura', 'NUNCA');
+                                    handleInputChange(esc.id, 'hora_cierre', 'NUNCA');
+                                  } else {
+                                    handleInputChange(esc.id, 'hora_apertura', '');
+                                    handleInputChange(esc.id, 'hora_cierre', '');
+                                  }
+                                }}
+                                className="rounded text-red-600 focus:ring-red-500 w-4 h-4"
+                              />
+                              NUNCA APERTURADA
+                            </label>
+                          </div>
+
+                          {!nuncaAbrio && (
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <label className="block text-[9px] font-bold text-gray-500 uppercase mb-1">Hora de Apertura</label>
+                                <input 
+                                  type="time"
+                                  disabled={isLocked}
+                                  className="w-full p-2 border rounded-lg text-xs bg-white outline-none font-bold uppercase disabled:bg-gray-100"
+                                  value={esc.hora_apertura || ''}
+                                  onChange={e => handleInputChange(esc.id, 'hora_apertura', e.target.value)}
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[9px] font-bold text-gray-500 uppercase mb-1">Hora de Cierre</label>
+                                <input 
+                                  type="time"
+                                  disabled={isLocked}
+                                  className="w-full p-2 border rounded-lg text-xs bg-white outline-none font-bold uppercase disabled:bg-gray-100"
+                                  value={esc.hora_cierre || ''}
+                                  onChange={e => handleInputChange(esc.id, 'hora_cierre', e.target.value)}
+                                />
+                              </div>
+                            </div>
+                          )}
                         </div>
 
                         <div>
