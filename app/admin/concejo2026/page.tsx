@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
-import { BarChart3, Shield, MapPin, CheckCircle2, AlertTriangle, Eye, X, Download, FileSpreadsheet, UserCheck, ArrowLeft, Building, SearchCheck, FileText, Layers, School, Clock, XCircle } from 'lucide-react';
+import { BarChart3, Shield, MapPin, CheckCircle2, AlertTriangle, Eye, X, Download, FileSpreadsheet, UserCheck, ArrowLeft, Building, SearchCheck, FileText, Layers, School, Clock } from 'lucide-react';
 import Link from 'next/link';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -142,12 +142,10 @@ export default function SalaSituacionalConcejoPage() {
       const codCNE = (item.COD_CENTRO || item['COD CENTRO'] || item.cod_centro || '').toString().trim();
       let nombre = (item.NOMBRE_CENTRO || item['NOMBRE CENTRO'] || item.nombre_centro || '').toString().trim().toUpperCase();
 
-      // Exclusión estricta de los 3 códigos duplicados de más para clavar exactamente los 625 planteles
-      if (codCNE === '91001396') return; // Excluye el segundo registro duplicado de Casa Cultural
-      if (codCNE === '91002554') return; // Excluye Menca de Leoni duplicado
-      if (codCNE === '90402551') return; // Excluye Centro Asistencial Tropicana / anexo duplicado de Manuela Aular
+      if (codCNE === '91001396') return; 
+      if (codCNE === '91002554') return; 
+      if (codCNE === '90402551') return; 
 
-      // Llave única por código CNE o nombre normalizado
       const clave = codCNE || nombre;
       if (!mapa.has(clave)) {
         mapa.set(clave, item);
@@ -225,17 +223,13 @@ export default function SalaSituacionalConcejoPage() {
   const stats = useMemo(() => {
     const targetOrg = (isVen911OrSuper && filtroOrganismo ? filtroOrganismo : organismoObjetivo).toUpperCase();
     
-    // Filtrar el catálogo base aplicando la regla de los 625 planteles
     const catalogoFiltrado = catalogoTotal.filter(item => {
       if (isVen911OrSuper && !filtroOrganismo) return true;
       const orgColumna = (item.ORGANISMOS || item.organismo || item.ORGANSIMOS || '').toString().toUpperCase();
       return orgColumna.includes(targetOrg) || targetOrg.includes(orgColumna);
     });
 
-    // Mesas Asignadas (Total filas oficiales en el catálogo)
     const mesasMeta = catalogoFiltrado.length;
-
-    // Centros Únicos Asignados (Exactamente 625 planteles aplicando el filtro limpio)
     const catalogoUnico = filtrarPlantelesUnicos(catalogoFiltrado);
     const centrosMeta = catalogoUnico.length;
 
@@ -369,7 +363,7 @@ export default function SalaSituacionalConcejoPage() {
         </p>
       </div>
 
-      {/* TARJETAS DE MÉTRICAS */}
+      {/* TARJETAS DE MÉTRICAS (ESTADÍSTICAS) */}
       <div className="grid grid-cols-1 sm:grid-cols-4 lg:grid-cols-8 gap-3 pt-2">
         
         {/* MIS CENTROS (625) */}
@@ -599,7 +593,7 @@ export default function SalaSituacionalConcejoPage() {
                   <h3 className="text-[10px] font-black text-emerald-700 uppercase tracking-wider mb-2 flex items-center gap-1"><SearchCheck size={12}/> Desglose de Mesas y Minutas ({centroSeleccionado.total_mesas})</h3>
                   <div className="space-y-3 max-h-60 overflow-y-auto">
                     {centroSeleccionado.registros_hijos.map((mesa: any, idx: number) => {
-                      const nuncaAbrio = mesa.nunca_aperturada || mesa.apertura_hora === 'NUNCA' || mesa.estado_apertura === 'NUNCA APERTURADA';
+                      const nuncaAbrio = mesa.nunca_apertura || mesa.hora_apertura === 'NUNCA';
                       return (
                         <div key={idx} className="bg-white p-3 rounded-xl border border-emerald-200 text-xs space-y-1.5 shadow-sm">
                           <div className="flex justify-between items-center font-black text-[#00529b] border-b pb-1">
@@ -612,11 +606,11 @@ export default function SalaSituacionalConcejoPage() {
                           <div className="grid grid-cols-2 gap-2 text-[11px] pt-1">
                             <div className="flex items-center gap-1 text-gray-600">
                               <Clock size={12} className="text-blue-500 shrink-0" />
-                              <span><strong>Apertura:</strong> {nuncaAbrio ? <span className="text-red-600 font-black">NUNCA APERTURADA</span> : (mesa.hora_apertura || mesa.apertura_hora || 'No registrada')}</span>
+                              <span><strong>Apertura:</strong> {nuncaAbrio ? <span className="text-red-600 font-black">NUNCA APERTURADA</span> : (mesa.hora_apertura || 'No registrada')}</span>
                             </div>
                             <div className="flex items-center gap-1 text-gray-600">
                               <Clock size={12} className="text-emerald-500 shrink-0" />
-                              <span><strong>Cierre:</strong> {mesa.hora_cierre || mesa.cierre_hora || 'No registrada'}</span>
+                              <span><strong>Cierre:</strong> {nuncaAbrio ? <span className="text-red-600 font-black">-</span> : (mesa.hora_cierre || 'No registrada')}</span>
                             </div>
                           </div>
 
