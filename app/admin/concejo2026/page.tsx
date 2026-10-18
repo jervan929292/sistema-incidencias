@@ -26,7 +26,6 @@ export default function SalaSituacionalConcejoPage() {
       try {
         setLoading(true);
 
-        // 1. Obtener perfil logueado
         let correoLogueado = '';
         const sessionData = localStorage.getItem('user_session');
         if (sessionData) {
@@ -61,7 +60,6 @@ export default function SalaSituacionalConcejoPage() {
 
         if (mounted) setAdminProfile(perfilEncontrado);
 
-        // 2. Cargar registros en vivo realizados por funcionarios
         const { data: dataRegistrados } = await supabase
           .from('centros_registrados_organismos')
           .select('*')
@@ -70,7 +68,6 @@ export default function SalaSituacionalConcejoPage() {
 
         if (mounted) setCentrosRegistrados(dataRegistrados || []);
 
-        // 3. Cargar catálogo oficial de Supabase (centros_votacion_2026)
         const { data: dataCat } = await supabase
           .from('centros_votacion_2026')
           .select('*')
@@ -92,7 +89,6 @@ export default function SalaSituacionalConcejoPage() {
     };
   }, []);
 
-  // DETECCION ESTRICTA DE ROL Y ORGANISMO LOGUEADO
   const { isVen911OrSuper, organismoObjetivo } = useMemo(() => {
     const rawPerfil = JSON.stringify(adminProfile || {}).toUpperCase();
     const org = (adminProfile?.organismo_responsable || adminProfile?.organismo || '').toUpperCase();
@@ -135,16 +131,13 @@ export default function SalaSituacionalConcejoPage() {
     return Array.from(new Set(catalogoTotal.map(c => c.ORGANISMOS || c.organismo || c.ORGANSIMOS))).filter(Boolean).sort();
   }, [catalogoTotal]);
 
-  // FILTRADO ESTRICTO PARA LOS 625 PLANTELES ÚNICOS (EXCLUYENDO LOS 3 DUPLICADOS EXCEDENTES)
   const filtrarPlantelesUnicos = (lista: any[]) => {
     const mapa = new Map();
     lista.forEach(item => {
       const codCNE = (item.COD_CENTRO || item['COD CENTRO'] || item.cod_centro || '').toString().trim();
       let nombre = (item.NOMBRE_CENTRO || item['NOMBRE CENTRO'] || item.nombre_centro || '').toString().trim().toUpperCase();
 
-      if (codCNE === '91001396') return; 
-      if (codCNE === '91002554') return; 
-      if (codCNE === '90402551') return; 
+      if (codCNE === '91001396' || codCNE === '91002554' || codCNE === '90402551') return; 
 
       const clave = codCNE || nombre;
       if (!mapa.has(clave)) {
@@ -154,7 +147,6 @@ export default function SalaSituacionalConcejoPage() {
     return Array.from(mapa.values());
   };
 
-  // AGRUPACION Y FILTRADO DE CENTROS REGISTRADOS
   const centrosAgrupados = useMemo(() => {
     const mapaCentros: { [key: string]: any } = {};
 
@@ -219,7 +211,6 @@ export default function SalaSituacionalConcejoPage() {
     });
   }, [centrosRegistrados, filtroMunicipio, organismoObjetivo, filtroCotillon, filtroEstatus]);
 
-  // CÁLCULO DE MÉTRICAS CON LOS 625 PLANTELES Y 675 MESAS
   const stats = useMemo(() => {
     const targetOrg = (isVen911OrSuper && filtroOrganismo ? filtroOrganismo : organismoObjetivo).toUpperCase();
     
@@ -257,18 +248,59 @@ export default function SalaSituacionalConcejoPage() {
     };
   }, [catalogoTotal, centrosRegistrados, centrosAgrupados, isVen911OrSuper, organismoObjetivo, filtroOrganismo]);
 
+  // GENERAR PDF CON TARJETAS ESTADÍSTICAS SUPERIORES
   const generarPDF = () => {
     if (centrosAgrupados.length === 0) {
       alert("No hay registros para exportar.");
       return;
     }
     const doc = new jsPDF('landscape'); 
-    doc.setFontSize(16);
-    doc.text('Reporte Sala Situacional - Segunda Consulta Popular Nacional 2026', 14, 20);
-    doc.setFontSize(10);
-    doc.text(`Organismo: ${organismoObjetivo || 'TODOS'} | Municipio: ${filtroMunicipio || 'TODOS'}`, 14, 28);
+    
+    doc.setFontSize(14);
+    doc.setTextColor(0, 82, 155);
+    doc.setFont("helvetica", "bold");
+    doc.text('REPORTE SALA SITUACIONAL - SEGUNDA CONSULTA POPULAR NACIONAL 2026', 14, 15);
+    
+    doc.setFontSize(9);
+    doc.setTextColor(100);
+    doc.setFont("helvetica", "normal");
+    doc.text(`Organismo: ${organismoObjetivo || 'TODOS'} | Municipio: ${filtroMunicipio || 'TODOS'} | Generado: ${new Date().toLocaleString('es-VE')}`, 14, 21);
 
-    const tableColumn = ["Municipio", "Plantel / Escuela", "Total Mesas", "Organismo", "Cotillón", "Estatus"];
+    // TARJETAS SUPERIORES EN PDF
+    const tarjetas = [
+      { label: "CENTROS CNE", val: stats.centrosMeta, bg: [235, 245, 255], text: [0, 82, 155] },
+      { label: "MESAS CNE", val: stats.mesasMeta, bg: [240, 240, 255], text: [79, 70, 229] },
+      { label: "CENTROS REG.", val: stats.totalCentrosRegistrados, bg: [236, 253, 245], text: [4, 120, 87] },
+      { label: "MESAS REG.", val: stats.totalMesasRegistradas, bg: [243, 244, 246], text: [31, 41, 55] },
+      { label: "COMPLETADAS", val: stats.reportados, bg: [238, 242, 255], text: [79, 70, 229] },
+      { label: "COTILLÓN SÍ", val: stats.cotillonSi, bg: [236, 253, 245], text: [5, 150, 105] },
+      { label: "COTILLÓN NO", val: stats.cotillonNo, bg: [254, 242, 242], text: [220, 38, 38] },
+      { label: "PENDIENTES", val: stats.pendientes, bg: [254, 243, 199], text: [217, 119, 6] },
+    ];
+
+    let startX = 14;
+    const cardWidth = 32;
+    const cardHeight = 16;
+
+    tarjetas.forEach((t) => {
+      doc.setFillColor(t.bg[0], t.bg[1], t.bg[2]);
+      doc.roundedRect(startX, 25, cardWidth, cardHeight, 2, 2, 'F');
+      
+      doc.setDrawColor(220, 225, 230);
+      doc.roundedRect(startX, 25, cardWidth, cardHeight, 2, 2, 'S');
+
+      doc.setFontSize(6.5);
+      doc.setTextColor(100, 110, 120);
+      doc.text(t.label, startX + 3, 30);
+
+      doc.setFontSize(12);
+      doc.setTextColor(t.text[0], t.text[1], t.text[2]);
+      doc.text(String(t.val), startX + 3, 38);
+
+      startX += cardWidth + 2.5;
+    });
+
+    const tableColumn = ["Municipio", "Plantel / Escuela Electoral", "Total Mesas", "Organismo Responsable", "Cotillón", "Estatus"];
     const tableRows = centrosAgrupados.map(c => [
       c.municipio, 
       c.nombre_centro, 
@@ -281,10 +313,12 @@ export default function SalaSituacionalConcejoPage() {
     autoTable(doc, {
       head: [tableColumn],
       body: tableRows,
-      startY: 35,
-      styles: { fontSize: 8, cellPadding: 3 },
-      headStyles: { fillColor: [0, 82, 155] }
+      startY: 46,
+      styles: { fontSize: 8, cellPadding: 2.5 },
+      headStyles: { fillColor: [0, 82, 155], textColor: [255, 255, 255], fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [250, 250, 250] }
     });
+
     doc.save('Consulta_Popular_Sala_Situacional.pdf');
   };
 
@@ -295,6 +329,8 @@ export default function SalaSituacionalConcejoPage() {
     }
     const wsData = [
       ["REPORTE OFICIAL SALA SITUACIONAL - CONSULTA POPULAR 2026"],
+      ["RESUMEN DE ESTADÍSTICAS:"],
+      [`Centros CNE: ${stats.centrosMeta}`, `Mesas CNE: ${stats.mesasMeta}`, `Centros Reg: ${stats.totalCentrosRegistrados}`, `Mesas Reg: ${stats.totalMesasRegistradas}`, `Completadas: ${stats.reportados}`, `Cotillón SÍ: ${stats.cotillonSi}`, `Cotillón NO: ${stats.cotillonNo}`, `Pendientes: ${stats.pendientes}`],
       [],
       ["Municipio", "Nombre del Plantel", "Total Mesas", "Organismo", "Funcionario", "Entrega Cotillón", "Estatus"],
       ...centrosAgrupados.map(c => [
@@ -365,30 +401,22 @@ export default function SalaSituacionalConcejoPage() {
 
       {/* TARJETAS DE MÉTRICAS (ESTADÍSTICAS) */}
       <div className="grid grid-cols-1 sm:grid-cols-4 lg:grid-cols-8 gap-3 pt-2">
-        
-        {/* MIS CENTROS (625) */}
         <div className="bg-blue-50/80 border border-blue-200 rounded-2xl p-3 flex items-center justify-between shadow-sm">
           <div>
-            <p className="text-[9px] font-black text-blue-800 uppercase">
-              {isVen911OrSuper ? 'Centros CNE' : 'Mis Centros'}
-            </p>
+            <p className="text-[9px] font-black text-blue-800 uppercase">{isVen911OrSuper ? 'Centros CNE' : 'Mis Centros'}</p>
             <p className="text-2xl font-black text-[#00529b] mt-0.5">{stats.centrosMeta}</p>
           </div>
           <div className="bg-blue-100 text-[#00529b] p-2 rounded-full"><School size={18}/></div>
         </div>
 
-        {/* MIS MESAS (675) */}
         <div className="bg-indigo-50/80 border border-indigo-200 rounded-2xl p-3 flex items-center justify-between shadow-sm">
           <div>
-            <p className="text-[9px] font-black text-indigo-800 uppercase">
-              {isVen911OrSuper ? 'Mesas CNE' : 'Mis Mesas'}
-            </p>
+            <p className="text-[9px] font-black text-indigo-800 uppercase">{isVen911OrSuper ? 'Mesas CNE' : 'Mis Mesas'}</p>
             <p className="text-2xl font-black text-indigo-900 mt-0.5">{stats.mesasMeta}</p>
           </div>
           <div className="bg-indigo-100 text-indigo-700 p-2 rounded-full"><Layers size={18}/></div>
         </div>
 
-        {/* CENTROS REGISTRADOS */}
         <div className="bg-emerald-50/80 border border-emerald-200 rounded-2xl p-3 flex items-center justify-between shadow-sm">
           <div>
             <p className="text-[9px] font-black text-emerald-800 uppercase">Centros Reg.</p>
@@ -397,7 +425,6 @@ export default function SalaSituacionalConcejoPage() {
           <div className="bg-emerald-100 text-emerald-700 p-2 rounded-full"><School size={18}/></div>
         </div>
 
-        {/* MESAS REGISTRADAS */}
         <div className="bg-white border rounded-2xl p-3 flex items-center justify-between shadow-sm">
           <div>
             <p className="text-[9px] font-bold text-gray-400 uppercase">Mesas Reg.</p>
@@ -406,7 +433,6 @@ export default function SalaSituacionalConcejoPage() {
           <div className="bg-gray-100 text-gray-700 p-2 rounded-full"><MapPin size={18}/></div>
         </div>
 
-        {/* COMPLETADAS */}
         <div className="bg-white border rounded-2xl p-3 flex items-center justify-between shadow-sm">
           <div>
             <p className="text-[9px] font-bold text-gray-400 uppercase">Completadas</p>
@@ -415,7 +441,6 @@ export default function SalaSituacionalConcejoPage() {
           <div className="bg-indigo-50 text-indigo-600 p-2 rounded-full"><CheckCircle2 size={18}/></div>
         </div>
 
-        {/* COTILLÓN SÍ */}
         <div className="bg-white border rounded-2xl p-3 flex items-center justify-between shadow-sm">
           <div>
             <p className="text-[9px] font-bold text-gray-400 uppercase">Cotillón SÍ</p>
@@ -424,7 +449,6 @@ export default function SalaSituacionalConcejoPage() {
           <div className="bg-emerald-50 text-emerald-600 p-2 rounded-full"><CheckCircle2 size={18}/></div>
         </div>
 
-        {/* COTILLÓN NO */}
         <div className="bg-white border rounded-2xl p-3 flex items-center justify-between shadow-sm">
           <div>
             <p className="text-[9px] font-bold text-gray-400 uppercase">Cotillón NO</p>
@@ -433,7 +457,6 @@ export default function SalaSituacionalConcejoPage() {
           <div className="bg-red-50 text-red-600 p-2 rounded-full"><AlertTriangle size={18}/></div>
         </div>
 
-        {/* PENDIENTES */}
         <div className="bg-white border rounded-2xl p-3 flex items-center justify-between shadow-sm">
           <div>
             <p className="text-[9px] font-bold text-gray-400 uppercase">Pendientes</p>
