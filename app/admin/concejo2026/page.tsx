@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
-import { BarChart3, Shield, MapPin, CheckCircle2, AlertTriangle, Eye, X, Download, FileSpreadsheet, UserCheck, ArrowLeft, Building, SearchCheck, FileText, Layers, School } from 'lucide-react';
+import { BarChart3, Shield, MapPin, CheckCircle2, AlertTriangle, Eye, X, Download, FileSpreadsheet, UserCheck, ArrowLeft, Building, SearchCheck, FileText, Layers, School, Clock, XCircle } from 'lucide-react';
 import Link from 'next/link';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -598,20 +598,35 @@ export default function SalaSituacionalConcejoPage() {
                 <div className="bg-emerald-50/30 p-4 rounded-xl border border-emerald-100">
                   <h3 className="text-[10px] font-black text-emerald-700 uppercase tracking-wider mb-2 flex items-center gap-1"><SearchCheck size={12}/> Desglose de Mesas y Minutas ({centroSeleccionado.total_mesas})</h3>
                   <div className="space-y-3 max-h-60 overflow-y-auto">
-                    {centroSeleccionado.registros_hijos.map((mesa: any, idx: number) => (
-                      <div key={idx} className="bg-white p-3 rounded-xl border border-emerald-200 text-xs space-y-1 shadow-sm">
-                        <div className="flex justify-between items-center font-black text-[#00529b] border-b pb-1">
-                          <span>CNE: {mesa.cod_centro}</span>
-                          <span className={`px-2 py-0.5 rounded text-[9px] ${mesa.estatus === 'CERRADO' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-                            {mesa.estatus === 'CERRADO' ? 'COMPLETADO' : 'PENDIENTE'}
-                          </span>
+                    {centroSeleccionado.registros_hijos.map((mesa: any, idx: number) => {
+                      const nuncaAbrio = mesa.nunca_aperturada || mesa.apertura_hora === 'NUNCA' || mesa.estado_apertura === 'NUNCA APERTURADA';
+                      return (
+                        <div key={idx} className="bg-white p-3 rounded-xl border border-emerald-200 text-xs space-y-1.5 shadow-sm">
+                          <div className="flex justify-between items-center font-black text-[#00529b] border-b pb-1">
+                            <span>CNE: {mesa.cod_centro}</span>
+                            <span className={`px-2 py-0.5 rounded text-[9px] ${mesa.estatus === 'CERRADO' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                              {mesa.estatus === 'CERRADO' ? 'COMPLETADO' : 'PENDIENTE'}
+                            </span>
+                          </div>
+                          
+                          <div className="grid grid-cols-2 gap-2 text-[11px] pt-1">
+                            <div className="flex items-center gap-1 text-gray-600">
+                              <Clock size={12} className="text-blue-500 shrink-0" />
+                              <span><strong>Apertura:</strong> {nuncaAbrio ? <span className="text-red-600 font-black">NUNCA APERTURADA</span> : (mesa.hora_apertura || mesa.apertura_hora || 'No registrada')}</span>
+                            </div>
+                            <div className="flex items-center gap-1 text-gray-600">
+                              <Clock size={12} className="text-emerald-500 shrink-0" />
+                              <span><strong>Cierre:</strong> {mesa.hora_cierre || mesa.cierre_hora || 'No registrada'}</span>
+                            </div>
+                          </div>
+
+                          <p><strong>Resp. CNE:</strong> {mesa.responsable_cne || 'NO REGISTRADO'}</p>
+                          <p><strong>Resp. Mesa:</strong> {mesa.responsable_mesa || 'NO REGISTRADO'}</p>
+                          <p><strong>Cotillón:</strong> {mesa.entrega_cotillon}</p>
+                          {mesa.minuta && <p className="text-[11px] text-gray-600 bg-gray-50 p-2 rounded mt-1"><strong>Minuta:</strong> {mesa.minuta}</p>}
                         </div>
-                        <p><strong>Resp. CNE:</strong> {mesa.responsable_cne || 'NO REGISTRADO'}</p>
-                        <p><strong>Resp. Mesa:</strong> {mesa.responsable_mesa || 'NO REGISTRADO'}</p>
-                        <p><strong>Cotillón:</strong> {mesa.entrega_cotillon}</p>
-                        {mesa.minuta && <p className="text-[11px] text-gray-600 bg-gray-50 p-2 rounded mt-1"><strong>Minuta:</strong> {mesa.minuta}</p>}
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               </div>
