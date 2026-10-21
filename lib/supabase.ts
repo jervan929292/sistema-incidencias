@@ -18,7 +18,8 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   global: {
     headers: {
       'x-client-info': 'sistema-incidencias-ven911',
-      'localtonet-skip-warning': 'true',
+      // Agregamos esta cabecera para evitar que Localtonet responda con HTML de advertencia
+      'bypass-tunnel-reminder': 'true', 
     },
   },
 });
