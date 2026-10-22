@@ -10,8 +10,10 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   },
   global: {
     headers: {
-      'x-client-info': 'sistema-incidencias-ven911',
+      // ESTAS DOS CABECERAS DESTRUYEN LA PÁGINA INTERMEDIA DE LOCALTONET:
+      'localtonet-skip-warning': 'true',
       'bypass-tunnel-reminder': 'true',
+      'x-client-info': 'sistema-incidencias-ven911',
     },
   },
 });
