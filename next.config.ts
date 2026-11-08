@@ -11,14 +11,6 @@ const nextConfig: NextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
-  async rewrites() {
-    return [
-      {
-        source: '/api/supabase/:path*',
-        destination: 'https://14disun0wg.localto.net/:path*',
-      },
-    ];
-  },
 };
 
 export default nextConfig;
