@@ -1,3 +1,5 @@
+export const dynamic = 'force-static';
+
 import { NextRequest, NextResponse } from 'next/server';
 
 const TARGET_URL = 'https://14disun0wg.localto.net';
@@ -39,4 +41,3 @@ export async function POST(req: NextRequest) { return handleProxy(req); }
 export async function PUT(req: NextRequest) { return handleProxy(req); }
 export async function DELETE(req: NextRequest) { return handleProxy(req); }
 export async function PATCH(req: NextRequest) { return handleProxy(req); }
-                            
