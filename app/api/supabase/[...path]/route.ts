@@ -1,5 +1,9 @@
 export const dynamic = 'force-static';
 
+export function generateStaticParams() {
+  return [];
+}
+
 import { NextRequest, NextResponse } from 'next/server';
 
 const TARGET_URL = 'https://14disun0wg.localto.net';
