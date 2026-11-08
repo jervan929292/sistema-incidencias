@@ -1,3 +1,10 @@
 [build]
   command = "npm run build"
   publish = "out"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+    Access-Control-Allow-Methods = "GET, POST, PUT, DELETE, OPTIONS"
+    Access-Control-Allow-Headers = "X-Requested-With, content-type, authorization, localtonet-skip-warning, bypass-tunnel-reminder"
