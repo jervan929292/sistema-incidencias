@@ -10,7 +10,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   },
   global: {
     headers: {
-      'x-client-info': 'sistema-incidencias-ven911',
+      'x-client-info': 'sistema-cupaz-falcon',
     },
   },
 });
